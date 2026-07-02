@@ -49,7 +49,7 @@ public enum SwiftLanguage: LanguageModule {
 
     public static let languageServer: ServerSpec? = ServerSpec(
         command: "sourcekit-lsp",
-        languageIds: ["swift"],
+        languageIDs: ["swift"],
         installHint: "Install Xcode or Swift toolchain"
     )
 }

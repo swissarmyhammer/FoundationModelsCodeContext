@@ -15,7 +15,7 @@ public struct ServerSpec: Sendable, Equatable {
     public let args: [String]
 
     /// LSP `languageId` values this server handles (e.g. `["rust"]`).
-    public let languageIds: [String]
+    public let languageIDs: [String]
 
     /// How long to wait for the `initialize`/`initialized` handshake before
     /// treating startup as failed.
@@ -33,7 +33,7 @@ public struct ServerSpec: Sendable, Equatable {
     /// - Parameters:
     ///   - command: The executable to spawn, looked up on `$PATH`.
     ///   - args: Arguments passed to `command` on launch. Defaults to none.
-    ///   - languageIds: LSP `languageId` values this server handles.
+    ///   - languageIDs: LSP `languageId` values this server handles.
     ///   - startupTimeout: Handshake timeout. Defaults to 30 seconds, matching
     ///     every `builtin/lsp/*.yaml` spec's `startup_timeout_secs`.
     ///   - healthCheckInterval: Liveness check interval. Defaults to 60
@@ -43,14 +43,14 @@ public struct ServerSpec: Sendable, Equatable {
     public init(
         command: String,
         args: [String] = [],
-        languageIds: [String],
+        languageIDs: [String],
         startupTimeout: Duration = .seconds(30),
         healthCheckInterval: Duration = .seconds(60),
         installHint: String
     ) {
         self.command = command
         self.args = args
-        self.languageIds = languageIds
+        self.languageIDs = languageIDs
         self.startupTimeout = startupTimeout
         self.healthCheckInterval = healthCheckInterval
         self.installHint = installHint

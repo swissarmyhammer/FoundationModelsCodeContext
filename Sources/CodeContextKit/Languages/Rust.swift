@@ -49,7 +49,7 @@ public enum RustLanguage: LanguageModule {
 
     public static let languageServer: ServerSpec? = ServerSpec(
         command: "rust-analyzer",
-        languageIds: ["rust"],
+        languageIDs: ["rust"],
         installHint: "Install rust-analyzer: rustup component add rust-analyzer"
     )
 }

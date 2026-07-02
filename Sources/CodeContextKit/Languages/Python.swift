@@ -42,7 +42,7 @@ public enum PythonLanguage: LanguageModule {
 
     public static let languageServer: ServerSpec? = ServerSpec(
         command: "pylsp",
-        languageIds: ["python"],
+        languageIDs: ["python"],
         installHint: "Install python-lsp-server: pip install python-lsp-server"
     )
 }

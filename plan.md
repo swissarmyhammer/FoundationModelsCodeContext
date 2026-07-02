@@ -326,7 +326,7 @@ Direct port of `swissarmyhammer-lsp`, minus election. All mutex-guarded shared
 state becomes actors.
 
 - **`ServerSpec`**: the Rust YAML spec fields become a plain Swift value —
-  `command, args, languageIds, startupTimeout (30s), healthCheckInterval
+  `command, args, languageIDs, startupTimeout (30s), healthCheckInterval
   (60s), installHint` — declared by each `LanguageModule` (shared instances
   for multi-language servers like `typescript-language-server` and `clangd`).
   No standalone registry; the supervisor collects specs from `Languages.all`.

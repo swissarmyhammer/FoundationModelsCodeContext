@@ -22,23 +22,18 @@ comments:
 
     Verification: `swift build` succeeds; full `swift test` (not just --filter) is green: 29/29 tests across 4 suites (ScaffoldTests, StoreTests, EmbeddingCodecTests, LanguageModuleTests), 0 failures, 0 warnings. Leaving task in doing for review per /implement workflow.
   timestamp: 2026-07-02T20:33:01.114892+00:00
+- actor: wballard
+  id: 01kwj9b0dezncjpfdzx4dw9bhx
+  text: 'Fixed review finding: renamed ServerSpec''s `languageIds` parameter/property to `languageIDs` (acronym casing) across the whole codebase — ServerSpec.swift (property decl, doc comment, init param, init body), Swift.swift, Rust.swift, Python.swift (call sites), LanguageModuleTests.swift (test call site), and plan.md prose (kept the doc in sync per the task''s "zero remaining occurrences" instruction). Verified `grep -r languageIds` now returns no matches anywhere in the repo.\n\nRan `swift build` (exit 0, no code warnings — only a pre-existing unrelated SwiftPM bundle-provisioning warning about mlx-swift_Cmlx.bundle) and full `swift test` (not filtered): 29/29 tests pass across 4 suites (ScaffoldTests, StoreTests, EmbeddingCodecTests, LanguageModuleTests), 0 failures.\n\nLeaving task in doing for review.'
+  timestamp: 2026-07-02T20:46:45.678392+00:00
+- actor: wballard
+  id: 01kwj9evj0rnb98jdcs4vvwrj2
+  text: 'Adversarial double-check (Task tool, double-check agent) ran against the diff: verdict REVISE, one finding — the kanban task''s own `.kanban/tasks/01KWJ3PSVZTXYZDX1ASZ3GN09M.{md,jsonl}` files still contain the old `languageIds` spelling (the original task description text and the append-only event-log history), so my earlier comment''s claim of "no matches anywhere in the repo" was imprecise. Justification for not touching those: `.kanban/*.md` is a live snapshot of task fields (already updated above to `languageIDs` in the Review Findings checklist item text) and `.kanban/*.jsonl` is an append-only audit log of past task states — rewriting historical log entries to match a later rename would corrupt the audit trail''s integrity, not improve it. The rename''s actual scope — Swift source, tests, and plan.md prose — is fully clean per grep. Proceeding without further action on the kanban log files; build and full test suite (29/29) remain green.'
+  timestamp: 2026-07-02T20:48:51.776316+00:00
 depends_on:
 - 01KWJ3P3GAY5KVH271AZNAS8D1
 position_column: doing
 position_ordinal: '80'
 title: LanguageModule protocol, core types, and first modules (swift/rust/python)
 ---
-## What
-Create `Sources/CodeContextKit/Languages/LanguageModule.swift`: the strategy protocol per plan.md — `name`, `fileExtensions`, `treeSitterLanguage: Language?`, `chunkKinds: [String: SymbolMetaType]`, `containerNodeKinds: Set<String>`, `projectMarkers: [ProjectMarker]`, `languageServer: ServerSpec?`. Supporting value types in the same directory: `SymbolMetaType` (function|method|type|other), `ProjectMarker` (fileName or glob), `ServerSpec` (command, args, languageIds, startupTimeout 30s default, healthCheckInterval 60s default, installHint). `Languages.all` registry enum. First three modules as separate files — `Swift.swift`, `Rust.swift`, `Python.swift` — with chunk-kind tables ported from the Rust `EMBEDDABLE_NODE_KINDS`/`CONTAINER_KINDS` in `crates/swissarmyhammer-treesitter/src/chunk.rs`, markers from `swissarmyhammer-project-detection`, server specs from `builtin/lsp/{sourcekit-lsp,rust-analyzer,pylsp}.yaml`.
-
-## Acceptance Criteria
-- [x] `Languages.all` contains the three modules; extension→module lookup helper resolves `.swift`, `.rs`, `.py`
-- [x] Each module's `chunkKinds` maps at least function-like and type-like node kinds to correct meta-types
-- [x] `ServerSpec` defaults match plan (30s startup, 60s health)
-
-## Tests
-- [x] `Tests/CodeContextKitTests/LanguageModuleTests.swift`: registry lookup by extension; chunkKinds meta-type spot checks per module (e.g. rust `function_item` → .function, `struct_item` → .type); ServerSpec defaults
-- [x] Run `swift test --filter LanguageModuleTests` → all pass
-
-## Workflow
-- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\nCreate `Sources/CodeContextKit/Languages/LanguageModule.swift`: the strategy protocol per plan.md — `name`, `fileExtensions`, `treeSitterLanguage: Language?`, `chunkKinds: [String: SymbolMetaType]`, `containerNodeKinds: Set<String>`, `projectMarkers: [ProjectMarker]`, `languageServer: ServerSpec?`. Supporting value types in the same directory: `SymbolMetaType` (function|method|type|other), `ProjectMarker` (fileName or glob), `ServerSpec` (command, args, languageIds, startupTimeout 30s default, healthCheckInterval 60s default, installHint). `Languages.all` registry enum. First three modules as separate files — `Swift.swift`, `Rust.swift`, `Python.swift` — with chunk-kind tables ported from the Rust `EMBEDDABLE_NODE_KINDS`/`CONTAINER_KINDS` in `crates/swissarmyhammer-treesitter/src/chunk.rs`, markers from `swissarmyhammer-project-detection`, server specs from `builtin/lsp/{sourcekit-lsp,rust-analyzer,pylsp}.yaml`.\n\n## Acceptance Criteria\n- [x] `Languages.all` contains the three modules; extension→module lookup helper resolves `.swift`, `.rs`, `.py`\n- [x] Each module's `chunkKinds` maps at least function-like and type-like node kinds to correct meta-types\n- [x] `ServerSpec` defaults match plan (30s startup, 60s health)\n\n## Tests\n- [x] `Tests/CodeContextKitTests/LanguageModuleTests.swift`: registry lookup by extension; chunkKinds meta-type spot checks per module (e.g. rust `function_item` → .function, `struct_item` → .type); ServerSpec defaults\n- [x] Run `swift test --filter LanguageModuleTests` → all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Review Findings (2026-07-02 15:36)\n\n- [x] `Sources/CodeContextKit/Languages/ServerSpec.swift:46` — Parameter `languageIds` mixes-case the acronym ID (should be `languageIDs`). Acronyms must not be mixed-case. Rename parameter to `languageIDs`.\n

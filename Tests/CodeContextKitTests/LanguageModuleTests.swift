@@ -71,7 +71,7 @@ struct LanguageModuleTests {
 
     @Test
     func serverSpecDefaultsMatchPlan() {
-        let spec = ServerSpec(command: "rust-analyzer", languageIds: ["rust"], installHint: "install it")
+        let spec = ServerSpec(command: "rust-analyzer", languageIDs: ["rust"], installHint: "install it")
         #expect(spec.startupTimeout == .seconds(30))
         #expect(spec.healthCheckInterval == .seconds(60))
         #expect(spec.args.isEmpty)
