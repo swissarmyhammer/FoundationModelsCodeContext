@@ -26,7 +26,11 @@ comments:
 
     Leaving task in `doing` per /implement workflow — ready for /review.
   timestamp: 2026-07-02T19:38:36.475877+00:00
-position_column: doing
+- actor: wballard
+  id: 01kwj5t7b6rc646x79my4yhjcn
+  text: 'Implemented, tested, checkpointed (acb9fc8), and reviewed clean (0 findings). Moved doing → review → done. Notable: pinned SwiftTreeSitter to exact 0.25.0 (pre-1.0), tree-sitter-swift to 0.7.3-with-generated-files (only tag with committed parser.c/scanner.c), tree-sitter-python to exact 0.23.6 (0.24.0+ has a broken FileManager scanner-existence check that silently drops the external scanner). FoundationModelsRouter sibling dependency exists on disk and resolves fine.'
+  timestamp: 2026-07-02T19:45:09.990133+00:00
+position_column: done
 position_ordinal: '80'
 title: 'Package scaffold: Package.swift, deps, logging, errors'
 ---
