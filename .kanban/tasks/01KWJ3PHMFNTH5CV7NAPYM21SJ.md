@@ -33,10 +33,14 @@ comments:
 
     Both review-findings checklist items flipped to `- [x]`. Leaving task in `doing` per /implement workflow — not moving to review myself.
   timestamp: 2026-07-02T20:13:56.118200+00:00
+- actor: wballard
+  id: 01kwj7y28gax0zgyvxbaz4v3nh
+  text: Implemented GRDB store (Store.swift, Migrations.swift, EmbeddingCodec.swift), tested, checkpointed (63e08d5). Review found 2 gaps (missing drainEmbeddingDirty(), implicit access on IndexLayer.column); fixed in a second iteration, checkpointed (706c01e), re-reviewed clean. Moved doing → review → done.
+  timestamp: 2026-07-02T20:22:13.008344+00:00
 depends_on:
 - 01KWJ3P3GAY5KVH271AZNAS8D1
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8180'
 title: 'SQLite store: GRDB schema, migrations, dirty flags, embedding codec'
 ---
 ## What
