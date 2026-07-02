@@ -31,10 +31,28 @@ comments:
 
     Final verification: swift build -> exit 0, no warnings from new code; swift test (full suite) -> 62/62 pass across 5 suites (33 in RankerTests). Leaving task in doing for /review per the implement workflow.
   timestamp: 2026-07-02T21:56:08.618129+00:00
+- actor: wballard
+  id: 01kwje2egw7ancgqvzax5mt58t
+  text: |-
+    Resolved the 2026-07-02 16:58 review findings, pulled back from `review` into `doing`:
+
+    1. BM25.swift: replaced the force-unwrap `frequency[term]! += 1` (inside `for term in presentTerms where frequency[term] != nil`) with `frequency[term, default: 0] += 1` — same guard, same behavior, no `!`.
+    2. Tokenizer.swift: renamed `charTrigrams(_ s: String)` -> `charTrigrams(_ text: String)`, updating its doc comment and internal use.
+
+    Per the task's instruction to be exhaustive (sibling ^z3gn09m took 4 review rounds from non-exhaustive fixes), grepped the whole Sources/CodeContextKit/Search/ directory for other force-unwraps and single-letter params before stopping:
+    - Force unwraps: none remaining anywhere in the directory (only match pre-fix was the one above).
+    - Single-letter params: found a second, identical instance — Trigram.swift's `canonicalTrigramSet(_ s: String)` — renamed to `canonicalTrigramSet(_ text: String)` with doc comment and internal use updated too.
+    - RRF.swift's `k: Double` (in `fuse`/`normalize`) is the documented RRF-paper constant name mirroring the public `RRF.k` property, not an ambiguous abbreviation — left as-is, consistent with `BM25.k1`/`BM25.b` naming already established in this codebase.
+    - Hit.swift: no short/unclear parameter names.
+
+    Verification: `swift build` -> exit 0, no warnings. `swift test` -> 62/62 pass across 5 suites (33/33 in RankerTests). Adversarial double-check (per really-done) returned PASS with no findings, independently re-running build/test and re-grepping the directory itself.
+
+    Checked both review-finding checkboxes to `- [x]`. Leaving task in `doing` for `/review` per the implement workflow.
+  timestamp: 2026-07-02T22:09:28.092248+00:00
 depends_on:
 - 01KWJ3P3GAY5KVH271AZNAS8D1
 position_column: doing
 position_ordinal: '80'
 title: 'Search ranker primitives: BM25, trigram Dice, RRF fusion'
 ---
-## What\nPure-Swift port of `crates/swissarmyhammer-search` primitives into `Sources/CodeContextKit/Search/`: `Tokenizer.swift` (identifier-aware tokenization matching Rust `tokenize.rs`), `BM25.swift` (corpus with two weighted fields: symbol_path ×5, body ×1), `Trigram.swift` (character-trigram Dice coefficient), `RRF.swift` (Reciprocal Rank Fusion, K=60, per-signal weights, absent-signal tolerance, [0,1] normalization), `Hit.swift` (`Hit` with `Signals { bm25, trigram, cosine }`). No DB or embedder dependency — operates on in-memory documents.\n\n## Acceptance Criteria\n- [x] RRF: a doc ranked in two signals outranks a doc ranked in one; docs absent from a signal contribute nothing for it\n- [x] BM25 field weighting: symbol_path match outranks body-only match for the same term\n- [x] Golden tests ported from the Rust crate's cases produce the same orderings\n\n## Tests\n- [x] `Tests/CodeContextKitTests/RankerTests.swift`: golden ordering cases from `crates/swissarmyhammer-search/src/lib.rs` tests; RRF formula unit tests; trigram Dice known-value tests\n- [x] Run `swift test --filter RankerTests` → all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\nPure-Swift port of `crates/swissarmyhammer-search` primitives into `Sources/CodeContextKit/Search/`: `Tokenizer.swift` (identifier-aware tokenization matching Rust `tokenize.rs`), `BM25.swift` (corpus with two weighted fields: symbol_path ×5, body ×1), `Trigram.swift` (character-trigram Dice coefficient), `RRF.swift` (Reciprocal Rank Fusion, K=60, per-signal weights, absent-signal tolerance, [0,1] normalization), `Hit.swift` (`Hit` with `Signals { bm25, trigram, cosine }`). No DB or embedder dependency — operates on in-memory documents.\n\n## Acceptance Criteria\n- [x] RRF: a doc ranked in two signals outranks a doc ranked in one; docs absent from a signal contribute nothing for it\n- [x] BM25 field weighting: symbol_path match outranks body-only match for the same term\n- [x] Golden tests ported from the Rust crate's cases produce the same orderings\n\n## Tests\n- [x] `Tests/CodeContextKitTests/RankerTests.swift`: golden ordering cases from `crates/swissarmyhammer-search/src/lib.rs` tests; RRF formula unit tests; trigram Dice known-value tests\n- [x] Run `swift test --filter RankerTests` → all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Review Findings (2026-07-02 16:58)\n\n- [x] `Sources/CodeContextKit/Search/BM25.swift:59` — Force unwrap `frequency[term]! += 1` violates the rule against force unwrapping in non-test code. Although the `where frequency[term] != nil` guard makes it safe, the rule forbids force unwraps without exception. Use a guard-let pattern or restructure to avoid force unwrapping: `for term in presentTerms { if frequency[term] != nil { frequency[term] = (frequency[term] ?? 0) + 1 } }` or use `guard` to early-exit for the false case.\n- [x] `Sources/CodeContextKit/Search/Tokenizer.swift:49` — Parameter `s` is a single-letter abbreviation. Should be `text` to match the pattern used in the `tokenize(_:)` function and to follow the clarity-over-brevity principle. Rename parameter `s` to `text` (or `string`) to be consistent with other functions and maximize clarity.\n

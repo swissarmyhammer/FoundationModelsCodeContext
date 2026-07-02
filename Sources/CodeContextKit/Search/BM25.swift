@@ -57,7 +57,7 @@ public struct BM25Corpus: Sendable {
             count += 1
             totalLength += tokenCount
             for term in presentTerms where frequency[term] != nil {
-                frequency[term]! += 1
+                frequency[term, default: 0] += 1
             }
         }
         documentFrequency = frequency

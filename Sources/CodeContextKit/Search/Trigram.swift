@@ -33,7 +33,7 @@ public enum Trigram {
         return 2.0 * intersectionCount / Double(queryTrigrams.count + targetTrigrams.count)
     }
 
-    /// Canonicalize `s` (tokenize, re-join with spaces) and return its
+    /// Canonicalize `text` (tokenize, re-join with spaces) and return its
     /// trigram set.
     ///
     /// This is the single authority for "does this string have trigrams?":
@@ -42,11 +42,11 @@ public enum Trigram {
     /// — so a string with an empty canonical trigram set can never
     /// contribute a non-zero trigram score.
     ///
-    /// - Parameter s: the string to canonicalize and trigram.
+    /// - Parameter text: the string to canonicalize and trigram.
     /// - Returns: the deduplicated set of length-3 character windows of the
     ///   canonical form.
-    public static func canonicalTrigramSet(_ s: String) -> Set<String> {
-        let canonical = Tokenizer.tokenize(s).joined(separator: " ")
+    public static func canonicalTrigramSet(_ text: String) -> Set<String> {
+        let canonical = Tokenizer.tokenize(text).joined(separator: " ")
         return Set(Tokenizer.charTrigrams(canonical))
     }
 }

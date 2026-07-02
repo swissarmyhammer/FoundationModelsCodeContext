@@ -51,16 +51,16 @@ public enum Tokenizer {
         return tokens
     }
 
-    /// Return the sliding length-3 character windows of `s`, lowercased.
+    /// Return the sliding length-3 character windows of `text`, lowercased.
     ///
     /// Windows are taken over `Character` (extended grapheme clusters), so
     /// the result is Unicode-safe. Strings with fewer than 3 characters
     /// return an empty array.
     ///
-    /// - Parameter s: the string to window.
-    /// - Returns: each 3-character window of the lowercased `s`, in order.
-    public static func charTrigrams(_ s: String) -> [String] {
-        let characters = Array(s.lowercased())
+    /// - Parameter text: the string to window.
+    /// - Returns: each 3-character window of the lowercased `text`, in order.
+    public static func charTrigrams(_ text: String) -> [String] {
+        let characters = Array(text.lowercased())
         guard characters.count >= 3 else { return [] }
         return (0...(characters.count - 3)).map { start in
             String(characters[start...(start + 2)])
