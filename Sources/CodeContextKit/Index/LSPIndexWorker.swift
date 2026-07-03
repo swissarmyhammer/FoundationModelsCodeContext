@@ -231,6 +231,15 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// then persists everything atomically and marks the file
     /// `lsp_indexed = 1`.
     ///
+    /// `relativePath` is checked with `isSafeRelativePath(_:)` before it is
+    /// ever resolved against disk: a `..` component, or a leading `/` or
+    /// `~`, is rejected and the file is marked indexed with nothing
+    /// written, the same "unreadable, nothing to retry" outcome as below.
+    /// The walker/reconciler that populates `indexed_files.file_path`
+    /// should already only ever write workspace-relative paths, but this
+    /// layer doesn't trust data flowing back out of the store any more
+    /// than it trusts other store-sourced input elsewhere in this file.
+    ///
     /// A file that can't be read (missing, non-UTF-8) is marked indexed with
     /// nothing written — mirroring `TreeSitterWorker`'s handling of an
     /// unreadable file, there is nothing meaningful to retry. A `syncOpen`
@@ -257,6 +266,13 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         session: LspSession<Connection>,
         store: Store
     ) async -> Bool {
+        guard isSafeRelativePath(relativePath) else {
+            Log.lsp.warning(
+                "rejecting unsafe relative path \(relativePath, privacy: .public) for LSP indexing (possible path traversal); marking indexed"
+            )
+            return await markIndexedIgnoringErrors(relativePath: relativePath, store: store)
+        }
+
         guard let contents = readFileContents(relativePath: relativePath, rootDirectory: rootDirectory) else {
             Log.lsp.warning("failed to read \(relativePath, privacy: .public) for LSP indexing; marking indexed")
             return await markIndexedIgnoringErrors(relativePath: relativePath, store: store)
@@ -340,6 +356,28 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         }
     }
 
+    /// Returns whether `relativePath` is safe to resolve against
+    /// `rootDirectory` with `URL.appendingPathComponent(_:)`.
+    ///
+    /// Rejects an absolute path (leading `/`), a home-relative path
+    /// (leading `~`), and any path containing a `..` component — each of
+    /// which `appendingPathComponent` would otherwise happily resolve
+    /// outside `rootDirectory`. Defense-in-depth: `relativePath` is sourced
+    /// from `indexed_files.file_path`, and while the walker/reconciler that
+    /// populates that column should already only ever write
+    /// workspace-relative paths, this worker doesn't trust data flowing
+    /// back out of the store any more than it trusts other store-sourced
+    /// input elsewhere in this file.
+    /// - Parameter relativePath: The candidate workspace-relative path.
+    /// - Returns: `false` if resolving `relativePath` against
+    ///   `rootDirectory` could escape it; `true` otherwise.
+    private static func isSafeRelativePath(_ relativePath: String) -> Bool {
+        guard !relativePath.hasPrefix("/"), !relativePath.hasPrefix("~") else {
+            return false
+        }
+        return !relativePath.split(separator: "/").contains("..")
+    }
+
     /// Reads `relativePath`'s content from disk as UTF-8 text, or `nil` if
     /// it can't be read or decoded.
     /// - Parameters:
@@ -355,9 +393,10 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     }
 
     /// Marks `relativePath` `lsp_indexed = 1`, logging (rather than
-    /// propagating) any storage failure — used for the unreadable-file skip
-    /// path, where there is nothing left to retry even if the mark itself
-    /// fails.
+    /// propagating) any storage failure — used for both of `processFile`'s
+    /// permanent-skip paths (an unreadable file and an unsafe/traversal
+    /// relative path, per `isSafeRelativePath(_:)`), where there is nothing
+    /// left to retry even if the mark itself fails.
     /// - Parameters:
     ///   - relativePath: The file's workspace-relative path.
     ///   - store: The workspace's index store to write into.
@@ -368,7 +407,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             try await store.markIndexed(filePath: relativePath, layer: .lsp)
         } catch {
             Log.lsp.error(
-                "failed to mark \(relativePath, privacy: .public) lsp-indexed after an unreadable-file skip: \(error.localizedDescription, privacy: .public)"
+                "failed to mark \(relativePath, privacy: .public) lsp-indexed after a permanent-skip decision: \(error.localizedDescription, privacy: .public)"
             )
         }
         return true

@@ -383,6 +383,46 @@ struct LSPIndexWorkerTests {
         }
     }
 
+    // MARK: - Path-traversal rejection
+
+    @Test
+    func drainBatchRejectsAPathTraversalRelativePathWithoutTouchingTheConnection() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            // A real, readable file sitting just outside the workspace root —
+            // if `..` components in `file_path` were resolved instead of
+            // rejected, this file would actually be read and indexed,
+            // proving the traversal is live rather than coincidentally
+            // absent (an outright-missing target would hit the pre-existing
+            // "unreadable file" skip either way and wouldn't discriminate).
+            try write("func secret() {}\n", to: "../secret.swift", in: root)
+            // A `file_path` that escapes the workspace root should never be
+            // resolved against disk or handed to the language server, even
+            // though `dirtyFiles` will happily return whatever string is
+            // stored in `indexed_files.file_path`.
+            try await Self.seedDirty(store: store, filePath: "../secret.swift")
+
+            let connection = FakeLanguageServerConnection()
+            await connection.setDocumentSymbolsResult(
+                .success([Self.documentSymbol(name: "secret", kind: .function, startLine: 0, endLine: 0)])
+            )
+            let session = LspSession(connection: connection, languageID: "swift")
+
+            let indexedCount = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
+                store: store, rootDirectory: root, extensions: ["swift"], session: session
+            )
+
+            #expect(indexedCount == 1)
+            #expect(try await store.drainLspDirty().isEmpty)
+            let calls = await connection.calls
+            #expect(calls.isEmpty, "a path-traversal relative path must never reach the connection")
+            let symbolCount = try await store.read { db in
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lsp_symbols") ?? 0
+            }
+            #expect(symbolCount == 0, "the out-of-root file's symbols must never be persisted")
+        }
+    }
+
     // MARK: - Extension filtering
 
     @Test
