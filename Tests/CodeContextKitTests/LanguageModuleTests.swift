@@ -1,3 +1,4 @@
+import SwiftTreeSitter
 import Testing
 
 @testable import CodeContextKit
@@ -7,10 +8,36 @@ import Testing
 /// per-module chunk-kind/meta-type spot checks. See plan.md "Language
 /// modules (strategy pattern)".
 struct LanguageModuleTests {
+    /// Parses `source` with `language` and returns whether the resulting
+    /// tree's root node is error-free.
+    ///
+    /// A grammar "resolves and parses a snippet" (this task's acceptance
+    /// criteria) when `Parser.setLanguage` succeeds and the parsed root node
+    /// reports no syntax error — the standard smoke test for a newly wired
+    /// tree-sitter dependency.
+    ///
+    /// - Parameters:
+    ///   - source: The source snippet to parse.
+    ///   - language: The tree-sitter grammar to parse it with.
+    /// - Returns: `true` if parsing succeeded and the root node has no error.
+    private func parsesWithoutError(source: String, language: Language) throws -> Bool {
+        let parser = Parser()
+        try parser.setLanguage(language)
+        guard let tree = parser.parse(source), let root = tree.rootNode else {
+            return false
+        }
+        return !root.hasError
+    }
+
     @Test
-    func registryContainsAllThreeV1Modules() {
+    func registryContainsAllV1Modules() {
         let names = Set(Languages.all.map { $0.name })
-        #expect(names == ["swift", "rust", "python"])
+        #expect(
+            names == [
+                "swift", "rust", "python",
+                "typescript", "tsx", "javascript", "go",
+                "c", "cpp", "java", "csharp", "php",
+            ])
     }
 
     @Test
@@ -37,6 +64,19 @@ struct LanguageModuleTests {
     func moduleForFileExtensionMatchesCaseInsensitively() {
         #expect(Languages.module(forFileExtension: "SWIFT")?.name == "swift")
         #expect(Languages.module(forFileExtension: "Rs")?.name == "rust")
+    }
+
+    @Test
+    func moduleForFileExtensionResolvesEveryLspBackedV1Extension() {
+        #expect(Languages.module(forFileExtension: "ts")?.name == "typescript")
+        #expect(Languages.module(forFileExtension: "tsx")?.name == "tsx")
+        #expect(Languages.module(forFileExtension: "js")?.name == "javascript")
+        #expect(Languages.module(forFileExtension: "go")?.name == "go")
+        #expect(Languages.module(forFileExtension: "c")?.name == "c")
+        #expect(Languages.module(forFileExtension: "cpp")?.name == "cpp")
+        #expect(Languages.module(forFileExtension: "java")?.name == "java")
+        #expect(Languages.module(forFileExtension: "cs")?.name == "csharp")
+        #expect(Languages.module(forFileExtension: "php")?.name == "php")
     }
 
     @Test
@@ -70,6 +110,63 @@ struct LanguageModuleTests {
     }
 
     @Test
+    func typeScriptChunkKindsMapFunctionMethodAndTypeKinds() {
+        #expect(TypeScriptLanguage.chunkKinds["function_declaration"] == .function)
+        #expect(TypeScriptLanguage.chunkKinds["method_definition"] == .method)
+        #expect(TypeScriptLanguage.chunkKinds["class_declaration"] == .type)
+    }
+
+    @Test
+    func tsxChunkKindsMatchTypeScript() {
+        #expect(TSXLanguage.chunkKinds == TypeScriptLanguage.chunkKinds)
+    }
+
+    @Test
+    func javaScriptChunkKindsMatchTypeScript() {
+        #expect(JavaScriptLanguage.chunkKinds == TypeScriptLanguage.chunkKinds)
+    }
+
+    @Test
+    func goChunkKindsMapFunctionMethodAndTypeKinds() {
+        #expect(GoLanguage.chunkKinds["function_declaration"] == .function)
+        #expect(GoLanguage.chunkKinds["method_declaration"] == .method)
+        #expect(GoLanguage.chunkKinds["type_declaration"] == .type)
+    }
+
+    @Test
+    func cChunkKindsMapFunctionAndTypeKinds() {
+        #expect(CLanguage.chunkKinds["function_definition"] == .function)
+        #expect(CLanguage.chunkKinds["struct_specifier"] == .type)
+    }
+
+    @Test
+    func cppChunkKindsMapFunctionTypeAndNamespaceKinds() {
+        #expect(CPPLanguage.chunkKinds["function_definition"] == .function)
+        #expect(CPPLanguage.chunkKinds["class_specifier"] == .type)
+        // A namespace declares a scope, not a type.
+        #expect(CPPLanguage.chunkKinds["namespace_definition"] == .other)
+    }
+
+    @Test
+    func javaChunkKindsMapMethodDeclarationToMethod() {
+        #expect(JavaLanguage.chunkKinds["method_declaration"] == .method)
+        #expect(JavaLanguage.chunkKinds["class_declaration"] == .type)
+    }
+
+    @Test
+    func csharpChunkKindsMapClassDeclarationToType() {
+        #expect(CSharpLanguage.chunkKinds["class_declaration"] == .type)
+        #expect(CSharpLanguage.chunkKinds["method_declaration"] == .method)
+    }
+
+    @Test
+    func phpChunkKindsMapFunctionMethodAndTypeKinds() {
+        #expect(PHPLanguage.chunkKinds["function_definition"] == .function)
+        #expect(PHPLanguage.chunkKinds["method_declaration"] == .method)
+        #expect(PHPLanguage.chunkKinds["class_declaration"] == .type)
+    }
+
+    @Test
     func serverSpecDefaultsMatchPlan() {
         let spec = ServerSpec(command: "rust-analyzer", languageIDs: ["rust"], installHint: "install it")
         #expect(spec.startupTimeout == .seconds(30))
@@ -78,10 +175,45 @@ struct LanguageModuleTests {
     }
 
     @Test
+    func typeScriptTsxAndJavaScriptShareOneServerSpec() {
+        #expect(TypeScriptLanguage.languageServer == TSXLanguage.languageServer)
+        #expect(TypeScriptLanguage.languageServer == JavaScriptLanguage.languageServer)
+        #expect(TypeScriptLanguage.languageServer == SharedServerSpecs.typeScriptFamily)
+    }
+
+    @Test
+    func typeScriptFamilyDedupesToOneCommand() {
+        let typeScriptFamilyCommands: [String] = [
+            TypeScriptLanguage.languageServer?.command,
+            TSXLanguage.languageServer?.command,
+            JavaScriptLanguage.languageServer?.command,
+        ].compactMap { $0 }
+        let commands = Set(typeScriptFamilyCommands)
+        #expect(commands == ["typescript-language-server"])
+    }
+
+    @Test
+    func cAndCppShareOneServerSpec() {
+        #expect(CLanguage.languageServer == CPPLanguage.languageServer)
+        #expect(CLanguage.languageServer == SharedServerSpecs.clangd)
+    }
+
+    @Test
+    func cAndCppDedupeToOneCommand() {
+        let cFamilyCommands: [String] = [
+            CLanguage.languageServer?.command,
+            CPPLanguage.languageServer?.command,
+        ].compactMap { $0 }
+        let commands = Set(cFamilyCommands)
+        #expect(commands == ["clangd"])
+    }
+
+    @Test
     func projectMarkersUseFileNameAndGlobCases() {
         #expect(RustLanguage.projectMarkers.contains(.fileName("Cargo.toml")))
         #expect(SwiftLanguage.projectMarkers.contains(.glob("*.xcodeproj")))
         #expect(PythonLanguage.projectMarkers.contains(.fileName("pyproject.toml")))
+        #expect(CSharpLanguage.projectMarkers.contains(.glob("*.csproj")))
     }
 
     @Test
@@ -102,10 +234,64 @@ struct LanguageModuleTests {
 
     @Test
     func everyModuleDeclaresALanguageServer() {
-        // All three v1 modules (swift/rust/python) have an LSP server spec;
-        // tree-sitter-only modules (added later) would leave this nil.
+        // Every v1 module (three tree-sitter-only-at-first swift/rust/python
+        // plus the eight LSP-backed ones added here) has an LSP server spec.
         for module in Languages.all {
             #expect(module.languageServer != nil)
         }
+    }
+
+    @Test
+    func typeScriptGrammarParsesWithoutError() throws {
+        let language = try #require(TypeScriptLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "function greet(name: string): string { return name; }", language: language))
+    }
+
+    @Test
+    func tsxGrammarParsesWithoutError() throws {
+        let language = try #require(TSXLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "function Greet() { return <div>Hi</div>; }", language: language))
+    }
+
+    @Test
+    func javaScriptGrammarParsesWithoutError() throws {
+        let language = try #require(JavaScriptLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "function greet(name) { return name; }", language: language))
+    }
+
+    @Test
+    func goGrammarParsesWithoutError() throws {
+        let language = try #require(GoLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "package main\nfunc main() {}\n", language: language))
+    }
+
+    @Test
+    func cGrammarParsesWithoutError() throws {
+        let language = try #require(CLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "int add(int a, int b) { return a + b; }", language: language))
+    }
+
+    @Test
+    func cppGrammarParsesWithoutError() throws {
+        let language = try #require(CPPLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "class Foo { public: void bar() {} };", language: language))
+    }
+
+    @Test
+    func javaGrammarParsesWithoutError() throws {
+        let language = try #require(JavaLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "class Foo { void bar() {} }", language: language))
+    }
+
+    @Test
+    func csharpGrammarParsesWithoutError() throws {
+        let language = try #require(CSharpLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "class Foo { void Bar() {} }", language: language))
+    }
+
+    @Test
+    func phpGrammarParsesWithoutError() throws {
+        let language = try #require(PHPLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "<?php function greet($name) { return $name; } ?>", language: language))
     }
 }

@@ -34,10 +34,14 @@ comments:
 
     Left in `doing` per /implement workflow — ready for /review.
   timestamp: 2026-07-03T00:05:02.822723+00:00
+- actor: wballard
+  id: 01kwjnfmt267r3b42te2hpq34t
+  text: 'Implemented gitignore-aware Walker + Reconciler (hand-rolled gitignore matcher, no external dep), tested, checkpointed (1cbad99). 2 review/fix cycles: dedup findings (relative-path helper, test helper hoisting, missing case-insensitivity test), plus proactive dedup of a 3rd duplicate test-helper copy (1cbad99→2570566). Final review clean, moved doing → review → done.'
+  timestamp: 2026-07-03T00:19:00.546536+00:00
 depends_on:
 - 01KWJ3PHMFNTH5CV7NAPYM21SJ
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8580'
 title: 'Walker/reconciler: gitignore-aware walk, hashing, startup cleanup'
 ---
 ## What

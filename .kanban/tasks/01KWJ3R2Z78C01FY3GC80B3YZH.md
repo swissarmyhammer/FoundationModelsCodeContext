@@ -1,8 +1,28 @@
 ---
+comments:
+- actor: wballard
+  id: 01kwjqrgdd4natj8vtv9hfz385
+  text: |-
+    Implemented all 9 LSP-backed v1 language modules: TypeScript, TSX, JavaScript, Go, C, CPP, Java, CSharp, PHP under Sources/CodeContextKit/Languages/, following the Swift/Rust/Python pattern exactly. Registered in Languages.all (now 12 modules total).
+
+    Scope note applied per explicit instruction: did NOT create any wrapper GitHub repos. Instead researched grammar availability directly — turns out all 9 needed grammars already have working upstream SwiftPM support (all under github.com/tree-sitter/*), so every new module got a real non-nil treeSitterLanguage. No nil grammars ended up being needed; grammar availability table is effectively "9/9 resolved from upstream SPM". Added deps to Package.swift: tree-sitter-typescript (bundles both TypeScript and TSX as two targets under one "TreeSitterTypeScript" product — no separate TSX product exists upstream), tree-sitter-javascript, tree-sitter-go, tree-sitter-c, tree-sitter-cpp, tree-sitter-java, tree-sitter-c-sharp, tree-sitter-php.
+
+    Found and fixed one real build breakage: tree-sitter-javascript's `from:` pin floated to v0.25.0, which (like the already-documented tree-sitter-python issue in Package.swift) gates `src/scanner.c` behind a `FileManager.default.fileExists` check that resolves against the wrong working directory in a top-level SwiftPM build, dropping the external scanner and causing an undefined-symbol link error. Pinned `exact: "0.23.1"` instead, matching the same pattern/comment style as the existing Python pin.
+
+    Shared-instance de-duplication: SharedServerSpecs.swift (typeScriptFamily used by ts/tsx/js, clangd used by c/cpp), SharedChunkKinds.swift (identical js/ts/tsx chunk-kind + container tables), SharedProjectMarkers.swift (package.json marker for ts/tsx/js; CMakeLists.txt+Makefile markers for c/cpp) — added the latter two after the local review tool caught the duplication on first pass (two review/fix cycles).
+
+    Extended Tests/CodeContextKitTests/LanguageModuleTests.swift: extension resolution for all 8 new extensions (ts/tsx/js/go/c/cpp/java/cs/php), chunk-kind spot checks per module, shared-ServerSpec equality + dedupe-by-command assertions for both shared-spec families, and a parse-smoke test per new grammar (Parser().setLanguage + parse + assert !rootNode.hasError). 38 tests in LanguageModuleTests, 153/153 across the full suite pass, clean `swift build` from a fully wiped `.build`+`Package.resolved` with zero warnings in our own code (one pre-existing deprecation warning lives inside the sibling FoundationModelsRouter dependency).
+
+    Local review tool ran twice; two real duplication findings addressed (see SharedProjectMarkers above), two casing-nitpick findings refuted against established codebase precedent (LspSymbols/LspCallEdges/drainLspDirty already use "Lsp" not "lsp"; the original pre-existing test was already named registryContainsAllThreeV1Modules with capital V1), one false-positive "Set == Array literal doesn't compile" finding refuted by the fact it compiles and passes (Set's ExpressibleByArrayLiteral). Adversarial double-check agent dispatched for independent verification before handoff.
+  timestamp: 2026-07-03T00:58:48.109185+00:00
+- actor: wballard
+  id: 01kwjqyge7eaz6sg1n6jddhxth
+  text: 'Adversarial double-check agent returned REVISE: no findings on correctness/build/tests/duplication/naming/force-unwraps, but caught that the literal AC line "Grammar availability table documented" wasn''t satisfied — the grammar-sourcing rationale was only scattered prose per-module, not an actual table. Fixed: added a markdown grammar-availability table (language, upstream repo, SwiftPM support) to Languages.swift''s doc comment covering all 12 v1 modules (all show "yes" since none needed a nil/wrapper fallback), plus a closing note on how a future gap would be documented instead of worked around. Rebuilt and reran full suite after the doc-only change: swift build clean, 153/153 tests pass. Task is green and ready for /review.'
+  timestamp: 2026-07-03T01:02:04.743193+00:00
 depends_on:
 - 01KWJ3PSVZTXYZDX1ASZ3GN09M
-position_column: todo
-position_ordinal: '8680'
+position_column: doing
+position_ordinal: '80'
 title: LSP-backed v1 language modules (ts/tsx/js, go, c/cpp, java, c#, php)
 ---
 ## What
