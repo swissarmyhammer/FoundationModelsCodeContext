@@ -55,10 +55,14 @@ comments:
 
     Leaving task in doing for /review.
   timestamp: 2026-07-03T02:10:56.187870+00:00
+- actor: wballard
+  id: 01kwjwmptdwp0e07g2ak8vck7s
+  text: 'Implemented LanguageServerConnection protocol + ProcessLanguageServerConnection (Process/Pipe, id-matched pending-request table, 30s injectable-clock timeout) + FakeLanguageServerConnection, tested against a real scripted Swift subprocess, checkpointed (af77529). Caught and fixed a real 25%-reproducible flake in out-of-order response matching during implementation. 1 review/fix cycle: consolidated 5 duplicated method shapes into parameterized helpers (af77529→342cc74). Final review clean, moved doing → review → done. Note: test agent filed a follow-up coverage-gap task (01KWJW6NBMV98C8EK62VVYGN2X) — the refactored helper methods aren''t yet exercised against a real subprocess, only via FakeLanguageServerConnection.'
+  timestamp: 2026-07-03T02:24:06.477832+00:00
 depends_on:
 - 01KWJ3Q8MRHX6P9W2M9TW94VZ9
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8780'
 title: LanguageServerConnection protocol, process-backed impl, in-memory fake
 ---
 ## What
