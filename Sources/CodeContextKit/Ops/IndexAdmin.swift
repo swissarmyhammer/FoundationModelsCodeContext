@@ -83,10 +83,10 @@ public struct IndexStatus: Codable, Sendable, Equatable {
     public let lspIndexedPercent: Double
 
     /// The number of files with `embedded = 1`.
-    public let embeddedFiles: Int
+    public let embeddedIndexedFiles: Int
 
     /// The embedded percentage, `0.0` to `100.0`.
-    public let embeddedPercent: Double
+    public let embeddedIndexedPercent: Double
 
     /// Creates an index status report.
     ///
@@ -96,24 +96,24 @@ public struct IndexStatus: Codable, Sendable, Equatable {
     ///   - treeSitterIndexedPercent: The tree-sitter indexed percentage.
     ///   - lspIndexedFiles: The number of LSP-indexed files.
     ///   - lspIndexedPercent: The LSP indexed percentage.
-    ///   - embeddedFiles: The number of embedded files.
-    ///   - embeddedPercent: The embedded percentage.
+    ///   - embeddedIndexedFiles: The number of embedded files.
+    ///   - embeddedIndexedPercent: The embedded percentage.
     public init(
         totalFiles: Int,
         treeSitterIndexedFiles: Int,
         treeSitterIndexedPercent: Double,
         lspIndexedFiles: Int,
         lspIndexedPercent: Double,
-        embeddedFiles: Int,
-        embeddedPercent: Double
+        embeddedIndexedFiles: Int,
+        embeddedIndexedPercent: Double
     ) {
         self.totalFiles = totalFiles
         self.treeSitterIndexedFiles = treeSitterIndexedFiles
         self.treeSitterIndexedPercent = treeSitterIndexedPercent
         self.lspIndexedFiles = lspIndexedFiles
         self.lspIndexedPercent = lspIndexedPercent
-        self.embeddedFiles = embeddedFiles
-        self.embeddedPercent = embeddedPercent
+        self.embeddedIndexedFiles = embeddedIndexedFiles
+        self.embeddedIndexedPercent = embeddedIndexedPercent
     }
 }
 
@@ -158,7 +158,7 @@ public enum IndexAdmin {
             // this struct actually has fields for are computed.
             let treeSitterIndexedFiles = try countIndexed(db: db, layer: .treeSitter)
             let lspIndexedFiles = try countIndexed(db: db, layer: .lsp)
-            let embeddedFiles = try countIndexed(db: db, layer: .embedding)
+            let embeddedIndexedFiles = try countIndexed(db: db, layer: .embedding)
 
             return IndexStatus(
                 totalFiles: totalFiles,
@@ -166,8 +166,8 @@ public enum IndexAdmin {
                 treeSitterIndexedPercent: percent(numerator: treeSitterIndexedFiles, denominator: totalFiles),
                 lspIndexedFiles: lspIndexedFiles,
                 lspIndexedPercent: percent(numerator: lspIndexedFiles, denominator: totalFiles),
-                embeddedFiles: embeddedFiles,
-                embeddedPercent: percent(numerator: embeddedFiles, denominator: totalFiles)
+                embeddedIndexedFiles: embeddedIndexedFiles,
+                embeddedIndexedPercent: percent(numerator: embeddedIndexedFiles, denominator: totalFiles)
             )
         }
     }

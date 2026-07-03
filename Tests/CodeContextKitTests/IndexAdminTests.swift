@@ -21,8 +21,8 @@ struct IndexAdminTests {
             #expect(status.treeSitterIndexedPercent == 0.0)
             #expect(status.lspIndexedFiles == 0)
             #expect(status.lspIndexedPercent == 0.0)
-            #expect(status.embeddedFiles == 0)
-            #expect(status.embeddedPercent == 0.0)
+            #expect(status.embeddedIndexedFiles == 0)
+            #expect(status.embeddedIndexedPercent == 0.0)
         }
     }
 
