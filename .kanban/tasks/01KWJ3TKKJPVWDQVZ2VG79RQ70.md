@@ -19,10 +19,14 @@ comments:
 
     Verification: swift build clean; full `swift test` green (268 tests, 20 suites), including 3 stress-repeats each of ConnectionTests and LspDaemonTests to check the concurrency-sensitive paths. Leaving in doing for /review.
   timestamp: 2026-07-03T10:29:03.425709+00:00
+- actor: wballard
+  id: 01kwkwwe6fhwn91j8nd94r2222
+  text: 'Implemented LspDaemon actor (state machine notStarted→starting→running→failed→shuttingDown, PATH lookup, handshake timeout, backoff restart 1-60s capped, give-up-at-5, graceful shutdown), tested against FakeLanguageServerConnection+ManualClock, checkpointed (71389d8). Found and fixed 2 real pre-existing concurrency bugs in ProcessLanguageServerConnection during implementation/testing: FileHandle.availableData crash-on-concurrent-close, FileHandle.read(upToCount:) deadlock, and an EINTR-mishandled-as-EOF bug caught by stress testing — all replaced with correct raw POSIX read(2). Also fixed real test flakiness (subprocess-spawn contention) by serializing ConnectionTests. Stress-tested 20x full-suite + 15x filtered, no flakiness. Flagged a note for the future LspSupervisor task (^7rejsfy): session() must be re-fetched after each daemon restart since this port rebuilds a fresh LspSession per successful start() rather than Rust''s persistent-session-over-swappable-client design. Review clean on first pass despite large diff, moved doing → review → done.'
+  timestamp: 2026-07-03T11:47:34.223246+00:00
 depends_on:
 - 01KWJ3S972X06D1TKBDBCVB3SD
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: 8f80
 title: 'LspDaemon actor: state machine, handshake, health, backoff auto-restart'
 ---
 ## What
