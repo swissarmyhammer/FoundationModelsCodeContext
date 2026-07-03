@@ -23,9 +23,11 @@ func write(_ content: String, to relativePath: String, in root: URL) throws {
     try content.write(to: url, atomically: true, encoding: .utf8)
 }
 
-/// Inserts one `ts_chunks` row (creating its `indexed_files` parent row via
-/// `Store.markDirty` first, so the foreign key is satisfied) without going
-/// through `TreeSitterWorker`/`Chunker` — lets fixtures pick exact
+/// Inserts a test fixture chunk with precise control over symbol path, kind, and embedding values.
+///
+/// Creates the `indexed_files` parent row via `Store.markDirty` first, so
+/// the foreign key is satisfied, then inserts the `ts_chunks` row directly
+/// — bypassing `TreeSitterWorker`/`Chunker` so fixtures can pick exact
 /// `symbolPath`/`kind`/`text`/`embedding` values. Shared across the test
 /// target by any suite that needs precise control over chunk fixtures
 /// (`SearchCodeTests`, `FindDuplicatesTests`).
