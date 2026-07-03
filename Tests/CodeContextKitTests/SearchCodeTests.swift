@@ -4,37 +4,6 @@ import Testing
 
 @testable import CodeContextKit
 
-/// Inserts one `ts_chunks` row (creating its `indexed_files` parent row via
-/// `Store.markDirty` first, so the foreign key is satisfied) without going
-/// through `TreeSitterWorker`/`Chunker` — lets fixtures pick exact
-/// `symbolPath`/`text`/`embedding` values, which the golden-ordering and
-/// degraded-mode tests below need precise control over. Mirrors
-/// `StoreTests`' raw-SQL insert style.
-private func insertChunk(
-    store: Store,
-    filePath: String,
-    symbolPath: String,
-    text: String,
-    kind: SymbolMetaType = .function,
-    startLine: Int = 0,
-    endLine: Int = 1,
-    embedding: [Float]? = nil
-) async throws {
-    try await store.markDirty(filePath: filePath, contentHash: Data(filePath.utf8), fileSize: Int64(text.utf8.count))
-    try await store.write { db in
-        try db.execute(
-            sql: """
-            INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind, embedding)
-            VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            arguments: [
-                filePath, text.utf8.count, startLine, endLine, text, symbolPath, kind.rawValue,
-                embedding.map(EmbeddingCodec.encode),
-            ]
-        )
-    }
-}
-
 /// L2-normalizes `vector`, or returns it unchanged if its magnitude is `0`.
 private func normalized(_ vector: [Float]) -> [Float] {
     let magnitude = sqrt(vector.reduce(Float(0)) { $0 + $1 * $1 })
