@@ -446,6 +446,21 @@ struct Hover: Decodable {
     let contents: String
     let range: LSPRange?
 
+    /// Creates a hover result directly, bypassing the union-type wire decoding below.
+    ///
+    /// Used by `FakeLanguageServerConnection` to script typed `hover` results
+    /// without ever constructing JSON: a custom `init(from:)` below (needed to
+    /// decode the `MarkupContent | String | MarkedString[]` wire union)
+    /// suppresses the compiler-synthesized memberwise initializer, so this
+    /// one is provided explicitly.
+    /// - Parameters:
+    ///   - contents: The hover text, already flattened to a single string.
+    ///   - range: The span the hover applies to, if any.
+    init(contents: String, range: LSPRange?) {
+        self.contents = contents
+        self.range = range
+    }
+
     private enum CodingKeys: String, CodingKey {
         case contents
         case range
@@ -502,6 +517,21 @@ struct CallHierarchyOutgoingCall: Decodable {
 struct PrepareRenameResult: Decodable {
     let range: LSPRange?
     let placeholder: String?
+
+    /// Creates a prepare-rename result directly, bypassing the union-type wire decoding below.
+    ///
+    /// Used by `FakeLanguageServerConnection` to script typed `prepareRename`
+    /// results without ever constructing JSON: a custom `init(from:)` below
+    /// (needed to decode the `Range | { range, placeholder } | { defaultBehavior }
+    /// | null` wire union) suppresses the compiler-synthesized memberwise
+    /// initializer, so this one is provided explicitly.
+    /// - Parameters:
+    ///   - range: The renameable span, or `nil` if the position can't be renamed.
+    ///   - placeholder: The suggested placeholder text, if any.
+    init(range: LSPRange?, placeholder: String?) {
+        self.range = range
+        self.placeholder = placeholder
+    }
 
     private struct RangeWithPlaceholder: Decodable {
         let range: LSPRange

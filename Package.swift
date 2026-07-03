@@ -102,7 +102,11 @@ let package = Package(
         .testTarget(
             name: "\(packageName)Tests",
             dependencies: [.target(name: packageName)],
-            path: "Tests/\(packageName)Tests"
+            path: "Tests/\(packageName)Tests",
+            // `scripted-lsp-server.swift` is a standalone script launched via
+            // `/usr/bin/env swift <path>` as a scripted subprocess in
+            // ConnectionTests — not a source file of this test module.
+            exclude: ["Support/scripted-lsp-server.swift"]
         ),
     ]
 )

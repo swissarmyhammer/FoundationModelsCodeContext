@@ -19,10 +19,14 @@ comments:
   id: 01kwjqyge7eaz6sg1n6jddhxth
   text: 'Adversarial double-check agent returned REVISE: no findings on correctness/build/tests/duplication/naming/force-unwraps, but caught that the literal AC line "Grammar availability table documented" wasn''t satisfied — the grammar-sourcing rationale was only scattered prose per-module, not an actual table. Fixed: added a markdown grammar-availability table (language, upstream repo, SwiftPM support) to Languages.swift''s doc comment covering all 12 v1 modules (all show "yes" since none needed a nil/wrapper fallback), plus a closing note on how a future gap would be documented instead of worked around. Rebuilt and reran full suite after the doc-only change: swift build clean, 153/153 tests pass. Task is green and ready for /review.'
   timestamp: 2026-07-03T01:02:04.743193+00:00
+- actor: wballard
+  id: 01kwjrfzhawd9b586dtqmd5jgk
+  text: 'Implemented 9 LSP-backed language modules (TypeScript, TSX, JavaScript, Go, C, C++, Java, C#, PHP) plus shared dedupe helpers. Scope note: wrapper-repo creation was explicitly descoped by the user for this session; turned out unnecessary anyway — all 9 grammars had working upstream SPM support (tree-sitter/tree-sitter-*), documented as a table in Languages.swift. Tested, checkpointed (c16746b). Review clean on first pass, moved doing → review → done.'
+  timestamp: 2026-07-03T01:11:37.258749+00:00
 depends_on:
 - 01KWJ3PSVZTXYZDX1ASZ3GN09M
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8680'
 title: LSP-backed v1 language modules (ts/tsx/js, go, c/cpp, java, c#, php)
 ---
 ## What
