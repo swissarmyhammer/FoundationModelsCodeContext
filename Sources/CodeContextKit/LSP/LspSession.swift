@@ -180,6 +180,62 @@ actor LspSession<Connection: LanguageServerConnection> {
         diagnosticsCache.removeAll()
     }
 
+    /// Requests the symbols declared in a document, delegating directly to
+    /// `connection.documentSymbols(in:)`.
+    ///
+    /// - Parameter uri: The document to query; should already be synced via
+    ///   `syncOpen(uri:text:)` so the server sees its current content.
+    /// - Returns: The document's symbols.
+    /// - Throws: Whatever `connection.documentSymbols(in:)` throws.
+    func documentSymbols(uri: DocumentURI) async throws -> [DocumentSymbol] {
+        try await connection.documentSymbols(in: uri)
+    }
+
+    /// Requests the call-hierarchy item(s) rooted at a position, delegating
+    /// directly to `connection.prepareCallHierarchy(in:at:)`.
+    ///
+    /// - Parameters:
+    ///   - uri: The document containing the cursor position; should already
+    ///     be synced via `syncOpen(uri:text:)` so the server sees its
+    ///     current content.
+    ///   - position: The cursor position to query.
+    /// - Returns: Zero or more call-hierarchy items.
+    /// - Throws: Whatever `connection.prepareCallHierarchy(in:at:)` throws.
+    func prepareCallHierarchy(uri: DocumentURI, position: Position) async throws -> [CallHierarchyItem] {
+        try await connection.prepareCallHierarchy(in: uri, at: position)
+    }
+
+    /// Requests every call made *from* a call-hierarchy item, delegating
+    /// directly to `connection.outgoingCalls(of:)`.
+    ///
+    /// - Parameter item: The item previously returned by
+    ///   `prepareCallHierarchy(uri:position:)`.
+    /// - Returns: Zero or more outgoing calls.
+    /// - Throws: Whatever `connection.outgoingCalls(of:)` throws.
+    func outgoingCalls(item: CallHierarchyItem) async throws -> [CallHierarchyOutgoingCall] {
+        try await connection.outgoingCalls(of: item)
+    }
+
+    /// Notifies the server that a document was closed, then forgets it from
+    /// the open-document set.
+    ///
+    /// Unlike `resetDocuments()` — which forgets every document without
+    /// notifying a (presumed-gone) server — this notifies the still-live
+    /// server via `connection.didClose(uri:)` first, so a later
+    /// `syncOpen(uri:text:)` for the same uri is correctly treated as
+    /// never-opened (a fresh `didOpen`) rather than a stale duplicate. If
+    /// the notification fails, the open-document entry is left in place: the
+    /// server may still believe the document is open, so a later
+    /// `syncOpen(uri:text:)` correctly continues sending `didChange`.
+    /// - Parameter uri: The document to close.
+    /// - Throws: Whatever `connection.didClose(uri:)` throws; the
+    ///   open-document entry is only forgotten once the notification
+    ///   succeeds.
+    func didClose(uri: DocumentURI) async throws {
+        try await connection.didClose(uri: uri)
+        docs.removeValue(forKey: uri)
+    }
+
     /// The latest captured diagnostics for a document uri.
     /// - Parameter uri: The document to look up.
     /// - Returns: A snapshot of the cached diagnostics, or an empty array if

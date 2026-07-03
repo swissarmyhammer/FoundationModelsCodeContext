@@ -94,6 +94,24 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
         initializeResult = result
     }
 
+    /// Scripts the result `documentSymbols(in:)` returns (or throws) on its next call.
+    /// - Parameter result: The scripted outcome to install as `documentSymbolsResult`.
+    func setDocumentSymbolsResult(_ result: Result<[DocumentSymbol], Error>) {
+        documentSymbolsResult = result
+    }
+
+    /// Scripts the result `prepareCallHierarchy(in:at:)` returns (or throws) on its next call.
+    /// - Parameter result: The scripted outcome to install as `prepareCallHierarchyResult`.
+    func setPrepareCallHierarchyResult(_ result: Result<[CallHierarchyItem], Error>) {
+        prepareCallHierarchyResult = result
+    }
+
+    /// Scripts the result `outgoingCalls(of:)` returns (or throws) on its next call.
+    /// - Parameter result: The scripted outcome to install as `outgoingCallsResult`.
+    func setOutgoingCallsResult(_ result: Result<[CallHierarchyOutgoingCall], Error>) {
+        outgoingCallsResult = result
+    }
+
     /// Pushes a server-initiated notification onto `serverNotifications`, simulating an
     /// unsolicited message like `textDocument/publishDiagnostics`.
     /// - Parameter notification: The notification to emit.
