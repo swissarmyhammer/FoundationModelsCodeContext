@@ -20,6 +20,32 @@ comments:
 
     Left in `doing` for review per the implement skill.
   timestamp: 2026-07-03T09:19:43.218298+00:00
+- actor: wballard
+  id: 01kwknf4qr5mktvsk9exe1q050
+  text: |-
+    Resolved all three review findings:
+
+    1. Extracted duplicated parser-init/tree-parse logic (get language, create Parser, setLanguage with try/catch, parse) from Chunker.chunk and TSCallGraph.writeCallEdges into a new shared `Chunker.parseFile(contents:module:) -> (tree: MutableTree, root: Node)?` helper. Placed on Chunker (not a new file) to match this codebase's existing convention: Chunker.extractTextAndRange is already `internal` (not private) specifically because TSCallGraph/QueryAST reuse it, so parseFile follows the same "lives on the originating type, elevated from private, documented as shared" pattern. Note the suggested signature in the review said `(tree: Tree, root: Node)?`, but SwiftTreeSitter's `Parser.parse(_:)` actually returns `MutableTree?` (a distinct final class from `Tree`, not a subclass) — used `MutableTree` to match the real API; caught by the compiler immediately (cannot convert `(MutableTree, Node)` to `(Tree, Node)`).
+
+    2. Fixed the SQL LIKE pattern injection in `TSCallGraph.resolveCallees`: added a private `escapeLikePattern(_:)` helper that escapes `\`, `%`, and `_` (backslash first, to avoid double-escaping) and changed the suffix-match query to `LIKE ? ESCAPE '\'`. The exact-match arm (`symbol_path = ?`) is unaffected since it never used LIKE.
+
+    3. Exhaustively grepped the codebase for other unescaped LIKE pattern construction: only one `LIKE` usage exists anywhere in Sources/ (the one just fixed). SymbolOps.matchSuffix's suffix-matching tier uses Swift's `String.hasSuffix` (in-memory comparison), not SQL LIKE, so it was never exposed to this vulnerability class. GrepCode.swift's "glob" references are POSIX `fnmatch` file-path globs, unrelated to SQL. Store.swift has no LIKE usage. Confirmed via `grep -rn "LIKE|GLOB" Sources/` and manual review of SymbolOps.swift/GrepCode.swift/Store.swift.
+
+    Added two regression tests to TSCallGraphTests.swift: `underscoreInCalleeNameIsNotTreatedAsSQLWildcard` (a Rust method call `widget.do_Work()` must NOT resolve to a chunk named `doAWork` via `_` matching any single character) and `underscoreInCalleeNameStillMatchesLiteralUnderscoreSymbol` (the same call must still resolve correctly when a chunk literally named `do_Work` exists — proving the ESCAPE clause doesn't break legitimate underscore-containing identifiers). Verified RED/GREEN by temporarily reverting the escaping fix: `underscoreInCalleeNameIsNotTreatedAsSQLWildcard` failed exactly as predicted (resolved to `doAWork`), confirming the test is meaningful; restored the fix and it passes.
+
+    Note on `%`: no supported language (Swift/Rust/Python/JS/TS/Go/C/C++/Java/C#/PHP) permits a bare `%` character in identifier syntax, so a call site's extracted `calleeName` can never contain a literal `%` through any realistic, syntactically-valid call expression — the only way to get `%` into calleeName-derived text would involve a string-literal-callee fallback that also carries quote characters that could never match a real (quote-free) `ts_chunks.symbol_path`, so no realistic false-positive fixture exists for `%` specifically. `escapeLikePattern` treats `%` and `_` identically (same sequential-replace mechanism), so the `_` regression tests exercise the shared code path.
+
+    Full `swift build`: clean, no warnings/errors. Full `swift test`: 252/252 passing (250 pre-existing + 2 new), 19 suites, no regressions.
+
+    Left in `doing` for review.
+  timestamp: 2026-07-03T09:37:58.520207+00:00
+- actor: wballard
+  id: 01kwknmekxw1chfqnjvcykjvgd
+  text: |-
+    really-done verification: fresh `swift build` (exit 0, clean) and fresh `swift test` (252/252 passing, 19 suites) run in this session. Adversarial double-check agent independently re-ran build/test, traced the parseFile extraction's failure-path equivalence, hand-verified the escapeLikePattern backslash-first ordering against several inputs (a\_b, a%\b, \%), confirmed ESCAPE '\\' compiles to valid SQLite syntax `ESCAPE '\'`, re-confirmed the single-LIKE-site grep claim, and traced the regression tests' wildcard mechanics manually. Verdict: PASS, no findings.
+
+    Task remains in `doing`, ready for /review.
+  timestamp: 2026-07-03T09:40:52.477649+00:00
 depends_on:
 - 01KWJ3S2AJFZPWWXRTKSQC3TW7
 position_column: doing
@@ -30,13 +56,19 @@ title: Tree-sitter call-edge heuristic
 Create `Sources/CodeContextKit/TreeSitter/TSCallGraph.swift` — port of `crates/swissarmyhammer-code-context/src/ts_callgraph.rs`. Walk parsed ASTs for call-expression node kinds (`call_expression`, `method_call_expression`, `call`, …), extract callee names via function/method field lookup (after-last-dot for member access), resolve against `ts_chunks.symbol_path` suffix matching, write `lsp_call_edges` rows with `source = 'treesitter'`. Wire into the tree-sitter worker so edges are produced in the same drain pass as chunks.
 
 ## Acceptance Criteria
-- [ ] A swift fixture where `caller()` invokes `Helper.doWork()` yields an edge caller→Helper.doWork with source 'treesitter'
-- [ ] Unresolvable callees (no matching symbol_path) produce no edge and no error
-- [ ] Edges are replaced, not duplicated, when a file is re-indexed
+- [x] A swift fixture where `caller()` invokes `Helper.doWork()` yields an edge caller→Helper.doWork with source 'treesitter'
+- [x] Unresolvable callees (no matching symbol_path) produce no edge and no error
+- [x] Edges are replaced, not duplicated, when a file is re-indexed
 
 ## Tests
-- [ ] `Tests/CodeContextKitTests/TSCallGraphTests.swift`: edge extraction goldens for swift + rust fixtures; re-index idempotency; unresolved-callee case
-- [ ] Run `swift test --filter TSCallGraphTests` → all pass
+- [x] `Tests/CodeContextKitTests/TSCallGraphTests.swift`: edge extraction goldens for swift + rust fixtures; re-index idempotency; unresolved-callee case
+- [x] Run `swift test --filter TSCallGraphTests` → all pass
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
+
+## Review Findings (2026-07-03 04:23)
+
+- [x] `Sources/CodeContextKit/TreeSitter/Chunker.swift:60` — The parser initialization and tree-parsing logic (lines 60–71) is verbatim-duplicated in TSCallGraph.writeCallEdges — both get the language, create a parser, set the language with identical error handling, and parse the file. Two nearly-identical blocks that differ only in their return type should be extracted into one shared helper function, so fixes to parsing logic land in both places at once. Extract a helper function (e.g., `func parseFile(contents: String, module: any LanguageModule.Type) -> (tree: Tree, root: Node)?`) that returns the parsed tree and root node, or `nil` on any failure. Call this from both `Chunker.chunk` and `TSCallGraph.writeCallEdges`, eliminating the duplicate parser-setup logic.
+- [x] `Sources/CodeContextKit/TreeSitter/TSCallGraph.swift:31` — The parser initialization and tree-parsing logic (lines 31–42) is verbatim-duplicated from Chunker.chunk — the same sequence of getting the language, creating a parser, setting it with error handling, and parsing. Extracting this into a shared helper avoids divergence if parsing behavior ever needs to change. Extract a helper function (e.g., `func parseFile(contents: String, module: any LanguageModule.Type) -> (tree: Tree, root: Node)?`) that encapsulates the parser setup and parsing. Both `Chunker.chunk` and `TSCallGraph.writeCallEdges` should call this helper instead of duplicating the logic.
+- [x] `Sources/CodeContextKit/TreeSitter/TSCallGraph.swift:172` — SQL LIKE pattern injection: `calleeName` is unvalidated input from parsed source code used to construct a LIKE pattern without escaping SQL wildcards. If `calleeName` contains `%` or `_` characters, they would be interpreted as wildcard operators rather than literal characters, causing incorrect symbol resolution. Escape LIKE pattern special characters in `calleeName` before constructing the pattern. Use: `let escapedCalleeName = calleeName.replacingOccurrences(of: "_", with: "\\_").replacingOccurrences(of: "%", with: "\\%")` and then update the SQL to use `LIKE ? ESCAPE '\' ` instead of `LIKE ?`.

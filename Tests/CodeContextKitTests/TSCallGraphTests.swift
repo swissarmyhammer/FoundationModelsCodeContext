@@ -195,6 +195,76 @@ struct TSCallGraphTests {
     }
 
     @Test
+    func underscoreInCalleeNameIsNotTreatedAsSQLWildcard() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            // "Widget.doAWork" is one character away from "Widget.do_Work"
+            // at the position the callee's "_" occupies. Before the
+            // LIKE-escaping fix, TSCallGraph.resolveCallees built its
+            // suffix-match pattern from "do_Work" unescaped, so SQLite
+            // treated "_" as a single-character wildcard and this call
+            // site incorrectly resolved to "doAWork" (the "_" matching
+            // "A"). With "_" escaped, the pattern requires a literal "_"
+            // at that position, which "doAWork" doesn't have, so the call
+            // site should resolve to nothing.
+            try write(
+                """
+                struct Widget;
+
+                impl Widget {
+                    fn doAWork(&self) {}
+                }
+
+                fn caller(widget: &Widget) {
+                    widget.do_Work();
+                }
+                """,
+                to: "sample.rs",
+                in: root
+            )
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            try await TreeSitterWorker.run(store: store, rootDirectory: root)
+
+            let edges = try await readEdges(store: store)
+            #expect(edges.isEmpty)
+        }
+    }
+
+    @Test
+    func underscoreInCalleeNameStillMatchesLiteralUnderscoreSymbol() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            // The inverse of
+            // `underscoreInCalleeNameIsNotTreatedAsSQLWildcard`: escaping
+            // "_" in the LIKE pattern must not stop a callee name that
+            // genuinely contains "_" from matching a symbol whose name
+            // also genuinely contains "_" at that same position.
+            try write(
+                """
+                struct Widget;
+
+                impl Widget {
+                    fn do_Work(&self) {}
+                }
+
+                fn caller(widget: &Widget) {
+                    widget.do_Work();
+                }
+                """,
+                to: "sample.rs",
+                in: root
+            )
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            try await TreeSitterWorker.run(store: store, rootDirectory: root)
+
+            let edges = try await readEdges(store: store)
+            #expect(edges == [EdgeRow(callerSymbolPath: "caller", calleeSymbolPath: "do_Work", source: "treesitter")])
+        }
+    }
+
+    @Test
     func reindexingReplacesEdgesRatherThanDuplicatingThem() async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)

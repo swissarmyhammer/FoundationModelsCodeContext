@@ -148,24 +148,50 @@ public enum Chunker {
     /// - Returns: One chunk per matched definition node, in AST traversal
     ///   order.
     public static func chunk(file: SourceFile, module: any LanguageModule.Type) -> [SemanticChunk] {
-        guard let language = module.treeSitterLanguage else {
-            return []
-        }
-
-        let parser = Parser()
-        do {
-            try parser.setLanguage(language)
-        } catch {
-            return []
-        }
-
-        guard let tree = parser.parse(file.contents), let root = tree.rootNode else {
+        guard let (_, root) = parseFile(contents: file.contents, module: module) else {
             return []
         }
 
         var chunks: [SemanticChunk] = []
         collectChunks(node: root, file: file, module: module, into: &chunks)
         return chunks
+    }
+
+    /// Parses `contents` with `module`'s tree-sitter grammar.
+    ///
+    /// Shared by `chunk(file:module:)` and
+    /// `TSCallGraph.writeCallEdges(db:file:module:)`, which both need a
+    /// parsed tree and its root node before walking it for their own node
+    /// kinds — the parser-setup and parse-failure handling used to be
+    /// duplicated verbatim between the two; it now lives here once so a
+    /// fix to parsing behavior lands in both places at once.
+    ///
+    /// Not `private`: `TSCallGraph` calls through to this same helper
+    /// rather than reimplementing parser setup.
+    ///
+    /// - Parameters:
+    ///   - contents: The source text to parse.
+    ///   - module: The language module supplying the grammar.
+    /// - Returns: The parsed tree and its root node, or `nil` if `module`
+    ///   has no `treeSitterLanguage`, the parser fails to accept the
+    ///   grammar, or parsing fails to produce a tree with a root node.
+    static func parseFile(contents: String, module: any LanguageModule.Type) -> (tree: MutableTree, root: Node)? {
+        guard let language = module.treeSitterLanguage else {
+            return nil
+        }
+
+        let parser = Parser()
+        do {
+            try parser.setLanguage(language)
+        } catch {
+            return nil
+        }
+
+        guard let tree = parser.parse(contents), let root = tree.rootNode else {
+            return nil
+        }
+
+        return (tree, root)
     }
 
     /// Recurses `node` and its descendants, appending a `SemanticChunk` for

@@ -148,18 +148,7 @@ enum TSCallGraph {
             arguments: [file.relativePath, source]
         )
 
-        guard let language = module.treeSitterLanguage else {
-            return
-        }
-
-        let parser = Parser()
-        do {
-            try parser.setLanguage(language)
-        } catch {
-            return
-        }
-
-        guard let tree = parser.parse(file.contents), let root = tree.rootNode else {
+        guard let (_, root) = Chunker.parseFile(contents: file.contents, module: module) else {
             return
         }
 
@@ -255,6 +244,26 @@ enum TSCallGraph {
 
     // MARK: - Callee resolution
 
+    /// Escapes SQL `LIKE` pattern metacharacters (`%`, `_`) and the escape
+    /// character itself (`\`) in `text`, so a literal occurrence of any of
+    /// them in a caller-derived value — like a callee name lifted straight
+    /// from parsed source code — is matched literally rather than
+    /// interpreted as a wildcard when embedded in a `LIKE ? ESCAPE '\'`
+    /// pattern.
+    ///
+    /// The escape character must be escaped first: escaping it after `%`/`_`
+    /// would double-escape the backslashes those replacements just inserted,
+    /// corrupting the pattern instead of protecting it.
+    ///
+    /// - Parameter text: The text to escape.
+    /// - Returns: `text` with `\`, `%`, and `_` each prefixed by `\`.
+    private static func escapeLikePattern(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+    }
+
     /// Looks up `ts_chunks` rows whose `symbol_path` matches any of
     /// `calleeNames`, either exactly or as a
     /// `Chunker.symbolPathSeparator`-qualified suffix.
@@ -277,14 +286,14 @@ enum TSCallGraph {
 
         var resolved: [ResolvedCallee] = []
         for calleeName in calleeNames {
-            let suffixPattern = "%\(Chunker.symbolPathSeparator)\(calleeName)"
+            let suffixPattern = "%\(Chunker.symbolPathSeparator)\(escapeLikePattern(calleeName))"
             let rows = try Row.fetchAll(
                 db,
                 sql: """
                 SELECT DISTINCT \(Schema.TsChunks.filePath), \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind), \
                        \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine) \
                 FROM \(Schema.TsChunks.table) \
-                WHERE \(Schema.TsChunks.symbolPath) = ? OR \(Schema.TsChunks.symbolPath) LIKE ?
+                WHERE \(Schema.TsChunks.symbolPath) = ? OR \(Schema.TsChunks.symbolPath) LIKE ? ESCAPE '\\'
                 """,
                 arguments: [calleeName, suffixPattern]
             )
