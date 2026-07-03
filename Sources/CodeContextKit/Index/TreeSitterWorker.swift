@@ -6,15 +6,21 @@ import GRDB
 ///
 /// Port of the tree-sitter portion of the Rust
 /// `index_discovered_files_with_embedder`
-/// (`swissarmyhammer-tools/src/mcp/tools/code_context/mod.rs`), scoped to
-/// this task: chunk extraction and storage only — embedding is a separate,
-/// later worker (plan.md "Indexing workers"), so every written row's
-/// `embedding` column stays `NULL`. Parsing (via
+/// (`swissarmyhammer-tools/src/mcp/tools/code_context/mod.rs`): chunk
+/// extraction and storage, plus an optional embedding step. Parsing (via
 /// `Chunker.chunk(file:module:)`) always runs outside any database
 /// transaction; only the `DELETE`+`INSERT` for a file's chunks and its
 /// `ts_indexed` flag flip happen inside one `Store.write` block.
+///
+/// When `run(store:rootDirectory:embedder:)` is given an `embedder`, it also
+/// drains `embedded = 0` files — every file just (re)chunked above, plus any
+/// file left over from a prior pass that had no embedder or whose embedder
+/// failed — and batch-embeds each file's chunk texts, storing vectors via
+/// `EmbeddingCodec`. Without an `embedder`, every written row's `embedding`
+/// column stays `NULL`, exactly as before this integration.
 public enum TreeSitterWorker {
-    /// Drains and processes every file with `ts_indexed = 0` in `store`.
+    /// Drains and processes every file with `ts_indexed = 0` in `store`, then
+    /// — if `embedder` is given — embeds every file with `embedded = 0`.
     ///
     /// For each dirty file: reads its content from disk (relative to
     /// `rootDirectory`), looks up its `LanguageModule` by extension, chunks
@@ -28,14 +34,20 @@ public enum TreeSitterWorker {
     /// write, which — per `Chunker.chunk(file:module:)`'s empty-array
     /// contract for both cases — replaces its rows with none.
     ///
+    /// The embedding step, when `embedder` is given, runs independently of
+    /// how many files were chunked this pass (see `embedDirtyChunks`).
+    ///
     /// - Parameters:
     ///   - store: The workspace's index store to drain and write into.
     ///   - rootDirectory: The workspace root dirty file paths are relative
     ///     to.
-    /// - Returns: The number of dirty files drained this pass.
+    ///   - embedder: The embedder to use for the embedding step, or `nil` to
+    ///     skip embedding entirely, leaving chunks with a `NULL` embedding.
+    ///     Defaults to `nil`.
+    /// - Returns: The number of dirty tree-sitter files drained this pass.
     /// - Throws: Rethrows `Store`'s storage errors.
     @discardableResult
-    public static func run(store: Store, rootDirectory: URL) async throws -> Int {
+    public static func run(store: Store, rootDirectory: URL, embedder: TextEmbedding? = nil) async throws -> Int {
         let dirtyPaths = try await store.drainTsDirty()
 
         for relativePath in dirtyPaths {
@@ -43,6 +55,10 @@ public enum TreeSitterWorker {
                 try await writeChunks(chunks: chunks, filePath: relativePath, store: store)
             }
             try await store.markIndexed(filePath: relativePath, layer: .treeSitter)
+        }
+
+        if let embedder {
+            try await embedDirtyChunks(embedder: embedder, store: store)
         }
 
         return dirtyPaths.count
@@ -98,4 +114,112 @@ public enum TreeSitterWorker {
             }
         }
     }
+
+    // MARK: - Embedding
+
+    /// Batch-embeds every chunk of every file with `embedded = 0`, writing
+    /// vectors through `EmbeddingCodec` and marking each file's `embedded`
+    /// flag once its whole batch succeeds.
+    ///
+    /// Before draining, reconciles `embedder`'s dimension against the one
+    /// recorded in `meta` the last time embedding ran (see
+    /// `reconcileEmbedderDimension`): a mismatch clears every chunk's
+    /// embedding and every file's `embedded` flag, so the drain below picks
+    /// up the whole index for full re-embedding instead of leaving stale,
+    /// wrong-dimension vectors in place. This runs regardless of how many
+    /// files the tree-sitter pass just chunked — including a pass with zero
+    /// dirty files, which is how a dimension change alone (no source
+    /// changes) still triggers a full re-embed.
+    private static func embedDirtyChunks(embedder: TextEmbedding, store: Store) async throws {
+        try await reconcileEmbedderDimension(embedder: embedder, store: store)
+
+        let dirtyPaths = try await store.drainEmbeddingDirty()
+        for filePath in dirtyPaths {
+            try await embedChunks(forFilePath: filePath, embedder: embedder, store: store)
+        }
+    }
+
+    /// Compares `embedder.dimension` against the dimension stored in `meta`
+    /// and, on a mismatch, clears every chunk's embedding and resets every
+    /// file's `embedded` flag so the next drain fully re-embeds the index.
+    ///
+    /// No stored dimension (a fresh index, or one that has never embedded)
+    /// is not a mismatch — it just records the current dimension.
+    private static func reconcileEmbedderDimension(embedder: TextEmbedding, store: Store) async throws {
+        let storedDimension = try await store.embedderDimension()
+        if let storedDimension, storedDimension != embedder.dimension {
+            Log.embedding.notice(
+                "embedder dimension changed \(storedDimension) -> \(embedder.dimension, privacy: .public); clearing embeddings for full re-embed"
+            )
+            try await store.write { db in
+                try db.execute(sql: "UPDATE \(Schema.TsChunks.table) SET \(Schema.TsChunks.embedding) = NULL")
+                try db.execute(sql: "UPDATE \(Schema.IndexedFiles.table) SET \(Schema.IndexedFiles.embedded) = 0")
+            }
+        }
+        try await store.setEmbedderDimension(embedder.dimension)
+    }
+
+    /// Embeds `filePath`'s `ts_chunks` texts in one batched call and writes
+    /// the resulting vectors back, or leaves the file's chunks untouched
+    /// (still `NULL`, still `embedded = 0`) on any failure.
+    ///
+    /// A file with no chunks (e.g. one with no chunkable nodes) is
+    /// vacuously fully embedded and marked as such without calling
+    /// `embedder`. Otherwise, `embedder.embed(_:)` throwing, or returning a
+    /// vector count that doesn't match the chunk count, is logged and
+    /// treated as a graceful skip — never a crash, and never a partial
+    /// write: a file's chunks are all embedded or none are.
+    private static func embedChunks(forFilePath filePath: String, embedder: TextEmbedding, store: Store) async throws {
+        let chunks: [EmbeddableChunk] = try await store.read { db in
+            try Row.fetchAll(
+                db,
+                sql: """
+                SELECT \(Schema.TsChunks.id), \(Schema.TsChunks.text) FROM \(Schema.TsChunks.table) \
+                WHERE \(Schema.TsChunks.filePath) = ? ORDER BY \(Schema.TsChunks.id)
+                """,
+                arguments: [filePath]
+            ).map { row in
+                EmbeddableChunk(id: row[Schema.TsChunks.id], text: row[Schema.TsChunks.text])
+            }
+        }
+
+        guard !chunks.isEmpty else {
+            try await store.markIndexed(filePath: filePath, layer: .embedding)
+            return
+        }
+
+        let vectors: [[Float]]
+        do {
+            vectors = try await embedder.embed(chunks.map(\.text))
+        } catch {
+            Log.embedding.warning(
+                "embedder threw for \(filePath, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            return
+        }
+
+        guard vectors.count == chunks.count else {
+            Log.embedding.warning(
+                "embedder returned \(vectors.count) vectors for \(chunks.count) chunks in \(filePath, privacy: .public); skipping"
+            )
+            return
+        }
+
+        try await store.write { db in
+            for (chunk, vector) in zip(chunks, vectors) {
+                try db.execute(
+                    sql: "UPDATE \(Schema.TsChunks.table) SET \(Schema.TsChunks.embedding) = ? WHERE \(Schema.TsChunks.id) = ?",
+                    arguments: [EmbeddingCodec.encode(vector), chunk.id]
+                )
+            }
+        }
+
+        try await store.markIndexed(filePath: filePath, layer: .embedding)
+    }
+}
+
+/// One `ts_chunks` row's identity and text, fetched for embedding.
+private struct EmbeddableChunk: Sendable {
+    let id: Int64
+    let text: String
 }

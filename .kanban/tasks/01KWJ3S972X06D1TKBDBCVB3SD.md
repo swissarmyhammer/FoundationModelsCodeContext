@@ -31,10 +31,14 @@ comments:
 
     Leaving in `doing` for `/review` per the implement workflow.
   timestamp: 2026-07-03T04:15:02.506230+00:00
+- actor: wballard
+  id: 01kwk3f505438dn1077mqq820g
+  text: 'Implemented LspSession actor (document dedupe by hash, per-URI diagnostics cache, multi-subscriber AsyncStream fanout via continuation registry, readiness state machine on ServerCancelled/ContentModified), tested against FakeLanguageServerConnection, checkpointed (135efdc). 1 review/fix cycle: added missing pullDiagnostics-fans-out-to-subscribers regression test (135efdc→75c0152). Final review clean (one pre-existing-test naming nit correctly dropped per the never-touch-existing-tests rule), moved doing → review → done.'
+  timestamp: 2026-07-03T04:23:24.421553+00:00
 depends_on:
 - 01KWJ3RB07JNW5QXZNH1ESMH2F
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: 8a80
 title: 'LspSession actor: document sync, diagnostics cache, readiness'
 ---
 ## What\nCreate `Sources/CodeContextKit/LSP/LspSession.swift` — port of `crates/swissarmyhammer-lsp/src/session.rs` as an actor over a `LanguageServerConnection`. Open-document set with `DocState(version, textHash)`; `syncOpen(path, text)` opens-or-refreshes, suppresses duplicate opens and no-op changes by hash compare; consumes `serverNotifications` to maintain a per-URI diagnostics cache fanned out via `AsyncStream<DiagnosticUpdate>` (multi-subscriber); `pullDiagnostics(uri:)`; `isReady` flag flipped false on ServerCancelled/ContentModified \"still loading\" replies and true on clean responses; `resetDocuments()` clears the doc set and cache (restart correctness).\n\n## Acceptance Criteria\n- [x] Two `syncOpen` calls with identical text send exactly one didOpen and zero didChange (fake connection records calls)\n- [x] Push diagnostics from the notification stream land in the cache and reach all stream subscribers\n- [x] After `resetDocuments()`, the next `syncOpen` re-sends didOpen (not suppressed)\n\n## Tests\n- [x] `Tests/CodeContextKitTests/LspSessionTests.swift` using `FakeLanguageServerConnection`: dedupe, versioning, cache+fanout, readiness flip on ContentModified, reset semantics\n- [x] Run `swift test --filter LspSessionTests` → all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Review Findings (2026-07-02 23:07)\n\n- [x] `Tests/CodeContextKitTests/LspSessionTests.swift:103` — Pull diagnostics should broadcast to subscribers via `diagnosticUpdates()` just like push diagnostics do (both call `recordDiagnostics()`), but there is no test exercising pull + subscribers together. The test `publishDiagnosticsNotificationReachesEverySubscriber` verifies push reaches all subscribers, but no test verifies pull reaches subscribers, creating an untested inverse operation. Add a test that creates one or more subscribers via `diagnosticUpdates()`, calls `pullDiagnostics()`, and verifies the subscribers receive the DiagnosticUpdate broadcasts, mirroring the push test pattern.\n
