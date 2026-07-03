@@ -178,7 +178,7 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
     }
 
     func initialized() async throws {
-        try await notify(method: "initialized", params: EmptyPayload())
+        try await notifyEmpty(method: "initialized")
     }
 
     func shutdown() async throws {
@@ -186,7 +186,7 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
     }
 
     func exit() async throws {
-        try await notify(method: "exit", params: EmptyPayload())
+        try await notifyEmpty(method: "exit")
     }
 
     func didOpen(uri: DocumentURI, languageID: String, version: Int, text: String) async throws {
@@ -203,11 +203,11 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
     }
 
     func didSave(uri: DocumentURI) async throws {
-        try await notify(method: "textDocument/didSave", params: DidSaveTextDocumentParams(textDocument: TextDocumentIdentifier(uri: uri)))
+        try await notifyTextDocument(method: "textDocument/didSave", uri: uri, makeParams: DidSaveTextDocumentParams.init)
     }
 
     func didClose(uri: DocumentURI) async throws {
-        try await notify(method: "textDocument/didClose", params: DidCloseTextDocumentParams(textDocument: TextDocumentIdentifier(uri: uri)))
+        try await notifyTextDocument(method: "textDocument/didClose", uri: uri, makeParams: DidCloseTextDocumentParams.init)
     }
 
     func documentSymbols(in uri: DocumentURI) async throws -> [DocumentSymbol] {
@@ -225,8 +225,7 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
     }
 
     func hover(in uri: DocumentURI, at position: Position) async throws -> Hover? {
-        let params = TextDocumentPositionParams(textDocument: TextDocumentIdentifier(uri: uri), position: position)
-        return try await request(method: "textDocument/hover", params: params, resultType: Hover?.self)
+        try await requestAtPosition(method: "textDocument/hover", uri: uri, position: position, resultType: Hover?.self)
     }
 
     func references(in uri: DocumentURI, at position: Position, includeDeclaration: Bool) async throws -> [Location] {
@@ -235,8 +234,7 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
             position: position,
             context: ReferenceContext(includeDeclaration: includeDeclaration)
         )
-        let result = try await request(method: "textDocument/references", params: params, resultType: LocationsResult.self)
-        return result.locations
+        return try await locationsRequest(method: "textDocument/references", params: params)
     }
 
     func implementations(in uri: DocumentURI, at position: Position) async throws -> [Location] {
@@ -244,26 +242,19 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
     }
 
     func prepareCallHierarchy(in uri: DocumentURI, at position: Position) async throws -> [CallHierarchyItem] {
-        let params = TextDocumentPositionParams(textDocument: TextDocumentIdentifier(uri: uri), position: position)
-        let result = try await request(method: "textDocument/prepareCallHierarchy", params: params, resultType: [CallHierarchyItem]?.self)
-        return result ?? []
+        try await arrayRequest(method: "textDocument/prepareCallHierarchy", params: positionParams(uri: uri, position: position), resultType: CallHierarchyItem.self)
     }
 
     func outgoingCalls(of item: CallHierarchyItem) async throws -> [CallHierarchyOutgoingCall] {
-        let params = CallHierarchyCallsParams(item: item)
-        let result = try await request(method: "callHierarchy/outgoingCalls", params: params, resultType: [CallHierarchyOutgoingCall]?.self)
-        return result ?? []
+        try await arrayRequest(method: "callHierarchy/outgoingCalls", params: CallHierarchyCallsParams(item: item), resultType: CallHierarchyOutgoingCall.self)
     }
 
     func incomingCalls(of item: CallHierarchyItem) async throws -> [CallHierarchyIncomingCall] {
-        let params = CallHierarchyCallsParams(item: item)
-        let result = try await request(method: "callHierarchy/incomingCalls", params: params, resultType: [CallHierarchyIncomingCall]?.self)
-        return result ?? []
+        try await arrayRequest(method: "callHierarchy/incomingCalls", params: CallHierarchyCallsParams(item: item), resultType: CallHierarchyIncomingCall.self)
     }
 
     func prepareRename(in uri: DocumentURI, at position: Position) async throws -> PrepareRenameResult {
-        let params = TextDocumentPositionParams(textDocument: TextDocumentIdentifier(uri: uri), position: position)
-        return try await request(method: "textDocument/prepareRename", params: params, resultType: PrepareRenameResult.self)
+        try await requestAtPosition(method: "textDocument/prepareRename", uri: uri, position: position, resultType: PrepareRenameResult.self)
     }
 
     func rename(in uri: DocumentURI, at position: Position, newName: String) async throws -> WorkspaceEdit {
@@ -277,8 +268,7 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
             range: range,
             context: CodeActionContext(diagnostics: diagnostics, only: only)
         )
-        let result = try await request(method: "textDocument/codeAction", params: params, resultType: [CodeActionItem]?.self)
-        return result ?? []
+        return try await arrayRequest(method: "textDocument/codeAction", params: params, resultType: CodeActionItem.self)
     }
 
     func resolveCodeAction(item: CodeActionItem) async throws -> CodeActionItem {
@@ -286,8 +276,7 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
     }
 
     func workspaceSymbols(query: String) async throws -> [SymbolInformation] {
-        let result = try await request(method: "workspace/symbol", params: WorkspaceSymbolParams(query: query), resultType: [SymbolInformation]?.self)
-        return result ?? []
+        try await arrayRequest(method: "workspace/symbol", params: WorkspaceSymbolParams(query: query), resultType: SymbolInformation.self)
     }
 
     func pullDiagnostics(for uri: DocumentURI) async throws -> [Diagnostic] {
@@ -297,12 +286,68 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
         return DiagnosticsParsing.parseDiagnosticsFromResult(from: resultData)
     }
 
-    // MARK: - Shared request helpers
+    // MARK: - Shared request/notify helpers
+
+    /// Sends a fire-and-forget notification carrying no payload — the shape shared by
+    /// `initialized` and `exit`.
+    private func notifyEmpty(method: String) async throws {
+        try await notify(method: method, params: EmptyPayload())
+    }
+
+    /// Sends a fire-and-forget `textDocument/*` notification whose params wrap a bare
+    /// `TextDocumentIdentifier` — the shape shared by `didSave` and `didClose`, which only
+    /// differ in method name and which wrapper type the wire protocol expects.
+    /// - Parameters:
+    ///   - method: The JSON-RPC method name.
+    ///   - uri: The document the notification is about.
+    ///   - makeParams: Wraps the built `TextDocumentIdentifier` in the method's params type.
+    private func notifyTextDocument<Params: Encodable>(
+        method: String,
+        uri: DocumentURI,
+        makeParams: (TextDocumentIdentifier) -> Params
+    ) async throws {
+        try await notify(method: method, params: makeParams(TextDocumentIdentifier(uri: uri)))
+    }
+
+    /// Builds the `{ textDocument, position }` params shared by every request keyed on a
+    /// cursor position.
+    private func positionParams(uri: DocumentURI, position: Position) -> TextDocumentPositionParams {
+        TextDocumentPositionParams(textDocument: TextDocumentIdentifier(uri: uri), position: position)
+    }
+
+    /// Sends a position-keyed request and returns its typed result directly — the shape shared
+    /// by `hover` and `prepareRename`, which only differ in method name and result type.
+    private func requestAtPosition<Result: Decodable>(
+        method: String,
+        uri: DocumentURI,
+        position: Position,
+        resultType: Result.Type
+    ) async throws -> Result {
+        try await request(method: method, params: positionParams(uri: uri, position: position), resultType: resultType)
+    }
+
+    /// Sends a request expecting an optional array result, normalizing an absent (`null`)
+    /// result to an empty array — the shape shared by `prepareCallHierarchy`,
+    /// `outgoingCalls`/`incomingCalls`, `codeActions`, and `workspaceSymbols`.
+    private func arrayRequest<Params: Encodable, Element: Decodable>(
+        method: String,
+        params: Params,
+        resultType: Element.Type
+    ) async throws -> [Element] {
+        let result = try await request(method: method, params: params, resultType: [Element]?.self)
+        return result ?? []
+    }
 
     /// The `textDocument/definition`-shaped request/response pattern shared by
     /// `definition`, `typeDefinition`, and `implementations`.
     private func positionRequest(method: String, uri: DocumentURI, position: Position) async throws -> [Location] {
-        let params = TextDocumentPositionParams(textDocument: TextDocumentIdentifier(uri: uri), position: position)
+        try await locationsRequest(method: method, params: positionParams(uri: uri, position: position))
+    }
+
+    /// Sends a request whose result is a `LocationsResult` wrapper and unwraps it — shared by
+    /// `positionRequest` (definition/typeDefinition/implementations) and `references`, whose
+    /// params additionally carry reference context.
+    private func locationsRequest<Params: Encodable>(method: String, params: Params) async throws -> [Location] {
         let result = try await request(method: method, params: params, resultType: LocationsResult.self)
         return result.locations
     }

@@ -1,0 +1,12 @@
+---
+position_column: todo
+position_ordinal: 9d80
+title: Add ConnectionTests coverage for refactored LSP helper call sites
+---
+Sources/CodeContextKit/LSP/ProcessLanguageServerConnection.swift was refactored to extract shared helpers (notifyEmpty, notifyTextDocument, positionParams/requestAtPosition, arrayRequest, locationsRequest) from previously duplicated inline logic. Manual line-by-line diff review confirms the extraction is behavior-preserving (same method names, param shapes, defaults, optional-array normalization).
+
+However, adversarial review (double-check agent) found: Tests/CodeContextKitTests/ConnectionTests.swift is the only test file exercising ProcessLanguageServerConnection against a real subprocess, and all four of its tests only call documentSymbols — a method the refactor did not touch. None of the twelve refactored methods (initialized, exit, didSave, didClose, hover, references, prepareCallHierarchy, outgoingCalls, incomingCalls, prepareRename, codeActions, workspaceSymbols) nor definition/typeDefinition/implementations (which route through the also-refactored positionRequest/locationsRequest) are exercised anywhere in the suite against the real connection. FakeLanguageServerConnection is an independent hand-written conformance and provides no coverage of this file.
+
+Suggested fix: extend ConnectionTests (or the scripted-lsp-server test DSL) with cases that drive at least one representative call through each new helper's distinct shape against the real subprocess: a no-payload notification (initialized/exit), a textDocument/* notification (didSave/didClose), a position-keyed single-result request (hover/prepareRename), a position-keyed array/optional-array request (prepareCallHierarchy), a non-position array request (workspaceSymbols/codeActions), and a LocationsResult-wrapped request (references, definition/typeDefinition/implementations).
+
+Not fixed in this pass: task scope was running/fixing the existing test suite (157/157 pass, ConnectionTests stress-tested 13x with no flakiness, build clean apart from a pre-existing third-party mlx-swift plugin warning), not authoring new coverage. Logged here per really-done adversarial sign-off gate so the gap isn't silently dropped.

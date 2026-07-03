@@ -36,6 +36,25 @@ comments:
 
     Final state: swift build clean (zero warnings in touched code), swift test full suite 157/157 pass across 9 suites, swift test --filter ConnectionTests 4/4 pass, no leftover subprocesses. Leaving task in doing for /review.
   timestamp: 2026-07-03T01:49:28.720143+00:00
+- actor: wballard
+  id: 01kwjvwk1vathycbkw6pq2znc2
+  text: |-
+    Resolved all 3 review findings in Sources/CodeContextKit/LSP/ProcessLanguageServerConnection.swift by extracting parameterized private helpers:
+
+    - `notifyEmpty(method:)` — replaces the `initialized`/`exit` verbatim duplication.
+    - `notifyTextDocument<Params: Encodable>(method:uri:makeParams:)` — replaces the `didSave`/`didClose` duplication; takes a `(TextDocumentIdentifier) -> Params` closure so `DidSaveTextDocumentParams.init`/`DidCloseTextDocumentParams.init` can be passed directly (both are plain one-field Encodable structs with only a synthesized memberwise init, so this resolves unambiguously).
+    - `positionParams(uri:position:)` + `requestAtPosition<Result: Decodable>(method:uri:position:resultType:)` — replaces the `hover`/`prepareRename` duplication.
+
+    Per the task's instruction to grep exhaustively rather than fix only the 3 cited methods, found and consolidated two more duplicated shapes across the file:
+    - `arrayRequest<Params: Encodable, Element: Decodable>(method:params:resultType:)` — the "request an optional array, default absent/`null` to `[]`" shape was duplicated 5x across `prepareCallHierarchy`, `outgoingCalls`, `incomingCalls`, `codeActions`, and `workspaceSymbols`. `prepareCallHierarchy` and `outgoingCalls`/`incomingCalls` also reuse `positionParams`/`CallHierarchyCallsParams(item:)` respectively for the params.
+    - `locationsRequest<Params: Encodable>(method:params:)` — the "request a `LocationsResult` wrapper, unwrap `.locations`" shape was duplicated between `positionRequest` (backing `definition`/`typeDefinition`/`implementations`) and `references`. `positionRequest` itself is now a thin composition of `positionParams` + `locationsRequest`.
+
+    Grepped the rest of the file (`documentSymbols`, `shutdown`, `resolveCodeAction`, `rename`, `pullDiagnostics`, `didOpen`, `didChange`, `initialize`) — each is a genuine one-off shape, no further consolidation opportunities. Also checked `LanguageServerConnection.swift` (the protocol file) — it's a pure declaration list, no implementation duplication to extract there.
+
+    Verification: `swift build` clean (zero warnings in touched code), `swift test` full suite 157/157 pass across 9 suites, `swift test --filter ConnectionTests` stress-tested 5x back-to-back with no flakiness (20/20 individual test passes). Adversarial double-check (via really-done) independently re-read the diff against Wire.swift's struct definitions, re-ran build+full suite+ConnectionTests filter as its own fresh evidence, and returned PASS — confirmed each extracted helper preserves exact wire-format equivalence (method strings, params shapes, result types/optionality) with no forced casts or behavior changes.
+
+    Leaving task in doing for /review.
+  timestamp: 2026-07-03T02:10:56.187870+00:00
 depends_on:
 - 01KWJ3Q8MRHX6P9W2M9TW94VZ9
 position_column: doing
@@ -56,3 +75,9 @@ Create `Sources/CodeContextKit/LSP/LanguageServerConnection.swift` — the typed
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
+
+## Review Findings (2026-07-02 20:55)
+
+- [x] `Sources/CodeContextKit/LSP/ProcessLanguageServerConnection.swift:147` — initialized and exit are verbatim copies differing only in method name — both call notify with EmptyPayload and no other logic. Extract a generic notify helper parameterized by method name, or combine these into a single parameterized method.
+- [x] `Sources/CodeContextKit/LSP/ProcessLanguageServerConnection.swift:172` — didSave and didClose are near-verbatim copies differing only in method name and params type — both construct TextDocumentIdentifier(uri: uri) and call notify with the same pattern. Extract a shared helper method parameterized by method name and params constructor.
+- [x] `Sources/CodeContextKit/LSP/ProcessLanguageServerConnection.swift:196` — hover and prepareRename are near-verbatim copies differing only in method name and result type — both create TextDocumentPositionParams identically and return the request result directly with no further processing. Extract a generic helper function parameterized by method name and result type to eliminate the duplicate code pattern.
