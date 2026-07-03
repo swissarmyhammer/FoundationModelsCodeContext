@@ -278,6 +278,48 @@ public actor SearchCorpus {
         return build(rows: rows)
     }
 
+    /// One row's BM25/trigram precomputation, ready to append to
+    /// `SearchCorpusSnapshot`'s parallel arrays.
+    ///
+    /// Factored out of `build(rows:)`'s per-row loop so that function stays
+    /// a thin fold over rows rather than mixing tokenization/BM25/trigram
+    /// details with array bookkeeping.
+    private struct RowPrecomputation {
+        let weightedTermFrequency: [String: Double]
+        let termSet: Set<String>
+        let documentLength: Int
+        let symbolPathTrigramSet: Set<String>
+        let textTrigramSet: Set<String>
+    }
+
+    /// Tokenizes `row`'s symbol path and body text, builds its BM25
+    /// field-weighted term frequency map and term set, and its symbol-path
+    /// and body trigram sets.
+    ///
+    /// - Parameter row: The chunk row to precompute BM25/trigram data for.
+    /// - Returns: The precomputed data, ready for `build(rows:)` to append
+    ///   into `SearchCorpusSnapshot`'s parallel arrays.
+    private static func preprocessRow(row: ChunkRow) -> RowPrecomputation {
+        let symbolPathTokens = Tokenizer.tokenize(text: row.symbolPath)
+        let bodyTokens = Tokenizer.tokenize(text: row.text)
+
+        var weightedTermFrequency: [String: Double] = [:]
+        for token in symbolPathTokens {
+            weightedTermFrequency[token, default: 0.0] += BM25.symbolPathFieldWeight
+        }
+        for token in bodyTokens {
+            weightedTermFrequency[token, default: 0.0] += BM25.bodyFieldWeight
+        }
+
+        return RowPrecomputation(
+            weightedTermFrequency: weightedTermFrequency,
+            termSet: Set(weightedTermFrequency.keys),
+            documentLength: symbolPathTokens.count + bodyTokens.count,
+            symbolPathTrigramSet: Trigram.canonicalTrigramSet(text: row.symbolPath),
+            textTrigramSet: Trigram.canonicalTrigramSet(text: row.text)
+        )
+    }
+
     /// Folds `rows` into a `SearchCorpusSnapshot`: decodes embeddings into
     /// one contiguous matrix, and precomputes each row's BM25/trigram data.
     private static func build(rows: [ChunkRow]) -> SearchCorpusSnapshot {
@@ -307,22 +349,12 @@ public actor SearchCorpus {
                 embeddedFlags: &embeddedFlags
             )
 
-            let symbolPathTokens = Tokenizer.tokenize(text: row.symbolPath)
-            let bodyTokens = Tokenizer.tokenize(text: row.text)
-            documentLengths.append(symbolPathTokens.count + bodyTokens.count)
-
-            var weightedTermFrequency: [String: Double] = [:]
-            for token in symbolPathTokens {
-                weightedTermFrequency[token, default: 0.0] += BM25.symbolPathFieldWeight
-            }
-            for token in bodyTokens {
-                weightedTermFrequency[token, default: 0.0] += BM25.bodyFieldWeight
-            }
-            weightedTermFrequencies.append(weightedTermFrequency)
-            termSets.append(Set(weightedTermFrequency.keys))
-
-            symbolPathTrigramSets.append(Trigram.canonicalTrigramSet(text: row.symbolPath))
-            textTrigramSets.append(Trigram.canonicalTrigramSet(text: row.text))
+            let precomputed = preprocessRow(row: row)
+            weightedTermFrequencies.append(precomputed.weightedTermFrequency)
+            termSets.append(precomputed.termSet)
+            documentLengths.append(precomputed.documentLength)
+            symbolPathTrigramSets.append(precomputed.symbolPathTrigramSet)
+            textTrigramSets.append(precomputed.textTrigramSet)
         }
 
         return SearchCorpusSnapshot(
