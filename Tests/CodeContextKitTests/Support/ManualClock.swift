@@ -122,28 +122,36 @@ final class ManualClock: Clock, @unchecked Sendable {
         waiter.continuation.resume(throwing: CancellationError())
     }
 
-    /// Polls until at least one caller is suspended in `sleep(until:tolerance:)`.
+    /// Polls until at least `count` callers are suspended in `sleep(until:tolerance:)`.
     ///
     /// Lets a test synchronize with code that races a `Clock.sleep(for:)` call against other
     /// work (e.g. `ProcessLanguageServerConnection`'s request timeout) before calling
     /// `advance(by:)`, instead of racing a real-time sleep against that code's own scheduling.
     /// The polling interval is real wall-clock time, but only as a synchronization primitive —
     /// the timeout duration under test is still driven entirely by `advance(by:)`.
-    func waitForWaiter() async {
-        while !hasWaiterSynchronously() {
+    ///
+    /// `count` matters whenever more than one concurrent sleeper is expected to register before
+    /// the next `advance(by:)` (e.g. two daemons' health loops each sleeping on the same clock):
+    /// waiting for only the first arrival and then advancing would let the clock move past a
+    /// still-unregistered sleeper's intended deadline, since that sleeper's later `sleep(for:)`
+    /// call computes its deadline from the clock's already-advanced `now`.
+    /// - Parameter count: How many distinct waiters must be registered before returning. Defaults
+    ///   to 1.
+    func waitForWaiter(count: Int = 1) async {
+        while !hasAtLeastWaitersSynchronously(count) {
             try? await Task.sleep(for: .milliseconds(1))
         }
     }
 
-    /// Synchronously checks `waiters` under `lock`.
+    /// Synchronously checks `waiters`' count under `lock`.
     ///
     /// `NSLock.lock()`/`unlock()` are unavailable directly inside an `async` function body (to
     /// discourage holding a lock across a suspension point), so this plain synchronous helper is
-    /// the call site `waitForWaiter()` delegates to instead.
-    private func hasWaiterSynchronously() -> Bool {
+    /// the call site `waitForWaiter(count:)` delegates to instead.
+    private func hasAtLeastWaitersSynchronously(_ count: Int) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return !waiters.isEmpty
+        return waiters.count >= count
     }
 
     /// Advances the clock by `duration`, releasing every waiter whose deadline has now passed.

@@ -24,11 +24,15 @@ comments:
 
     Task is done and green. Left in `doing` for /review per the /implement workflow.
   timestamp: 2026-07-03T14:28:20.192997+00:00
+- actor: wballard
+  id: 01kwm6kqsewhmac98bt8ygbabv
+  text: Implemented CallGraphOps.callGraph (BFS over lsp_call_edges, mixed lsp/treesitter sources, direction inbound/outbound/both, symbol resolution via SymbolOps.getSymbol tiers or file:line:char locator) + BlastRadiusOps.blastRadius (inbound BFS, per-hop dedup aggregation), sharing a fetchCallEdges helper, tested, checkpointed (86fb0de). Added CodeContextError.notFound. Review clean on first pass, moved doing → review → done.
+  timestamp: 2026-07-03T14:37:34.894678+00:00
 depends_on:
 - 01KWJ3SX2N6BCJ6APE16W6TVAR
 - 01KWJ3TB95F2J0CZYW17DCP9H8
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '9280'
 title: 'callGraph and blastRadius ops: BFS over call edges'
 ---
 ## What

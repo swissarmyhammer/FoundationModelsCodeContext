@@ -37,74 +37,8 @@ struct LspDaemonTests {
     /// all — the clock's timeout branch wins the race instead).
     private struct SimulatedHandshakeFailure: Error {}
 
-    /// A single mutable value shared between a test and a `@Sendable` `ConnectionFactory`
-    /// closure. Plain captured `var`s can't be mutated or read from inside `@Sendable` closures
-    /// (the connection factory runs on the daemon's actor); this actor-isolates the box instead.
-    private actor Box<Value: Sendable> {
-        var value: Value
-        init(_ value: Value) { self.value = value }
-        func set(_ newValue: Value) { value = newValue }
-    }
-
-    /// Tracks the liveness of one fake "process" for a `ConnectionFactory` to read/drive: whether
-    /// it's alive, how many times it has been force-terminated, and (for the graceful-shutdown
-    /// tests) whether `waitForExit()` should resolve immediately (a cooperative process) or hang
-    /// until cancelled (an unresponsive one the daemon must kill after the grace period).
-    private actor ProcessState {
-        private(set) var isAlive = true
-        private(set) var terminateCount = 0
-        private var hangsOnWaitForExit = false
-
-        func setHangsOnWaitForExit(_ hangs: Bool) {
-            hangsOnWaitForExit = hangs
-        }
-
-        func setAlive(_ alive: Bool) {
-            isAlive = alive
-        }
-
-        func markTerminated() {
-            terminateCount += 1
-            isAlive = false
-        }
-
-        func waitForExit() async {
-            guard hangsOnWaitForExit else {
-                isAlive = false
-                return
-            }
-            // Simulate an unresponsive process: this only ever returns via cancellation, which
-            // `LspDaemon.shutdown()` triggers once the grace-period sleep wins the race. Real
-            // wall-clock duration is irrelevant here since it is always cancelled almost
-            // immediately in a passing test — only the manually-driven clock controls timing.
-            try? await Task.sleep(for: .seconds(3600))
-        }
-    }
-
-    /// Builds a `ConnectionFactory` that hands back a fresh `FakeLanguageServerConnection` on
-    /// every call, wired to `processState` for its `isAlive`/`waitForExit`/`terminate` hooks.
-    /// - Parameters:
-    ///   - pid: The pid to report via the returned handle.
-    ///   - processState: The shared liveness tracker the daemon's health/shutdown hooks read.
-    ///   - configureConnection: Called with each freshly created connection before it's handed
-    ///     back, so a test can script a failure result on it.
-    private static func fakeConnectionFactory(
-        pid: Int32,
-        processState: ProcessState,
-        configureConnection: @escaping @Sendable (FakeLanguageServerConnection) async -> Void = { _ in }
-    ) -> ConnectionFactory<FakeLanguageServerConnection> {
-        { _, _ in
-            let connection = FakeLanguageServerConnection()
-            await configureConnection(connection)
-            return ConnectionHandle(
-                connection: connection,
-                pid: pid,
-                isAlive: { await processState.isAlive },
-                waitForExit: { await processState.waitForExit() },
-                terminate: { await processState.markTerminated() }
-            )
-        }
-    }
+    // `Box`, `ProcessState`, and `fakeConnectionFactory` live in `Support/FakeDaemonProcess.swift`,
+    // shared with `LspSupervisorTests`.
 
     // MARK: - Initial state
 
@@ -115,7 +49,7 @@ struct LspDaemonTests {
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
-            connectionFactory: Self.fakeConnectionFactory(pid: 1, processState: processState)
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState)
         )
         let state = await daemon.state()
         #expect(state == .notStarted)
@@ -151,7 +85,7 @@ struct LspDaemonTests {
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
-            connectionFactory: Self.fakeConnectionFactory(pid: 4242, processState: processState)
+            connectionFactory: fakeConnectionFactory(pid: 4242, processState: processState)
         )
 
         try await daemon.start()
@@ -211,7 +145,7 @@ struct LspDaemonTests {
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
-            connectionFactory: Self.fakeConnectionFactory(pid: 1, processState: processState)
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState)
         )
         try await daemon.start()
 
@@ -243,7 +177,7 @@ struct LspDaemonTests {
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
-            connectionFactory: Self.fakeConnectionFactory(pid: 1, processState: processState)
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState)
         )
         let alive = await daemon.healthCheck()
         #expect(!alive)
@@ -278,7 +212,7 @@ struct LspDaemonTests {
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
-            connectionFactory: Self.fakeConnectionFactory(pid: 1, processState: processState) { connection in
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState) { connection in
                 if await shouldFailHandshake.value {
                     await connection.setInitializeResult(to: .failure(SimulatedHandshakeFailure()))
                 }
@@ -346,7 +280,7 @@ struct LspDaemonTests {
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
-            connectionFactory: Self.fakeConnectionFactory(pid: 7, processState: processState)
+            connectionFactory: fakeConnectionFactory(pid: 7, processState: processState)
         )
         try await daemon.start()
         await processState.setAlive(false)
@@ -384,7 +318,7 @@ struct LspDaemonTests {
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
-            connectionFactory: Self.fakeConnectionFactory(pid: 1, processState: processState) { connection in
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState) { connection in
                 await capturedConnection.set(connection)
             }
         )
@@ -419,7 +353,7 @@ struct LspDaemonTests {
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
-            connectionFactory: Self.fakeConnectionFactory(pid: 1, processState: processState)
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState)
         )
         try await daemon.start()
         let grace = Duration.seconds(5)
@@ -443,7 +377,7 @@ struct LspDaemonTests {
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
-            connectionFactory: Self.fakeConnectionFactory(pid: 1, processState: processState)
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState)
         )
         await daemon.shutdown()
         let state = await daemon.state()
