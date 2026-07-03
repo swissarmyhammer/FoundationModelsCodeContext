@@ -522,53 +522,88 @@ enum LspIndexWorker<Connection: LanguageServerConnection> {
         var edges: [PendingCallEdge] = []
 
         for symbol in flatSymbols where callableKinds.contains(symbol.kind) {
-            let position = Position(line: symbol.startLine, character: symbol.startColumn)
-
-            let items: [CallHierarchyItem]
-            do {
-                items = try await session.prepareCallHierarchy(uri: uri, position: position)
-            } catch {
-                Log.lsp.warning(
-                    "prepareCallHierarchy failed for \(filePath, privacy: .public):\(symbol.qualifiedPath, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
-                continue
-            }
-            guard let item = items.first else {
-                continue
-            }
-
-            let outgoing: [CallHierarchyOutgoingCall]
-            do {
-                outgoing = try await session.outgoingCalls(item: item)
-            } catch {
-                Log.lsp.warning(
-                    "outgoingCalls failed for \(filePath, privacy: .public):\(symbol.qualifiedPath, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
-                continue
-            }
-
-            for call in outgoing {
-                guard let calleeURL = URL(string: call.to.uri.value),
-                      let calleeRelativePath = RelativePath.of(calleeURL, relativeTo: rootDirectory)
-                else {
-                    continue
-                }
-
-                edges.append(PendingCallEdge(
-                    callerStartLine: symbol.startLine,
-                    calleeFilePath: calleeRelativePath,
-                    calleeName: call.to.name,
-                    calleeKind: kindString(for: call.to.kind),
-                    calleeStartLine: call.to.range.start.line,
-                    calleeStartColumn: call.to.range.start.character,
-                    calleeEndLine: call.to.range.end.line,
-                    calleeEndColumn: call.to.range.end.character,
-                    fromRangesJSON: encodeFromRanges(call.fromRanges)
-                ))
-            }
+            edges.append(contentsOf: await collectEdges(
+                forSymbol: symbol,
+                filePath: filePath,
+                uri: uri,
+                rootDirectory: rootDirectory,
+                session: session
+            ))
         }
 
         return edges
+    }
+
+    /// Collects one callable symbol's outgoing call edges, via
+    /// `prepareCallHierarchy` then `outgoingCalls` — the per-symbol body
+    /// `collectCallEdges(filePath:uri:flatSymbols:rootDirectory:session:)`
+    /// loops over for every callable symbol in a file.
+    ///
+    /// A `prepareCallHierarchy`/`outgoingCalls` failure is logged and
+    /// skipped rather than propagated (see `collectCallEdges`'s doc comment
+    /// for why). A callee whose uri doesn't resolve to a path under
+    /// `rootDirectory` (an external symbol, e.g. a standard-library
+    /// definition) is skipped: this port's `lsp_symbols.file_path` is a
+    /// foreign key into `indexed_files`, so there is no row to attribute an
+    /// external callee to.
+    /// - Parameters:
+    ///   - symbol: The callable symbol to query outgoing calls for.
+    ///   - filePath: The file `symbol` was flattened from, used only for log context.
+    ///   - uri: `filePath`'s document uri, already synced via `syncOpen`.
+    ///   - rootDirectory: The workspace root callee uris are resolved against.
+    ///   - session: The live session to issue call-hierarchy requests through.
+    /// - Returns: `symbol`'s collected outgoing edges, in no particular order.
+    private static func collectEdges(
+        forSymbol symbol: FlatSymbol,
+        filePath: String,
+        uri: DocumentURI,
+        rootDirectory: URL,
+        session: LspSession<Connection>
+    ) async -> [PendingCallEdge] {
+        let position = Position(line: symbol.startLine, character: symbol.startColumn)
+
+        let items: [CallHierarchyItem]
+        do {
+            items = try await session.prepareCallHierarchy(uri: uri, position: position)
+        } catch {
+            Log.lsp.warning(
+                "prepareCallHierarchy failed for \(filePath, privacy: .public):\(symbol.qualifiedPath, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return []
+        }
+        guard let item = items.first else {
+            return []
+        }
+
+        let outgoing: [CallHierarchyOutgoingCall]
+        do {
+            outgoing = try await session.outgoingCalls(item: item)
+        } catch {
+            Log.lsp.warning(
+                "outgoingCalls failed for \(filePath, privacy: .public):\(symbol.qualifiedPath, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return []
+        }
+
+        return outgoing.compactMap { call in
+            guard let calleeURL = URL(string: call.to.uri.value),
+                  let calleeRelativePath = RelativePath.of(calleeURL, relativeTo: rootDirectory)
+            else {
+                return nil
+            }
+
+            return PendingCallEdge(
+                callerStartLine: symbol.startLine,
+                calleeFilePath: calleeRelativePath,
+                calleeName: call.to.name,
+                calleeKind: kindString(for: call.to.kind),
+                calleeStartLine: call.to.range.start.line,
+                calleeStartColumn: call.to.range.start.character,
+                calleeEndLine: call.to.range.end.line,
+                calleeEndColumn: call.to.range.end.character,
+                fromRangesJSON: encodeFromRanges(call.fromRanges)
+            )
+        }
     }
 
     /// Encodes a call site's ranges as the JSON array-of-arrays shape

@@ -23,6 +23,15 @@ comments:
 
     Left in `doing` for review, not moved to review column myself.
   timestamp: 2026-07-03T22:02:52.464860+00:00
+- actor: wballard
+  id: 01kwn0nn6c3gmft1ytnwah3a5x
+  text: |-
+    Addressed the 2026-07-03 17:04 review finding: extracted `collectEdges(forSymbol:filePath:uri:rootDirectory:session:)` out of `collectCallEdges(filePath:uri:flatSymbols:rootDirectory:session:)` in Sources/CodeContextKit/Index/LspIndexWorker.swift. The new helper holds the per-symbol prepareCallHierarchy/outgoingCalls querying logic (previously inline in the loop body) and returns that symbol's `[PendingCallEdge]` via `outgoing.compactMap` (equivalent to the prior for-loop-with-continue, same skip conditions and order). `collectCallEdges` is now a simple loop over callable symbols that appends each call's result — well under the ~50 line threshold. Purely mechanical, behavior-preserving extraction; doc comments follow the file's existing `- Parameters:`/`- Returns:` convention, cross-referencing the sibling function per this file's established pattern (e.g. flattenSymbols/appendFlattenedSymbols).
+
+    Verified: `swift build` clean (exit 0), `swift test --filter LspIndexWorkerTests` 10/10 passing, full `swift test` 364/364 passing (same count as before the change — no regressions).
+
+    Left in `doing` for review.
+  timestamp: 2026-07-03T22:13:00.748914+00:00
 depends_on:
 - 01KWJ3VY63EM20R393B7REJSFY
 - 01KWJ3PHMFNTH5CV7NAPYM21SJ
@@ -30,17 +39,4 @@ position_column: doing
 position_ordinal: '80'
 title: 'LSP indexer worker: documentSymbol + call hierarchy into the store'
 ---
-## What
-Create `Sources/CodeContextKit/Index/LspIndexWorker.swift` — port of `lsp_worker.rs` + `lsp_communication.rs` + `lsp_indexer.rs` + `invalidation.rs`. One worker task per running daemon, draining `lsp_indexed = 0` files matching that server's extensions in batches: syncOpen → documentSymbols (flatten nested symbols to `FlatSymbol` with qualified path + stable symbol id) → prepareCallHierarchy/outgoingCalls per function/method/constructor symbol → didClose → persist `lsp_symbols` + `lsp_call_edges(source='lsp')` → mark indexed. Invalidation rule: when a re-indexed file's symbol set shrinks, files holding edges into removed symbol ids get `lsp_indexed = 0`. Idle backoff (500ms idle, 5s when session unavailable, injectable clock).
-
-## Acceptance Criteria
-- [x] Fixture drain via FakeLanguageServerConnection persists flattened symbols with qualified paths and lsp-source edges
-- [x] Shrinking a file's scripted symbol set marks dependent files lsp-dirty (invalidation)
-- [x] Worker survives a connection error mid-batch: file stays dirty, no partial rows committed
-
-## Tests
-- [x] `Tests/CodeContextKitTests/LspIndexWorkerTests.swift` with scripted fake connection: drain goldens, invalidation propagation, mid-batch failure atomicity, idle backoff via manual clock
-- [x] Run `swift test --filter LspIndexWorkerTests` → all pass
-
-## Workflow
-- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\nCreate `Sources/CodeContextKit/Index/LspIndexWorker.swift` — port of `lsp_worker.rs` + `lsp_communication.rs` + `lsp_indexer.rs` + `invalidation.rs`. One worker task per running daemon, draining `lsp_indexed = 0` files matching that server's extensions in batches: syncOpen → documentSymbols (flatten nested symbols to `FlatSymbol` with qualified path + stable symbol id) → prepareCallHierarchy/outgoingCalls per function/method/constructor symbol → didClose → persist `lsp_symbols` + `lsp_call_edges(source='lsp')` → mark indexed. Invalidation rule: when a re-indexed file's symbol set shrinks, files holding edges into removed symbol ids get `lsp_indexed = 0`. Idle backoff (500ms idle, 5s when session unavailable, injectable clock).\n\n## Acceptance Criteria\n- [x] Fixture drain via FakeLanguageServerConnection persists flattened symbols with qualified paths and lsp-source edges\n- [x] Shrinking a file's scripted symbol set marks dependent files lsp-dirty (invalidation)\n- [x] Worker survives a connection error mid-batch: file stays dirty, no partial rows committed\n\n## Tests\n- [x] `Tests/CodeContextKitTests/LspIndexWorkerTests.swift` with scripted fake connection: drain goldens, invalidation propagation, mid-batch failure atomicity, idle backoff via manual clock\n- [x] Run `swift test --filter LspIndexWorkerTests` → all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Review Findings (2026-07-03 17:04)\n\nScope: HEAD~1..HEAD (commit 797dcbe, entirely new file — no scoping check needed).\n\n- [x] `Sources/CodeContextKit/Index/LspIndexWorker.swift:406` — Function `collectCallEdges` is approximately 52 lines of actual code, exceeding the ~50 line threshold. Extract the call-hierarchy querying logic for a single symbol into a helper function, such as `collectEdgesForSymbol(symbol:filePath:uri:rootDirectory:session:)`, to reduce `collectCallEdges` to a simple iteration loop.
