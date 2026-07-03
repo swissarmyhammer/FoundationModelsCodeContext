@@ -46,10 +46,14 @@ comments:
 
     Task remains in `doing`, ready for /review.
   timestamp: 2026-07-03T09:40:52.477649+00:00
+- actor: wballard
+  id: 01kwkp13khxraa3geft5h1zj41
+  text: 'Implemented TSCallGraph (AST walk for call-expression nodes, callee resolution via ts_chunks.symbol_path suffix matching, lsp_call_edges writes), wired into TreeSitterWorker''s same transaction as chunk writes, tested, checkpointed (450f0f3). Fixed a real bug in SymbolOps kind-mapping during implementation. 1 review/fix cycle: parser-setup dedup + a genuine SQL LIKE pattern-injection vulnerability (unescaped callee names could be misread as SQL wildcards) — confirmed via red-green regression test (450f0f3→b3a7e4b). Final review clean, moved doing → review → done.'
+  timestamp: 2026-07-03T09:47:47.185105+00:00
 depends_on:
 - 01KWJ3S2AJFZPWWXRTKSQC3TW7
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '8e80'
 title: Tree-sitter call-edge heuristic
 ---
 ## What
