@@ -23,6 +23,17 @@ comments:
 
     Leaving task in doing for review per /implement workflow.
   timestamp: 2026-07-03T03:13:54.710693+00:00
+- actor: wballard
+  id: 01kwk06tq4dde5nxxq3fwarkay
+  text: |-
+    Resolved review finding (2026-07-02 22:17): extracted a shared private helper `extractTextAndRange(of node: Node, in source: String) -> (text: String, range: Range<String.Index>)?` in Chunker.swift, doing the `Range(node.range, in:)` guard + `String(source[range])` conversion once. `extractText(of:in:)` now delegates to it (`extractTextAndRange(of: node, in: source)?.text`). `makeChunk` now calls it via `guard let (text, range) = extractTextAndRange(of: node, in: file.contents) else { return nil }` and reuses the returned `range` for the `startByte`/`endByte` UTF-8 distance math instead of computing `Range(node.range, in:)` a second time.
+
+    Grepped both Chunker.swift and TreeSitterWorker.swift for other Range/String-conversion near-duplicates per the task instructions — none found; the only remaining `Range(node.range, in:)` call site is inside the new shared helper itself, and TreeSitterWorker.swift has no matching pattern at all.
+
+    Verification: `swift build` exit 0 (only the pre-existing unrelated mlx-swift_Cmlx.bundle warning, unchanged). Full `swift test`: 179/179 tests pass across 12 suites, 0 failures — including ChunkerTests and TreeSitterWorkerTests suites specifically (both reported "passed"), so the byte-offset/UTF-8 correctness tests (non-ASCII fixtures) are still green after reusing the computed range. Spawned the double-check agent adversarially against the diff: verdict PASS, no residual duplication, no doc drift, tuple-destructuring guard-let syntax confirmed valid and no aliasing/staleness risk since `file.contents` is an immutable `let`.
+
+    Leaving task in doing for review per /implement workflow.
+  timestamp: 2026-07-03T03:26:26.020168+00:00
 depends_on:
 - 01KWJ3QTH53M16194BCTX6MKVP
 - 01KWJ3PSVZTXYZDX1ASZ3GN09M
@@ -44,3 +55,7 @@ Create `Sources/CodeContextKit/TreeSitter/Chunker.swift` + `Sources/CodeContextK
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
+
+## Review Findings (2026-07-02 22:17)
+
+- [x] `Sources/CodeContextKit/TreeSitter/Chunker.swift:143` — `makeChunk` duplicates the logic of `extractText`: both perform the identical Range extraction and String conversion from a node, differing only in variable names (`stringRange`/`range`, `file.contents`/`source`). This is near-verbatim duplication that violates DRY — two blocks differing only by variable renaming should be one parameterized function. Extract a shared helper `extractTextAndRange(of:in:)` returning `(text: String, range: Range<String.Index>)?`. Have both `makeChunk` and `extractText` call it, eliminating the guard+conversion duplication and allowing `makeChunk` to reuse the range for byte-offset calculation without calling Range twice.

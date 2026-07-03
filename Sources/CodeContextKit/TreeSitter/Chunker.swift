@@ -200,13 +200,12 @@ public enum Chunker {
         file: SourceFile,
         module: any LanguageModule.Type
     ) -> SemanticChunk? {
-        guard let stringRange = Range(node.range, in: file.contents) else {
+        guard let (text, range) = extractTextAndRange(of: node, in: file.contents) else {
             return nil
         }
 
-        let text = String(file.contents[stringRange])
-        let startByte = file.contents.utf8.distance(from: file.contents.startIndex, to: stringRange.lowerBound)
-        let endByte = file.contents.utf8.distance(from: file.contents.startIndex, to: stringRange.upperBound)
+        let startByte = file.contents.utf8.distance(from: file.contents.startIndex, to: range.lowerBound)
+        let endByte = file.contents.utf8.distance(from: file.contents.startIndex, to: range.upperBound)
         let names = collectSymbolNames(node: node, file: file, module: module)
         let symbolPath = names.isEmpty ? (node.nodeType ?? "") : names.joined(separator: symbolPathSeparator)
 
@@ -315,9 +314,23 @@ public enum Chunker {
     /// Extracts `node`'s source text via its UTF-16-based `range`, converted
     /// to a `String` range against `source`.
     private static func extractText(of node: Node, in source: String) -> String? {
+        extractTextAndRange(of: node, in: source)?.text
+    }
+
+    /// Resolves `node`'s UTF-16-based `range` to a `String` range against
+    /// `source`, and extracts the text it spans.
+    ///
+    /// Shared by `makeChunk` (which also needs the `String.Index` range for
+    /// its UTF-8 byte-offset math) and `extractText` (which only needs the
+    /// text), so the two don't each reimplement the same
+    /// `Range(node.range, in:)` conversion and `nil`-on-failure guard.
+    private static func extractTextAndRange(
+        of node: Node,
+        in source: String
+    ) -> (text: String, range: Range<String.Index>)? {
         guard let range = Range(node.range, in: source) else {
             return nil
         }
-        return String(source[range])
+        return (String(source[range]), range)
     }
 }
