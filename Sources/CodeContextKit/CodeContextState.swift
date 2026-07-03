@@ -159,11 +159,11 @@ public final class CodeContextState {
     /// The consecutive-failure count past which a `.failed` daemon state is considered
     /// permanently settled rather than still being retried.
     ///
-    /// Mirrors `LspDaemon`'s private backoff give-up threshold (5, documented in plan.md's LSP
+    /// Mirrors `LSPDaemon`'s private backoff give-up threshold (5, documented in plan.md's LSP
     /// subsystem section: "giving up after 5 consecutive failures"). Duplicated here rather than
-    /// shared because `LspDaemon` never exposes that threshold — it's an internal detail of its
+    /// shared because `LSPDaemon` never exposes that threshold — it's an internal detail of its
     /// own retry policy, whereas this is a distinct concern (classifying a snapshot for SwiftUI
-    /// state) that needs the same number without reaching into `LspDaemon`'s private state.
+    /// state) that needs the same number without reaching into `LSPDaemon`'s private state.
     private static let maxConsecutiveFailures = 5
 
     /// Computes `isReady` from an indexing snapshot and a server-status snapshot.
@@ -183,14 +183,14 @@ public final class CodeContextState {
     /// Whether a daemon lifecycle state is settled — the supervisor's health loop will not
     /// spontaneously change it further without external intervention (`forceRestart()`).
     ///
-    /// A `switch`, not a `[LspDaemonState: Bool]` dictionary: `LspDaemonState` is a closed enum
+    /// A `switch`, not a `[LSPDaemonState: Bool]` dictionary: `LSPDaemonState` is a closed enum
     /// colocated with this, its only consumer, so an exhaustive switch turns a missing case into
     /// a compile error instead of a silently-wrong default — the same principle this codebase
     /// applies in `IndexAdmin`'s and `IndexLayer`'s enum-to-value mappings.
     /// - Parameter state: The daemon lifecycle state to classify.
     /// - Returns: `true` for `.running` and `.notFound`, `true` for `.failed` once `attempts` has
     ///   reached `maxConsecutiveFailures`, and `false` for every other state.
-    private static func isSettled(_ state: LspDaemonState) -> Bool {
+    private static func isSettled(_ state: LSPDaemonState) -> Bool {
         switch state {
         case .running, .notFound:
             true

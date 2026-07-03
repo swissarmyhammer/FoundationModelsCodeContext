@@ -229,7 +229,7 @@ struct ConnectionTests {
         let connection = try Self.makeConnection(steps: steps)
 
         // The drain loop runs on its own detached task, so the write is captured
-        // asynchronously; poll with a bounded budget (60s, matching `LspDaemon`'s own
+        // asynchronously; poll with a bounded budget (60s, matching `LSPDaemon`'s own
         // healthCheckInterval as this codebase's convention for "generous room for real
         // subprocess work") rather than assuming the write has already happened by the time
         // this line runs. A `swift <script>` interpreter cold start is normally well under a

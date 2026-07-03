@@ -15,7 +15,7 @@ struct LspSupervisorTests {
     // MARK: - Fixtures
 
     /// Builds a `ServerSpec` for tests. `command` defaults to `"true"` — a real, near-instant Unix
-    /// utility — so `LspDaemon`'s `$PATH` lookup (not mockable; a genuine filesystem check)
+    /// utility — so `LSPDaemon`'s `$PATH` lookup (not mockable; a genuine filesystem check)
     /// succeeds on every test runner without actually being spawned: the connection factory always
     /// substitutes a `FakeLanguageServerConnection` before any real process would be launched.
     private static func serverSpec(
@@ -35,7 +35,7 @@ struct LspSupervisorTests {
     private static let workspaceRoot = URL(fileURLWithPath: "/tmp/lsp-supervisor-tests")
 
     // `ProcessState` and `fakeConnectionFactory` live in `Support/FakeDaemonProcess.swift`, shared
-    // with `LspDaemonTests`.
+    // with `LSPDaemonTests`.
 
     /// Polls `predicate` at 1ms real-time intervals until it returns `true` or `timeout` elapses.
     ///
@@ -171,7 +171,7 @@ struct LspSupervisorTests {
     func sessionRoutesTypeScriptAndTSXExtensionsToTheSameSession() async throws {
         let clock = ManualClock()
         let processState = ProcessState()
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(command: "true"),
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
@@ -226,7 +226,7 @@ struct LspSupervisorTests {
     func anySessionReturnsARunningDaemonsSession() async throws {
         let clock = ManualClock()
         let processState = ProcessState()
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(command: "true"),
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
@@ -256,13 +256,13 @@ struct LspSupervisorTests {
         let healthySpec = Self.serverSpec(command: "true", healthCheckInterval: .seconds(30))
         let deadSpec = Self.serverSpec(command: "false", healthCheckInterval: .seconds(30))
 
-        let healthyDaemon = LspDaemon<FakeLanguageServerConnection>(
+        let healthyDaemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: healthySpec,
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
             connectionFactory: fakeConnectionFactory(pid: 1, processState: healthyProcess)
         )
-        let deadDaemon = LspDaemon<FakeLanguageServerConnection>(
+        let deadDaemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: deadSpec,
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
@@ -328,7 +328,7 @@ struct LspSupervisorTests {
     func forceRestartDelegatesToTheManagedDaemon() async throws {
         let clock = ManualClock()
         let processState = ProcessState()
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(command: "true"),
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
@@ -364,13 +364,13 @@ struct LspSupervisorTests {
         let clock = ManualClock()
         let processStateA = ProcessState()
         let processStateB = ProcessState()
-        let daemonA = LspDaemon<FakeLanguageServerConnection>(
+        let daemonA = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(command: "true"),
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
             connectionFactory: fakeConnectionFactory(pid: 1, processState: processStateA)
         )
-        let daemonB = LspDaemon<FakeLanguageServerConnection>(
+        let daemonB = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(command: "false"),
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
@@ -423,7 +423,7 @@ struct LspSupervisorTests {
             )
         }
 
-        let deadDaemon = LspDaemon<GatedConnection>(
+        let deadDaemon = LSPDaemon<GatedConnection>(
             spec: deadSpec,
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
@@ -518,7 +518,7 @@ private actor RestartGate {
 
 /// A `LanguageServerConnection` whose `initialize(rootURI:)` suspends on a `RestartGate` before
 /// forwarding to an inner `FakeLanguageServerConnection`. Every other requirement forwards
-/// directly, mirroring `LspDaemonTests`' `HangingInitializeConnection`.
+/// directly, mirroring `LSPDaemonTests`' `HangingInitializeConnection`.
 private actor GatedConnection: LanguageServerConnection {
     private let inner = FakeLanguageServerConnection()
     private let gate: RestartGate

@@ -22,6 +22,23 @@ comments:
 
     Leaving task in `doing` for review per /implement workflow.
   timestamp: 2026-07-03T20:29:23.500273+00:00
+- actor: wballard
+  id: 01kwmvjkfty5kgssfmd2ycpk9e
+  text: |-
+    Addressed both review findings: renamed `LspDaemonState` → `LSPDaemonState` and `LspDaemon` → `LSPDaemon` in Sources/CodeContextKit/LSP/LspDaemon.swift, matching the LSPTypes.swift/LSPRange acronym-casing precedent.
+
+    Scope followed exactly as specified — only these two types, not a full Lsp→LSP sweep:
+    - File renamed: Sources/CodeContextKit/LSP/LspDaemon.swift → LSPDaemon.swift (git mv, preserves history)
+    - Test file renamed: Tests/CodeContextKitTests/LspDaemonTests.swift → LSPDaemonTests.swift (git mv)
+    - Test suite renamed: `struct LspDaemonTests` → `struct LSPDaemonTests` (follows this codebase's existing convention where the test suite name matches its type under test, e.g. LspSupervisorTests tests LspSupervisor)
+    - Every reference to `LspDaemon`/`LspDaemonState` updated across both source and comments in: LSPDaemon.swift, LspSupervisor.swift (references only — LspSupervisor itself NOT renamed, out of scope), CodeContextState.swift, ProcessLanguageServerConnection.swift (doc comments), LSPDaemonTests.swift, LspSupervisorTests.swift (references + a doc comment mentioning the test suite name), ConnectionTests.swift (doc comment), Support/FakeDaemonProcess.swift (doc comments)
+    - Confirmed untouched (correctly out of scope): LspSession, LspSupervisor, LSPTypes.swift/Wire.swift, and the `/tmp/lsp-daemon-tests` fixture path string (an arbitrary filesystem path, not a type reference)
+    - plan.md's mention of `LspDaemon` was left alone — it documents the original Rust `swissarmyhammer-lsp` source type this Swift code ports, not the Swift declaration itself, and is outside the Sources/Tests scope this finding specified
+
+    Verification: `swift build` — clean, exit 0 (only the pre-existing unrelated mlx-swift bundle warning). `swift test` — 354/354 tests pass across 29 suites, including the renamed `LSPDaemonTests` suite specifically confirmed passing.
+
+    Both checklist items flipped to `- [x]`. Leaving in `doing` for review per /implement workflow.
+  timestamp: 2026-07-03T20:43:57.818581+00:00
 depends_on:
 - 01KWJ3VY63EM20R393B7REJSFY
 - 01KWJ3S2AJFZPWWXRTKSQC3TW7
@@ -29,17 +46,4 @@ position_column: doing
 position_ordinal: '80'
 title: 'CodeContextState: @Observable unified state'
 ---
-## What
-Create `Sources/CodeContextKit/CodeContextState.swift` — the `@MainActor @Observable` class per plan.md: `rootDirectory`, `projects: [DetectedProject]`, `servers: [ServerStatus]`, `indexing: IndexProgress` (walked/parsed/embedded/lsp-indexed counts per layer), `diagnostics: [DocumentURI: [Diagnostic]]`, `isReady`. Internal publisher API (nonisolated funcs hopping to MainActor) that the workers, supervisor health loop, and session diagnostics streams call. `isReady` derives from all-layers-drained + all-servers-settled (running / notFound / permanently failed).
-
-## Acceptance Criteria
-- [ ] Publishing a daemon state change updates `servers` on the main actor; SwiftUI observation fires (verified via `withObservationTracking`)
-- [ ] `isReady` flips true only when index counts are drained AND every server is settled
-- [ ] Diagnostics publish replaces per-URI arrays, not appends
-
-## Tests
-- [ ] `Tests/CodeContextKitTests/CodeContextStateTests.swift`: publisher → main-actor mutation, observation firing via withObservationTracking, isReady truth table, per-URI replacement
-- [ ] Run `swift test --filter CodeContextStateTests` → all pass
-
-## Workflow
-- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\n Create `Sources/CodeContextKit/CodeContextState.swift` — the `@MainActor @Observable` class per plan.md: `rootDirectory`, `projects: [DetectedProject]`, `servers: [ServerStatus]`, `indexing: IndexProgress` (walked/parsed/embedded/lsp-indexed counts per layer), `diagnostics: [DocumentURI: [Diagnostic]]`, `isReady`. Internal publisher API (nonisolated funcs hopping to MainActor) that the workers, supervisor health loop, and session diagnostics streams call. `isReady` derives from all-layers-drained + all-servers-settled (running / notFound / permanently failed).\n\n## Acceptance Criteria\n- [x] Publishing a daemon state change updates `servers` on the main actor; SwiftUI observation fires (verified via `withObservationTracking`)\n- [x] `isReady` flips true only when index counts are drained AND every server is settled\n- [x] Diagnostics publish replaces per-URI arrays, not appends\n\n## Tests\n- [x] `Tests/CodeContextKitTests/CodeContextStateTests.swift`: publisher → main-actor mutation, observation firing via withObservationTracking, isReady truth table, per-URI replacement\n- [x] Run `swift test --filter CodeContextStateTests` → all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Review Findings (2026-07-03 15:33)\n\nScope: HEAD~1..HEAD (commit 5e86e2b, which bumped `LspDaemonState` to public visibility for `CodeContextState.servers`). Verified via `git diff` that the flagged declaration line was touched by this commit (public added), so this is in scope despite the type name predating this commit.\n\n- [x] `Sources/CodeContextKit/LSP/LspDaemon.swift:6` — Acronym LSP at the start of an UpperCamelCase name must be all-caps as a unit, not mixed-case (`LspDaemonState` → `LSPDaemonState`), matching the existing `LSPTypes.swift`/`LSPRange` precedent already established elsewhere in this subsystem.\n- [x] `Sources/CodeContextKit/LSP/LspDaemon.swift:63` — Same acronym-casing issue on `LspDaemon` itself → `LSPDaemon`.\n\nNote: this finding is scoped to just these two types in this file, not a full Lsp→LSP sweep of LspSession/LspSupervisor/etc. — those are out of scope for this finding.

@@ -5,7 +5,7 @@ import Foundation
 /// A single mutable value shared between a test and a `@Sendable` closure (e.g. a `ConnectionFactory`
 /// or a test-only hook). Plain captured `var`s can't be mutated or read from inside `@Sendable`
 /// closures that cross an actor boundary; this actor-isolates the box instead. Shared by
-/// `LspDaemonTests` and `LspSupervisorTests`.
+/// `LSPDaemonTests` and `LspSupervisorTests`.
 actor Box<Value: Sendable> {
     /// The boxed value.
     var value: Value
@@ -20,7 +20,7 @@ actor Box<Value: Sendable> {
 }
 
 /// An actor-isolated counter for tests to verify how many times an operation ran, without racing
-/// on a plain `var` from concurrent `@Sendable` closures. Shared by `LspDaemonTests` and
+/// on a plain `var` from concurrent `@Sendable` closures. Shared by `LSPDaemonTests` and
 /// `LspSupervisorTests`.
 actor Counter {
     /// The current count.
@@ -38,8 +38,8 @@ actor Counter {
 /// Tracks the liveness of one fake "process" for a `ConnectionFactory` to read/drive: whether
 /// it's alive, how many times it has been force-terminated, and whether `waitForExit()` should
 /// resolve immediately (a cooperative process) or hang until cancelled (an unresponsive one the
-/// daemon/supervisor must kill after a grace period). Shared by `LspDaemonTests` and
-/// `LspSupervisorTests` so both drive `LspDaemon`'s process-level hooks
+/// daemon/supervisor must kill after a grace period). Shared by `LSPDaemonTests` and
+/// `LspSupervisorTests` so both drive `LSPDaemon`'s process-level hooks
 /// (`isAlive`/`waitForExit`/`terminate`) through one fixture instead of two near-identical copies.
 actor ProcessState {
     /// Whether the fake process currently reports itself alive.
@@ -65,7 +65,7 @@ actor ProcessState {
         isAlive = alive
     }
 
-    /// Records a forced termination, as `LspDaemon` would trigger after an unresponsive shutdown or
+    /// Records a forced termination, as `LSPDaemon` would trigger after an unresponsive shutdown or
     /// a handshake timeout.
     func markTerminated() {
         terminateCount += 1
@@ -80,7 +80,7 @@ actor ProcessState {
             return
         }
         // Simulate an unresponsive process: this only ever returns via cancellation, which
-        // `LspDaemon.shutdown()` triggers once the grace-period sleep wins the race. Real
+        // `LSPDaemon.shutdown()` triggers once the grace-period sleep wins the race. Real
         // wall-clock duration is irrelevant here since it is always cancelled almost immediately
         // in a passing test — only the manually-driven clock controls timing.
         try? await Task.sleep(for: .seconds(3600))
@@ -89,7 +89,7 @@ actor ProcessState {
 
 /// Builds a `ConnectionFactory` that hands back a fresh `FakeLanguageServerConnection` on every
 /// call, wired to `processState` for its `isAlive`/`waitForExit`/`terminate` hooks. Shared by
-/// `LspDaemonTests` and `LspSupervisorTests`.
+/// `LSPDaemonTests` and `LspSupervisorTests`.
 /// - Parameters:
 ///   - pid: The pid to report via the returned handle.
 ///   - processState: The shared liveness tracker the daemon's health/shutdown hooks read.

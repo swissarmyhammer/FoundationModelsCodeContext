@@ -11,26 +11,26 @@ public struct ServerStatus: Sendable, Equatable {
     public let command: String
 
     /// The daemon's lifecycle state at the moment `status()` was called.
-    public let state: LspDaemonState
+    public let state: LSPDaemonState
 
     /// Creates a server status snapshot.
     /// - Parameters:
     ///   - command: The server executable this status describes.
     ///   - state: The daemon's lifecycle state at the moment of the snapshot.
-    public init(command: String, state: LspDaemonState) {
+    public init(command: String, state: LSPDaemonState) {
         self.command = command
         self.state = state
     }
 }
 
-/// Manages the fleet of `LspDaemon`s for one workspace: project detection, one daemon per unique
+/// Manages the fleet of `LSPDaemon`s for one workspace: project detection, one daemon per unique
 /// server command, a periodic per-daemon health loop, and coordinated shutdown.
 ///
 /// Ports `swissarmyhammer-lsp`'s `LspSupervisorManager`, minus leader election — out of scope for
 /// this Swift port (see plan.md's LSP subsystem). `start()` runs
 /// `ProjectDetection.detectProjects(rootDirectory:)` against the workspace root, collects
 /// `ServerSpec`s deduped by command via `ProjectDetection.serverSpecs(for:)`, and spawns one
-/// `LspDaemon<Connection>` per spec not already managed, all sharing this supervisor's
+/// `LSPDaemon<Connection>` per spec not already managed, all sharing this supervisor's
 /// `connectionFactory` and `clock` and all bound to the same workspace root as `rootUri`. Every
 /// newly started daemon also gets its own repeating health-check task, paced by that daemon's own
 /// `ServerSpec.healthCheckInterval`, that calls `healthCheck()` and — mirroring
@@ -41,7 +41,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// health-check task.
     private struct ManagedDaemon {
         /// The daemon this entry manages.
-        let daemon: LspDaemon<Connection>
+        let daemon: LSPDaemon<Connection>
 
         /// The spec this daemon was built from, supplying the health loop's pacing interval.
         let spec: ServerSpec
@@ -62,14 +62,14 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// Every daemon this supervisor manages, keyed by `ServerSpec.command`.
     private var managedDaemons: [String: ManagedDaemon] = [:]
 
-    /// Test-only hook invoked once per `LspDaemon` this supervisor constructs in
+    /// Test-only hook invoked once per `LSPDaemon` this supervisor constructs in
     /// `spawnDaemons(for:)`, right after construction and before that daemon's own `start()` is
     /// attempted — regardless of whether the `$PATH` lookup inside `start()` ultimately succeeds.
     ///
-    /// Test-only seam, mirroring `LspDaemon`'s `setShutdownGrace`: lets a test count or otherwise
+    /// Test-only seam, mirroring `LSPDaemon`'s `setShutdownGrace`: lets a test count or otherwise
     /// observe daemon-construction attempts (e.g. to verify `start()`'s coalescing under genuinely
     /// concurrent callers) without depending on a real, installed language-server binary — unlike
-    /// `connectionFactory`, which `LspDaemon.start()` only calls once its `$PATH` lookup succeeds.
+    /// `connectionFactory`, which `LSPDaemon.start()` only calls once its `$PATH` lookup succeeds.
     private var daemonConstructedHookForTesting: (@Sendable (ServerSpec) -> Void)?
 
     /// The in-flight `start()` spawn round, if one is running.
@@ -140,7 +140,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     ///   - spec: The spec identifying the daemon by `spec.command` and supplying its health-check
     ///     interval.
     ///   - daemon: The daemon to manage.
-    private func registerManagedDaemon(spec: ServerSpec, daemon: LspDaemon<Connection>) {
+    private func registerManagedDaemon(spec: ServerSpec, daemon: LSPDaemon<Connection>) {
         managedDaemons[spec.command] = ManagedDaemon(
             daemon: daemon,
             spec: spec,
@@ -162,23 +162,23 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         }
     }
 
-    /// Builds one `LspDaemon` per spec and starts every one of them concurrently.
+    /// Builds one `LSPDaemon` per spec and starts every one of them concurrently.
     ///
     /// Each daemon's `start()` failure is logged but never rethrown: a missing binary or a failed
     /// handshake for one server must not prevent the other servers in `specs` from starting, and
     /// the failure remains visible via that daemon's own state.
     /// - Parameter specs: The specs to build and start daemons for.
-    /// - Returns: One `(ServerSpec, LspDaemon<Connection>)` pair per spec, in no particular order.
-    private func spawnDaemons(for specs: [ServerSpec]) async -> [(ServerSpec, LspDaemon<Connection>)] {
+    /// - Returns: One `(ServerSpec, LSPDaemon<Connection>)` pair per spec, in no particular order.
+    private func spawnDaemons(for specs: [ServerSpec]) async -> [(ServerSpec, LSPDaemon<Connection>)] {
         let root = workspaceRoot
         let daemonClock = clock
         let factory = connectionFactory
         let constructedHook = daemonConstructedHookForTesting
 
-        return await withTaskGroup(of: (ServerSpec, LspDaemon<Connection>).self) { group in
+        return await withTaskGroup(of: (ServerSpec, LSPDaemon<Connection>).self) { group in
             for spec in specs {
                 group.addTask {
-                    let daemon = LspDaemon<Connection>(
+                    let daemon = LSPDaemon<Connection>(
                         spec: spec,
                         workspaceRoot: root,
                         clock: daemonClock,
@@ -195,7 +195,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
                     return (spec, daemon)
                 }
             }
-            var results: [(ServerSpec, LspDaemon<Connection>)] = []
+            var results: [(ServerSpec, LSPDaemon<Connection>)] = []
             for await result in group {
                 results.append(result)
             }
@@ -217,7 +217,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     private func startHealthLoop(
         command: String,
         spec: ServerSpec,
-        daemon: LspDaemon<Connection>
+        daemon: LSPDaemon<Connection>
     ) -> Task<Void, Never> {
         let daemonClock = clock
         return Task {
@@ -348,7 +348,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// Installs (or clears) `daemonConstructedHookForTesting`.
     ///
     /// Test-only seam; see `daemonConstructedHookForTesting`'s documentation.
-    /// - Parameter hook: Called once per `LspDaemon` this supervisor constructs, with the spec it
+    /// - Parameter hook: Called once per `LSPDaemon` this supervisor constructs, with the spec it
     ///   was built from. Pass `nil` to remove a previously installed hook.
     func setDaemonConstructedHookForTesting(_ hook: (@Sendable (ServerSpec) -> Void)?) {
         daemonConstructedHookForTesting = hook
@@ -368,7 +368,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     ///   - spec: The spec identifying the daemon by `spec.command` and supplying its health-check
     ///     interval.
     ///   - daemon: The daemon to manage.
-    func insertDaemonForTesting(spec: ServerSpec, daemon: LspDaemon<Connection>) {
+    func insertDaemonForTesting(spec: ServerSpec, daemon: LSPDaemon<Connection>) {
         // Cancel any prior entry's health-loop task under this command first, mirroring `start()`'s
         // own dedupe-by-command guard: overwriting a managed entry must never leak the health-loop
         // task it displaces.
@@ -384,7 +384,7 @@ extension LspSupervisor where Connection == ProcessLanguageServerConnection {
     ///   - clock: The clock every managed daemon and this supervisor's health loops sleep against.
     ///     Defaults to `ContinuousClock()`.
     /// - Returns: A supervisor whose `connectionFactory` spawns real child processes via
-    ///   `LspDaemon.processConnectionFactory(clock:)`.
+    ///   `LSPDaemon.processConnectionFactory(clock:)`.
     static func production(
         workspaceRoot: URL,
         clock: any Clock<Duration> = ContinuousClock()
@@ -392,7 +392,7 @@ extension LspSupervisor where Connection == ProcessLanguageServerConnection {
         LspSupervisor(
             workspaceRoot: workspaceRoot,
             clock: clock,
-            connectionFactory: LspDaemon<ProcessLanguageServerConnection>.processConnectionFactory(clock: clock)
+            connectionFactory: LSPDaemon<ProcessLanguageServerConnection>.processConnectionFactory(clock: clock)
         )
     }
 }

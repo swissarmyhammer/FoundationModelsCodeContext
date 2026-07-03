@@ -60,7 +60,7 @@ private final class PendingRequestTable: @unchecked Sendable {
 /// Thread-safe bounded tail of a child process's stderr output.
 ///
 /// Fed from `runStderrDrainLoop`, which already reads stderr chunks outside actor isolation to
-/// log them at `.debug`; this buffer captures the same chunks so `LspDaemon` can enrich a
+/// log them at `.debug`; this buffer captures the same chunks so `LSPDaemon` can enrich a
 /// handshake-failure error with whatever the server printed before it died. A plain
 /// `NSLock`-guarded class rather than actor state, matching `PendingRequestTable` above: it must
 /// be readable from `recentStderrTail()` without an actor hop, since callers building an error
@@ -198,7 +198,7 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// `child.kill()` guarantee that a process this connection owns is reaped, not merely asked
     /// to leave — a server that traps or ignores `SIGTERM` would otherwise survive `close()`
     /// indefinitely. Any "ask nicely first" grace period is the caller's responsibility (the
-    /// JSON-RPC `shutdown`/`exit` dance plus the grace-period wait `LspDaemon.shutdown()`
+    /// JSON-RPC `shutdown`/`exit` dance plus the grace-period wait `LSPDaemon.shutdown()`
     /// performs before ever reaching this call), not this method's. Once the process actually
     /// exits, its write end of the stdout/stderr pipes closes, which is what stops the reader and
     /// stderr-drain loops: they read via a blocking raw `read(2)` call outside actor isolation,
@@ -226,11 +226,11 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
         notificationContinuation.finish()
     }
 
-    // MARK: - Process-level hooks for LspDaemon
+    // MARK: - Process-level hooks for LSPDaemon
 
     /// Reports whether the child process is still running.
     ///
-    /// Backs the `isAlive` hook `LspDaemon.processConnectionFactory()` bundles into a
+    /// Backs the `isAlive` hook `LSPDaemon.processConnectionFactory()` bundles into a
     /// `ConnectionHandle`, so the daemon's `healthCheck()` can detect an unexpected exit.
     /// - Returns: `true` if the process has not exited; `false` once it has.
     func isRunning() -> Bool {
@@ -249,7 +249,7 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
 
     /// A best-effort tail of the child process's recent stderr output.
     ///
-    /// Backs the `stderrTail` hook `LspDaemon.processConnectionFactory()` bundles into a
+    /// Backs the `stderrTail` hook `LSPDaemon.processConnectionFactory()` bundles into a
     /// `ConnectionHandle`, so a handshake-failure error can be enriched with whatever the server
     /// printed before it died.
     /// - Returns: The most recently captured stderr chunks, oldest first, or an empty string if

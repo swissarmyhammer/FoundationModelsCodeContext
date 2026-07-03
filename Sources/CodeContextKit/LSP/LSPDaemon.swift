@@ -1,12 +1,12 @@
 import Foundation
 
-/// The lifecycle state of one `LspDaemon`-managed language-server process.
+/// The lifecycle state of one `LSPDaemon`-managed language-server process.
 ///
-/// Ports `swissarmyhammer-lsp`'s `types::LspDaemonState` as a Swift enum observed via
-/// `LspDaemon.stateUpdates`. Every state below can transition into `.failed` (an unexpected
+/// Ports `swissarmyhammer-lsp`'s `types::LSPDaemonState` as a Swift enum observed via
+/// `LSPDaemon.stateUpdates`. Every state below can transition into `.failed` (an unexpected
 /// exit, a spawn failure, or a handshake failure/timeout), and every state but `.notStarted`
 /// can be reached again via a restart.
-public enum LspDaemonState: Sendable, Equatable {
+public enum LSPDaemonState: Sendable, Equatable {
     /// The daemon has never been started, or has completed a graceful `shutdown()`.
     case notStarted
 
@@ -27,13 +27,13 @@ public enum LspDaemonState: Sendable, Equatable {
     case shuttingDown
 }
 
-/// The process-level hooks `LspDaemon` needs for one spawned connection, beyond what
+/// The process-level hooks `LSPDaemon` needs for one spawned connection, beyond what
 /// `LanguageServerConnection` exposes.
 ///
 /// `LanguageServerConnection` is scoped to LSP-capability requests only (per plan.md's LSP
 /// subsystem design), so every concrete connection — including the in-memory
 /// `FakeLanguageServerConnection` tests program against — stays free of process-management
-/// concerns. `LspDaemon` needs those concerns anyway: a pid to report in `.running(pid:)`, a way
+/// concerns. `LSPDaemon` needs those concerns anyway: a pid to report in `.running(pid:)`, a way
 /// to detect an unexpected exit, a way to wait for a graceful exit, and a way to force-terminate
 /// a hung handshake or an unresponsive shutdown. A `ConnectionFactory` bundles them into this
 /// handle alongside the connection itself, so tests can control each hook independently of the
@@ -42,7 +42,7 @@ struct ConnectionHandle<Connection: LanguageServerConnection>: Sendable {
     /// The live connection, handed to the daemon's `LspSession`.
     let connection: Connection
 
-    /// The child process id, reported in `LspDaemonState.running(pid:)`.
+    /// The child process id, reported in `LSPDaemonState.running(pid:)`.
     let pid: Int32
 
     /// Reports whether the underlying process is still alive.
@@ -58,10 +58,10 @@ struct ConnectionHandle<Connection: LanguageServerConnection>: Sendable {
     let stderrTail: @Sendable () async -> String
 
     /// Creates a connection handle bundling a live connection with the process-level hooks
-    /// `LspDaemon` needs beyond the `LanguageServerConnection` protocol.
+    /// `LSPDaemon` needs beyond the `LanguageServerConnection` protocol.
     /// - Parameters:
     ///   - connection: The live connection, handed to the daemon's `LspSession`.
-    ///   - pid: The child process id, reported in `LspDaemonState.running(pid:)`.
+    ///   - pid: The child process id, reported in `LSPDaemonState.running(pid:)`.
     ///   - isAlive: Reports whether the underlying process is still alive.
     ///   - waitForExit: Suspends until the underlying process exits, returning immediately if it
     ///     already has.
@@ -87,8 +87,8 @@ struct ConnectionHandle<Connection: LanguageServerConnection>: Sendable {
 
 /// Spawns one language-server connection for a `ServerSpec`, bound to a workspace root.
 ///
-/// Injected into `LspDaemon` so it never spawns a real process under test: production code
-/// supplies `LspDaemon.processConnectionFactory()`; tests supply a factory that wraps
+/// Injected into `LSPDaemon` so it never spawns a real process under test: production code
+/// supplies `LSPDaemon.processConnectionFactory()`; tests supply a factory that wraps
 /// `FakeLanguageServerConnection` with test-controlled `isAlive`/`waitForExit`/`terminate` hooks.
 typealias ConnectionFactory<Connection: LanguageServerConnection> = @Sendable (
     ServerSpec, URL
@@ -97,16 +97,16 @@ typealias ConnectionFactory<Connection: LanguageServerConnection> = @Sendable (
 /// Owns the lifecycle of one LSP server child process: spawning, the `initialize`/`initialized`
 /// handshake, health-check-driven auto-restart with exponential backoff, and graceful shutdown.
 ///
-/// Ports `swissarmyhammer-lsp`'s `daemon::LspDaemon` as a Swift actor generic over the
+/// Ports `swissarmyhammer-lsp`'s `daemon::LSPDaemon` as a Swift actor generic over the
 /// `LanguageServerConnection` it drives — production code instantiates
-/// `LspDaemon<ProcessLanguageServerConnection>` via `processConnectionFactory()`; tests
-/// instantiate `LspDaemon<FakeLanguageServerConnection>` with a connection factory under full
+/// `LSPDaemon<ProcessLanguageServerConnection>` via `processConnectionFactory()`; tests
+/// instantiate `LSPDaemon<FakeLanguageServerConnection>` with a connection factory under full
 /// control, per plan.md's LSP subsystem design. State transitions
 /// (`notStarted → starting → running(pid) → failed(reason, attempts) → shuttingDown`, plus
 /// `notFound`) are observable via `stateUpdates`. This actor does not run its own timers: health
 /// checks and the restart cadence are driven by an external caller (the forthcoming
 /// `LspSupervisor`) calling `healthCheck()` and `restartWithBackoff()`.
-actor LspDaemon<Connection: LanguageServerConnection> {
+actor LSPDaemon<Connection: LanguageServerConnection> {
     /// Consecutive failures allowed before `restartWithBackoff()` refuses to retry further.
     private static var maxConsecutiveFailures: Int { 5 }
 
@@ -145,16 +145,16 @@ actor LspDaemon<Connection: LanguageServerConnection> {
     private var shutdownGrace: Duration
 
     /// The daemon's current lifecycle state.
-    private var currentState: LspDaemonState = .notStarted {
+    private var currentState: LSPDaemonState = .notStarted {
         didSet { stateContinuation.yield(currentState) }
     }
 
     /// The write side of `stateUpdates`.
-    private let stateContinuation: AsyncStream<LspDaemonState>.Continuation
+    private let stateContinuation: AsyncStream<LSPDaemonState>.Continuation
 
     /// A single-consumer stream of every state transition this daemon makes from the moment of
     /// construction onward, mirroring `ProcessLanguageServerConnection`'s `serverNotifications`.
-    nonisolated let stateUpdates: AsyncStream<LspDaemonState>
+    nonisolated let stateUpdates: AsyncStream<LSPDaemonState>
 
     /// Creates a daemon for `spec`, bound to `workspaceRoot`, that spawns connections via
     /// `connectionFactory`.
@@ -176,7 +176,7 @@ actor LspDaemon<Connection: LanguageServerConnection> {
         self.clock = clock
         self.connectionFactory = connectionFactory
         self.shutdownGrace = Self.defaultShutdownGrace
-        let (stream, continuation) = AsyncStream.makeStream(of: LspDaemonState.self)
+        let (stream, continuation) = AsyncStream.makeStream(of: LSPDaemonState.self)
         self.stateUpdates = stream
         self.stateContinuation = continuation
     }
@@ -192,8 +192,8 @@ actor LspDaemon<Connection: LanguageServerConnection> {
     }
 
     /// A snapshot of the daemon's current lifecycle state.
-    /// - Returns: The current `LspDaemonState`.
-    func state() -> LspDaemonState {
+    /// - Returns: The current `LSPDaemonState`.
+    func state() -> LSPDaemonState {
         currentState
     }
 
@@ -205,7 +205,7 @@ actor LspDaemon<Connection: LanguageServerConnection> {
 
     /// The session driving the current connection, if the server is running.
     ///
-    /// Unlike `swissarmyhammer-lsp`'s `LspDaemon::session`, which keeps one `LspSession` alive
+    /// Unlike `swissarmyhammer-lsp`'s `LSPDaemon::session`, which keeps one `LspSession` alive
     /// for the daemon's whole lifetime over a swappable client handle, this port builds a fresh
     /// `LspSession` on every successful `start()` (one per `Connection` instance, since
     /// `LspSession`'s connection is an immutable `let`). Callers must therefore call `session()`
@@ -453,12 +453,12 @@ actor LspDaemon<Connection: LanguageServerConnection> {
     }
 }
 
-extension LspDaemon where Connection == ProcessLanguageServerConnection {
+extension LSPDaemon where Connection == ProcessLanguageServerConnection {
     /// The production connection factory: spawns a real `ProcessLanguageServerConnection` child
     /// process for the given spec.
     ///
     /// Wires `ProcessLanguageServerConnection`'s pid, liveness, exit-wait, and stderr-tail hooks
-    /// into a `ConnectionHandle` so `LspDaemon` can drive it without knowing about `Process`
+    /// into a `ConnectionHandle` so `LSPDaemon` can drive it without knowing about `Process`
     /// directly. `close()` doubles as the "terminate" hook: it already tears down the process and
     /// every pipe.
     /// - Parameter clock: The clock the spawned connection's own per-request timeout sleeps

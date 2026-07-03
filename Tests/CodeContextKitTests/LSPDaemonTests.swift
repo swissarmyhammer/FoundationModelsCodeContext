@@ -3,7 +3,7 @@ import Testing
 
 @testable import CodeContextKit
 
-/// Tests for `LspDaemon`, driven entirely against `FakeLanguageServerConnection` and a
+/// Tests for `LSPDaemon`, driven entirely against `FakeLanguageServerConnection` and a
 /// `ManualClock` so no real subprocess is ever spawned and no real wall-clock time is ever
 /// waited.
 ///
@@ -12,11 +12,11 @@ import Testing
 /// (tearing down the session's open-document set), restart with exponential backoff (giving up
 /// after 5 consecutive failures), `forceRestart()` resetting the counter, and graceful shutdown
 /// bounded by a grace period with a force-kill fallback.
-struct LspDaemonTests {
+struct LSPDaemonTests {
     // MARK: - Fixtures
 
     /// Builds a `ServerSpec` for tests. `command` defaults to `"true"` — a real, near-instant
-    /// Unix utility — so `LspDaemon`'s `$PATH` lookup (which isn't mockable; it's a genuine
+    /// Unix utility — so `LSPDaemon`'s `$PATH` lookup (which isn't mockable; it's a genuine
     /// filesystem check) succeeds on every test runner without actually being spawned: the
     /// connection factory always substitutes a `FakeLanguageServerConnection` before any real
     /// process would be launched.
@@ -28,7 +28,7 @@ struct LspDaemonTests {
         ServerSpec(command: command, languageIDs: ["fake"], startupTimeout: startupTimeout, installHint: installHint)
     }
 
-    /// A workspace root fixture; `LspDaemon` only uses this to build the `initialize` request's
+    /// A workspace root fixture; `LSPDaemon` only uses this to build the `initialize` request's
     /// `rootUri`, so no real directory needs to exist on disk.
     private static let workspaceRoot = URL(fileURLWithPath: "/tmp/lsp-daemon-tests")
 
@@ -45,7 +45,7 @@ struct LspDaemonTests {
     @Test
     func initialStateIsNotStarted() async {
         let processState = ProcessState()
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
@@ -61,7 +61,7 @@ struct LspDaemonTests {
 
     @Test
     func startFailsWithNotFoundWhenBinaryMissing() async {
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(command: "nonexistent-lsp-binary-abc123xyz"),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
@@ -81,7 +81,7 @@ struct LspDaemonTests {
     @Test
     func startSucceedsAndReachesRunningWithReportedPid() async throws {
         let processState = ProcessState()
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
@@ -104,7 +104,7 @@ struct LspDaemonTests {
         // the only way `performHandshake` can complete.
         let hangingConnection = HangingInitializeConnection()
         let spec = Self.serverSpec(startupTimeout: .seconds(5))
-        let daemon = LspDaemon<HangingInitializeConnection>(
+        let daemon = LSPDaemon<HangingInitializeConnection>(
             spec: spec,
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
@@ -141,7 +141,7 @@ struct LspDaemonTests {
     @Test
     func healthCheckDetectsCrashAndResetsSessionDocuments() async throws {
         let processState = ProcessState()
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
@@ -173,7 +173,7 @@ struct LspDaemonTests {
     @Test
     func healthCheckReturnsFalseWhenNotRunning() async {
         let processState = ProcessState()
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
@@ -189,15 +189,15 @@ struct LspDaemonTests {
 
     @Test
     func backoffDurationMatchesTheDoublingSequenceCappedAtSixty() {
-        #expect(LspDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 0) == .seconds(1))
-        #expect(LspDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 1) == .seconds(2))
-        #expect(LspDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 2) == .seconds(4))
-        #expect(LspDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 3) == .seconds(8))
-        #expect(LspDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 4) == .seconds(16))
-        #expect(LspDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 5) == .seconds(32))
-        #expect(LspDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 6) == .seconds(60))
-        #expect(LspDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 7) == .seconds(60))
-        #expect(LspDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 100) == .seconds(60))
+        #expect(LSPDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 0) == .seconds(1))
+        #expect(LSPDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 1) == .seconds(2))
+        #expect(LSPDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 2) == .seconds(4))
+        #expect(LSPDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 3) == .seconds(8))
+        #expect(LSPDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 4) == .seconds(16))
+        #expect(LSPDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 5) == .seconds(32))
+        #expect(LSPDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 6) == .seconds(60))
+        #expect(LSPDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 7) == .seconds(60))
+        #expect(LSPDaemon<FakeLanguageServerConnection>.backoffDuration(forAttempt: 100) == .seconds(60))
     }
 
     // MARK: - restartWithBackoff()
@@ -208,7 +208,7 @@ struct LspDaemonTests {
         let processState = ProcessState()
         let shouldFailHandshake = Box(false)
 
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
@@ -276,7 +276,7 @@ struct LspDaemonTests {
     @Test
     func forceRestartResetsConsecutiveFailureCount() async throws {
         let processState = ProcessState()
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
@@ -314,7 +314,7 @@ struct LspDaemonTests {
     func shutdownSendsShutdownAndExitAndReachesNotStarted() async throws {
         let processState = ProcessState()
         let capturedConnection = Box<FakeLanguageServerConnection?>(nil)
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
@@ -349,7 +349,7 @@ struct LspDaemonTests {
         let processState = ProcessState()
         await processState.setHangsOnWaitForExit(true)
 
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: clock,
@@ -373,7 +373,7 @@ struct LspDaemonTests {
     @Test
     func shutdownWhenNotStartedIsANoOp() async {
         let processState = ProcessState()
-        let daemon = LspDaemon<FakeLanguageServerConnection>(
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
             spec: Self.serverSpec(),
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
@@ -386,7 +386,7 @@ struct LspDaemonTests {
 }
 
 /// A `LanguageServerConnection` whose `initialize(rootURI:)` never returns, for exercising
-/// `LspDaemon`'s handshake-timeout path deterministically. Every other requirement forwards to an
+/// `LSPDaemon`'s handshake-timeout path deterministically. Every other requirement forwards to an
 /// internal `FakeLanguageServerConnection`, which this test never exercises but must still
 /// implement to satisfy the protocol.
 private actor HangingInitializeConnection: LanguageServerConnection {
