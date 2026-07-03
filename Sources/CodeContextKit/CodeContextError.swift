@@ -31,9 +31,16 @@ public enum CodeContextError: Error, Sendable {
 
     /// An embedding-layer operation failed.
     case embedding(String)
+
+    /// A tree-sitter AST query operation failed.
+    ///
+    /// Covers an unregistered language, a language with no tree-sitter
+    /// grammar, and a query that failed to compile.
+    case query(String)
 }
 
 extension CodeContextError: LocalizedError {
+    /// A human-readable description of the error, suitable for logging or surfacing to a caller.
     public var errorDescription: String? {
         switch self {
         case let .binaryNotFound(command, installHint):
@@ -50,6 +57,8 @@ extension CodeContextError: LocalizedError {
             "storage error: \(reason)"
         case let .embedding(reason):
             "embedding error: \(reason)"
+        case let .query(reason):
+            "query error: \(reason)"
         }
     }
 }

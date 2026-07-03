@@ -200,12 +200,10 @@ public enum Chunker {
         file: SourceFile,
         module: any LanguageModule.Type
     ) -> SemanticChunk? {
-        guard let (text, range) = extractTextAndRange(of: node, in: file.contents) else {
+        guard let (text, startByte, endByte) = extractTextAndRange(of: node, in: file.contents) else {
             return nil
         }
 
-        let startByte = file.contents.utf8.distance(from: file.contents.startIndex, to: range.lowerBound)
-        let endByte = file.contents.utf8.distance(from: file.contents.startIndex, to: range.upperBound)
         let names = collectSymbolNames(node: node, file: file, module: module)
         let symbolPath = names.isEmpty ? (node.nodeType ?? "") : names.joined(separator: symbolPathSeparator)
 
@@ -318,19 +316,28 @@ public enum Chunker {
     }
 
     /// Resolves `node`'s UTF-16-based `range` to a `String` range against
-    /// `source`, and extracts the text it spans.
+    /// `source`, and extracts both the text it spans and its UTF-8
+    /// byte-offset bounds.
     ///
-    /// Shared by `makeChunk` (which also needs the `String.Index` range for
-    /// its UTF-8 byte-offset math) and `extractText` (which only needs the
-    /// text), so the two don't each reimplement the same
-    /// `Range(node.range, in:)` conversion and `nil`-on-failure guard.
-    private static func extractTextAndRange(
+    /// Shared by `makeChunk` (which needs both the text and the byte
+    /// offsets) and `extractText` (which only needs the text), so the two
+    /// don't each reimplement the same `Range(node.range, in:)` conversion,
+    /// `nil`-on-failure guard, and `utf8.distance(from:to:)` byte-offset
+    /// math.
+    ///
+    /// Not `private`: `QueryAST` reuses this same UTF-16-NSRange-to-UTF-8
+    /// conversion for its captures' text and byte offsets, so the two
+    /// tree-sitter consumers in this module don't each carry their own copy
+    /// of the conversion.
+    internal static func extractTextAndRange(
         of node: Node,
         in source: String
-    ) -> (text: String, range: Range<String.Index>)? {
+    ) -> (text: String, startByte: Int, endByte: Int)? {
         guard let range = Range(node.range, in: source) else {
             return nil
         }
-        return (String(source[range]), range)
+        let startByte = source.utf8.distance(from: source.startIndex, to: range.lowerBound)
+        let endByte = source.utf8.distance(from: source.startIndex, to: range.upperBound)
+        return (String(source[range]), startByte, endByte)
     }
 }
