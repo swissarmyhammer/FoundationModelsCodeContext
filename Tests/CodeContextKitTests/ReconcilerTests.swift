@@ -9,24 +9,6 @@ import Testing
 /// against `Store`'s `indexed_files` table — port of `cleanup.rs`'s
 /// `startup_cleanup` test suite.
 struct ReconcilerTests {
-    /// Creates a fresh temporary workspace directory for `body`, removed
-    /// afterwards regardless of outcome.
-    private func withTemporaryWorkspace<T>(_ body: (URL) async throws -> T) async throws -> T {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ReconcilerTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        return try await body(root)
-    }
-
-    /// Writes `content` to `relativePath` under `root`, creating any
-    /// missing intermediate directories.
-    private func write(_ content: String, to relativePath: String, in root: URL) throws {
-        let url = root.appendingPathComponent(relativePath)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try content.write(to: url, atomically: true, encoding: .utf8)
-    }
-
     @Test
     func reconcileAddsNewFilesDirty() async throws {
         try await withTemporaryWorkspace { root in
@@ -235,20 +217,6 @@ struct ReconcilerTests {
 /// Tests for `Walker` directly: extension filtering and content hashing,
 /// independent of `Reconciler`'s database reconciliation.
 struct WalkerTests {
-    private func withTemporaryWorkspace<T>(_ body: (URL) async throws -> T) async throws -> T {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("WalkerTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        return try await body(root)
-    }
-
-    private func write(_ content: String, to relativePath: String, in root: URL) throws {
-        let url = root.appendingPathComponent(relativePath)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try content.write(to: url, atomically: true, encoding: .utf8)
-    }
-
     @Test
     func walkHashesFileContentAsFirst16BytesOfSHA256() async throws {
         try await withTemporaryWorkspace { root in
@@ -285,6 +253,20 @@ struct WalkerTests {
 
             let rustOnly = try Walker.enumerateFiles(rootDirectory: root, extensions: ["rs"])
             #expect(rustOnly.map(\.lastPathComponent) == ["a.rs"])
+        }
+    }
+
+    @Test
+    func enumerateFilesMatchesExtensionsCaseInsensitively() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("fn a() {}", to: "Sample.RS", in: root)
+            try write("def a(): pass", to: "script.PY", in: root)
+
+            let rustOnly = try Walker.enumerateFiles(rootDirectory: root, extensions: ["rs"])
+            #expect(rustOnly.map(\.lastPathComponent) == ["Sample.RS"])
+
+            let pythonOnly = try Walker.enumerateFiles(rootDirectory: root, extensions: ["py"])
+            #expect(pythonOnly.map(\.lastPathComponent) == ["script.PY"])
         }
     }
 }

@@ -59,21 +59,18 @@ public enum Reconciler {
         var addedCount = 0
         var changedCount = 0
         for diskFile in diskFiles {
-            guard let storedHash = existingHashes[diskFile.relativePath] else {
-                try await store.markDirty(
-                    filePath: diskFile.relativePath,
-                    contentHash: diskFile.contentHash,
-                    fileSize: diskFile.fileSize
-                )
-                addedCount += 1
+            let storedHash = existingHashes[diskFile.relativePath]
+            guard storedHash == nil || storedHash != diskFile.contentHash else {
                 continue
             }
-            if storedHash != diskFile.contentHash {
-                try await store.markDirty(
-                    filePath: diskFile.relativePath,
-                    contentHash: diskFile.contentHash,
-                    fileSize: diskFile.fileSize
-                )
+            try await store.markDirty(
+                filePath: diskFile.relativePath,
+                contentHash: diskFile.contentHash,
+                fileSize: diskFile.fileSize
+            )
+            if storedHash == nil {
+                addedCount += 1
+            } else {
                 changedCount += 1
             }
         }

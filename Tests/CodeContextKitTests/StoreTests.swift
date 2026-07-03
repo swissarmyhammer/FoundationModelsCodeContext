@@ -7,16 +7,6 @@ import Testing
 /// dirty-flag drain/mark cycle, and FK-cascade delete of a file's
 /// chunks/symbols/edges.
 struct StoreTests {
-    /// Creates a fresh temporary workspace directory for `body`, removed
-    /// afterwards regardless of outcome.
-    private func withTemporaryWorkspace<T>(_ body: (URL) async throws -> T) async throws -> T {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("StoreTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        return try await body(root)
-    }
-
     @Test
     func freshOpenCreatesDatabaseAndGitignore() async throws {
         try await withTemporaryWorkspace { root in

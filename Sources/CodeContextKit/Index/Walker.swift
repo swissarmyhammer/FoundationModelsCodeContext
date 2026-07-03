@@ -168,14 +168,12 @@ enum Walker {
         )
     }
 
+    /// Computes `url`'s path relative to `rootDirectory` via
+    /// `RelativePath.of(_:relativeTo:)`, falling back to `url`'s last path
+    /// component (rather than propagating `nil`) since every caller here
+    /// already knows `url` was discovered beneath `rootDirectory` by the
+    /// walk itself.
     private static func relativePath(of url: URL, rootDirectory: URL) -> String {
-        let rootComponents = rootDirectory.standardizedFileURL.pathComponents
-        let urlComponents = url.standardizedFileURL.pathComponents
-        guard urlComponents.count > rootComponents.count,
-              Array(urlComponents.prefix(rootComponents.count)) == rootComponents
-        else {
-            return url.lastPathComponent
-        }
-        return urlComponents.suffix(from: rootComponents.count).joined(separator: "/")
+        RelativePath.of(url, relativeTo: rootDirectory) ?? url.lastPathComponent
     }
 }

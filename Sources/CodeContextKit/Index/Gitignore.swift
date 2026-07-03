@@ -209,7 +209,7 @@ struct GitignoreStack {
     func isIgnored(_ url: URL, isDirectory: Bool) -> Bool {
         var ignored = false
         for pattern in patterns {
-            guard let relative = Self.relativePath(of: url, to: pattern.baseDirectory) else {
+            guard let relative = RelativePath.of(url, relativeTo: pattern.baseDirectory) else {
                 continue
             }
             if pattern.matches(relativePath: relative, isDirectory: isDirectory) {
@@ -217,18 +217,5 @@ struct GitignoreStack {
             }
         }
         return ignored
-    }
-
-    /// Computes `url`'s path relative to `base`, using `/` separators, or
-    /// `nil` if `url` is not a descendant of `base`.
-    private static func relativePath(of url: URL, to base: URL) -> String? {
-        let baseComponents = base.standardizedFileURL.pathComponents
-        let urlComponents = url.standardizedFileURL.pathComponents
-        guard urlComponents.count > baseComponents.count,
-              Array(urlComponents.prefix(baseComponents.count)) == baseComponents
-        else {
-            return nil
-        }
-        return urlComponents.suffix(from: baseComponents.count).joined(separator: "/")
     }
 }
