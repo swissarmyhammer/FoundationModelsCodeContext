@@ -207,6 +207,26 @@ public final class Store: Sendable {
         }
     }
 
+    /// Deletes `filePath`'s `indexed_files` row, cascading to its chunks,
+    /// symbols, and call edges via the table's foreign keys.
+    ///
+    /// This is the delete-time counterpart to
+    /// `markDirty(filePath:contentHash:fileSize:lastSeenAt:)`: `Watcher`
+    /// calls it for a live filesystem-delete event, so the same `DELETE`
+    /// SQL isn't duplicated at each call site that needs to remove a file
+    /// from the index.
+    ///
+    /// - Parameter filePath: The file's workspace-relative path to remove.
+    /// - Throws: `CodeContextError.storage` if the delete fails.
+    public func deleteFile(filePath: String) async throws {
+        try await write { db in
+            try db.execute(
+                sql: "DELETE FROM \(Schema.IndexedFiles.table) WHERE \(Schema.IndexedFiles.filePath) = ?",
+                arguments: [filePath]
+            )
+        }
+    }
+
     /// File paths still awaiting tree-sitter indexing (`ts_indexed = 0`),
     /// for the tree-sitter worker to drain.
     ///
