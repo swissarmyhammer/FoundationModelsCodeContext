@@ -40,6 +40,15 @@ public enum CodeContextError: Error, Sendable {
 
     /// A `grepCode` regular-expression pattern failed to compile.
     case pattern(String)
+
+    /// A requested symbol, file, or other named resource could not be
+    /// resolved.
+    ///
+    /// Covers `CallGraphOps.callGraph(store:of:direction:maxDepth:)`'s
+    /// unresolvable start symbol and
+    /// `BlastRadiusOps.blastRadius(store:file:symbol:maxHops:)`'s
+    /// named-symbol-not-in-file miss.
+    case notFound(String)
 }
 
 extension CodeContextError: LocalizedError {
@@ -64,6 +73,8 @@ extension CodeContextError: LocalizedError {
             "query error: \(reason)"
         case let .pattern(reason):
             "pattern error: \(reason)"
+        case let .notFound(reason):
+            "not found: \(reason)"
         }
     }
 }

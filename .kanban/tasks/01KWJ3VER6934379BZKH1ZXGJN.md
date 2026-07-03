@@ -36,11 +36,15 @@ comments:
 
     Leaving in `doing` for review.
   timestamp: 2026-07-03T14:07:08.444608+00:00
+- actor: wballard
+  id: 01kwm561w9yyz0d2pww8dc8243
+  text: 'Implemented SearchCorpus (lazily-loaded, generation-counter-invalidated N×dim embedding matrix + BM25/trigram precomputation, vDSP_mmul cosine matvec instead of deprecated cblas_sgemv per plan.md''s named alternatives) + searchCode op (RRF-fused BM25/trigram/cosine, degraded keyword-only mode), tested, checkpointed (33ce032). Investigated a reported ConnectionTests flake from the implementer — 23 total exercises found zero reproductions, confirmed the earlier LspDaemon EINTR/serialization fixes are intact; concluded one-off environmental fluke, not a regression. 1 review/fix cycle: extracted preprocessRow helper for function length (33ce032→b3f01f2). Final review clean, moved doing → review → done.'
+  timestamp: 2026-07-03T14:12:37.897041+00:00
 depends_on:
 - 01KWJ3Q0SYT3GQ98YBMZDRJYXA
 - 01KWJ3T4CGTNK4BZSE78FSWYFH
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: '9180'
 title: 'SearchCorpus and searchCode op: Accelerate cosines + RRF wiring'
 ---
 ## What\nCreate `Sources/CodeContextKit/Search/SearchCorpus.swift` + `Sources/CodeContextKit/Ops/SearchCode.swift` per plan.md \"Search\". `SearchCorpus`: contiguous N×dim `[Float]` matrix of embedded chunks (id + kind sidecar arrays) plus tokenized BM25/trigram structures, loaded lazily from `ts_chunks`, invalidated by a store generation counter bumped on index writes. Cosine scoring = one `cblas_sgemv` matvec (vectors L2-normalized so cosine == dot). `searchCode(query:topK:weights:)`: embed query via injected `TextEmbedding`, rank three signals, fuse with RRF (K=60), normalize to [0,1], return Hits with per-signal `Signals`; embeddings incomplete → keyword-only + `IndexingProgress` note.\n\n## Acceptance Criteria\n- [x] Matvec cosine equals scalar dot-product reference within 1e-5 across random normalized fixtures\n- [x] Generation-counter staleness: indexing a new file then searching returns the new chunk without restarting\n- [x] With a nil embedder, searchCode returns keyword-ranked hits and a non-nil IndexingProgress\n\n## Tests\n- [x] `Tests/CodeContextKitTests/SearchCodeTests.swift` with FakeEmbedder: end-to-end relevance goldens on a fixture corpus (semantic-only hit found via cosine, keyword-only hit via BM25, fused ordering), matvec-vs-scalar equivalence, staleness reload, degraded mode\n- [x] Run `swift test --filter SearchCodeTests` → all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Implementation note\nUsed `vDSP_mmul` instead of `cblas_sgemv` (deprecated on this Accelerate version in favor of an ILP64 interface); plan.md names both as acceptable alternatives for this scoring step. See task comments for full implementation notes.\n\n## Review Findings (2026-07-03 08:50)\n\n- [x] `Sources/CodeContextKit/Search/SearchCorpus.swift:227` — Function `build` is approximately 59 lines of actual code — exceeds the ~50 line threshold. This function handles multiple concerns: embedding matrix setup, BM25/trigram precomputation, and constructing the snapshot. Breaking it into smaller steps would improve clarity. Extract the per-row precomputation (lines 246–270) into a helper like `preprocessRow(row:)` that returns precomputed data, or split embedding matrix setup (lines 230–233) and BM25/trigram precomputation into separate functions.\n
