@@ -20,23 +20,21 @@ comments:
 
     Process note: tests were written before the implementation (compile-failure RED was implicit — LspSession.swift didn't exist yet — rather than an explicitly observed `swift test` RED run before writing code). Ran `mcp__sah__review` (0 findings) and a `double-check` adversarial pass; it flagged two coverage gaps (genuine pull-error propagation, subscriber-cleanup-on-termination) which are now covered by the two tests added above.
   timestamp: 2026-07-03T03:56:18.851272+00:00
+- actor: wballard
+  id: 01kwk2ztvarbbbf0g1qp1fyjeh
+  text: |-
+    Resolved the 2026-07-02 23:07 review finding: added `pullDiagnosticsReachesEverySubscriber` to Tests/CodeContextKitTests/LspSessionTests.swift (placed right after `pullDiagnosticsFeedsTheSameCacheAsPush`), mirroring `publishDiagnosticsNotificationReachesEverySubscriber`'s pattern. It registers two subscribers via `diagnosticUpdates().makeAsyncIterator()`, scripts `FakeLanguageServerConnection.setPullDiagnosticsResult(.success([...]))`, calls `pullDiagnostics(uri:)`, and asserts both subscriber streams receive the `DiagnosticUpdate` (not just that `diagnostics(for:)`/the return value reflects it) — proving `pullDiagnostics` fans out through the same `recordDiagnostics()` path as push, not just the shared cache.
+
+    Flipped the review checklist item to `- [x]`.
+
+    Verification: `swift test --filter LspSessionTests` → 16/16 pass (was 15). Full `swift test` → 195/195 pass in 13 suites (was 194). `swift build` clean (only a pre-existing, unrelated warning about a third-party mlx-swift bundle). Adversarial double-check agent independently re-ran both the filtered and full suite and returned PASS with no findings.
+
+    Leaving in `doing` for `/review` per the implement workflow.
+  timestamp: 2026-07-03T04:15:02.506230+00:00
 depends_on:
 - 01KWJ3RB07JNW5QXZNH1ESMH2F
 position_column: doing
 position_ordinal: '80'
 title: 'LspSession actor: document sync, diagnostics cache, readiness'
 ---
-## What
-Create `Sources/CodeContextKit/LSP/LspSession.swift` — port of `crates/swissarmyhammer-lsp/src/session.rs` as an actor over a `LanguageServerConnection`. Open-document set with `DocState(version, textHash)`; `syncOpen(path, text)` opens-or-refreshes, suppresses duplicate opens and no-op changes by hash compare; consumes `serverNotifications` to maintain a per-URI diagnostics cache fanned out via `AsyncStream<DiagnosticUpdate>` (multi-subscriber); `pullDiagnostics(uri:)`; `isReady` flag flipped false on ServerCancelled/ContentModified "still loading" replies and true on clean responses; `resetDocuments()` clears the doc set and cache (restart correctness).
-
-## Acceptance Criteria
-- [x] Two `syncOpen` calls with identical text send exactly one didOpen and zero didChange (fake connection records calls)
-- [x] Push diagnostics from the notification stream land in the cache and reach all stream subscribers
-- [x] After `resetDocuments()`, the next `syncOpen` re-sends didOpen (not suppressed)
-
-## Tests
-- [x] `Tests/CodeContextKitTests/LspSessionTests.swift` using `FakeLanguageServerConnection`: dedupe, versioning, cache+fanout, readiness flip on ContentModified, reset semantics
-- [x] Run `swift test --filter LspSessionTests` → all pass
-
-## Workflow
-- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\nCreate `Sources/CodeContextKit/LSP/LspSession.swift` — port of `crates/swissarmyhammer-lsp/src/session.rs` as an actor over a `LanguageServerConnection`. Open-document set with `DocState(version, textHash)`; `syncOpen(path, text)` opens-or-refreshes, suppresses duplicate opens and no-op changes by hash compare; consumes `serverNotifications` to maintain a per-URI diagnostics cache fanned out via `AsyncStream<DiagnosticUpdate>` (multi-subscriber); `pullDiagnostics(uri:)`; `isReady` flag flipped false on ServerCancelled/ContentModified \"still loading\" replies and true on clean responses; `resetDocuments()` clears the doc set and cache (restart correctness).\n\n## Acceptance Criteria\n- [x] Two `syncOpen` calls with identical text send exactly one didOpen and zero didChange (fake connection records calls)\n- [x] Push diagnostics from the notification stream land in the cache and reach all stream subscribers\n- [x] After `resetDocuments()`, the next `syncOpen` re-sends didOpen (not suppressed)\n\n## Tests\n- [x] `Tests/CodeContextKitTests/LspSessionTests.swift` using `FakeLanguageServerConnection`: dedupe, versioning, cache+fanout, readiness flip on ContentModified, reset semantics\n- [x] Run `swift test --filter LspSessionTests` → all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Review Findings (2026-07-02 23:07)\n\n- [x] `Tests/CodeContextKitTests/LspSessionTests.swift:103` — Pull diagnostics should broadcast to subscribers via `diagnosticUpdates()` just like push diagnostics do (both call `recordDiagnostics()`), but there is no test exercising pull + subscribers together. The test `publishDiagnosticsNotificationReachesEverySubscriber` verifies push reaches all subscribers, but no test verifies pull reaches subscribers, creating an untested inverse operation. Add a test that creates one or more subscribers via `diagnosticUpdates()`, calls `pullDiagnostics()`, and verifies the subscribers receive the DiagnosticUpdate broadcasts, mirroring the push test pattern.\n

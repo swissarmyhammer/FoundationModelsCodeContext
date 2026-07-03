@@ -153,6 +153,27 @@ struct LspSessionTests {
     }
 
     @Test
+    func pullDiagnosticsReachesEverySubscriber() async throws {
+        let connection = FakeLanguageServerConnection()
+        let session = LspSession(connection: connection, languageID: "swift")
+        let uri = DocumentURI("file:///tmp/pulled-fanout.swift")
+
+        var firstSubscriber = await session.diagnosticUpdates().makeAsyncIterator()
+        var secondSubscriber = await session.diagnosticUpdates().makeAsyncIterator()
+
+        await connection.setPullDiagnosticsResult(.success([Self.diagnostic(message: "pulled-shared")]))
+        _ = try await session.pullDiagnostics(uri: uri)
+
+        let firstUpdate = await firstSubscriber.next()
+        let secondUpdate = await secondSubscriber.next()
+
+        #expect(firstUpdate?.uri == uri)
+        #expect(firstUpdate?.diagnostics.first?.message == "pulled-shared")
+        #expect(secondUpdate?.uri == uri)
+        #expect(secondUpdate?.diagnostics.first?.message == "pulled-shared")
+    }
+
+    @Test
     func pullDiagnosticsServerCancelledFlipsReadinessFalseWithoutCaching() async throws {
         let connection = FakeLanguageServerConnection()
         let session = LspSession(connection: connection, languageID: "swift")
