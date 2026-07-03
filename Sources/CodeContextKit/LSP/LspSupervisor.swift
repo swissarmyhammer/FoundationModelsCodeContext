@@ -128,6 +128,26 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         try await spawnRound.value
     }
 
+    /// Builds a `ManagedDaemon` for `spec`/`daemon`, starts its health-check loop, and stores it
+    /// under `spec.command`.
+    ///
+    /// Shared by `performStart` (registering freshly spawned daemons) and
+    /// `insertDaemonForTesting` (registering a daemon built and started independently), so the
+    /// construction/assignment logic exists in exactly one place. Callers that are replacing an
+    /// existing entry are responsible for cancelling its prior `healthLoopTask` first — this
+    /// method only ever adds a fresh one.
+    /// - Parameters:
+    ///   - spec: The spec identifying the daemon by `spec.command` and supplying its health-check
+    ///     interval.
+    ///   - daemon: The daemon to manage.
+    private func registerManagedDaemon(spec: ServerSpec, daemon: LspDaemon<Connection>) {
+        managedDaemons[spec.command] = ManagedDaemon(
+            daemon: daemon,
+            spec: spec,
+            healthLoopTask: startHealthLoop(command: spec.command, spec: spec, daemon: daemon)
+        )
+    }
+
     /// Does the actual work of one `start()` spawn round; see `start()` for the coalescing wrapper
     /// around this.
     /// - Throws: Rethrows `ProjectDetection.detectProjects(rootDirectory:)`'s errors.
@@ -138,11 +158,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         guard !newSpecs.isEmpty else { return }
 
         for (spec, daemon) in await spawnDaemons(for: newSpecs) {
-            managedDaemons[spec.command] = ManagedDaemon(
-                daemon: daemon,
-                spec: spec,
-                healthLoopTask: startHealthLoop(command: spec.command, spec: spec, daemon: daemon)
-            )
+            registerManagedDaemon(spec: spec, daemon: daemon)
         }
     }
 
@@ -357,11 +373,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         // own dedupe-by-command guard: overwriting a managed entry must never leak the health-loop
         // task it displaces.
         managedDaemons[spec.command]?.healthLoopTask?.cancel()
-        managedDaemons[spec.command] = ManagedDaemon(
-            daemon: daemon,
-            spec: spec,
-            healthLoopTask: startHealthLoop(command: spec.command, spec: spec, daemon: daemon)
-        )
+        registerManagedDaemon(spec: spec, daemon: daemon)
     }
 }
 

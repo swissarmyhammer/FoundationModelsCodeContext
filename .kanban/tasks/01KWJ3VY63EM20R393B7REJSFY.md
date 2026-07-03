@@ -13,6 +13,15 @@ comments:
 
     Verification: `swift test` — 328/328 tests pass across 27 suites, fresh run. `swift test --filter LspSupervisorTests` stress-tested 15+ consecutive runs, zero flakes. `swift build` clean (no new warnings). Leaving in `doing` for review per /implement workflow.
   timestamp: 2026-07-03T15:25:28.010858+00:00
+- actor: wballard
+  id: 01kwmb5q7saak0gckv7ystff79
+  text: |-
+    Resolved the review finding: extracted a private `registerManagedDaemon(spec:daemon:)` helper in `Sources/CodeContextKit/LSP/LspSupervisor.swift` that builds the `ManagedDaemon` (via `startHealthLoop(command:spec:daemon:)`) and stores it under `spec.command`. Both `performStart()`'s spawn loop and `insertDaemonForTesting()` now call this single helper instead of duplicating the construction/assignment inline; `insertDaemonForTesting()` still does its own pre-cancel of any prior entry's `healthLoopTask` before calling the helper, since that cancel step wasn't part of the duplicated block.
+
+    Verification: `swift build` clean, 0 warnings on this file. `swift test` — 328/328 pass across 27 suites. `swift test --filter LspSupervisorTests` stress-tested 10 consecutive runs (13/13 tests each run), zero flakes. Adversarial `double-check` agent independently re-ran build/test, confirmed no remaining duplication anywhere in the package, confirmed the new helper's doc comment is accurate, and confirmed no behavior/ordering change — verdict PASS.
+
+    Checklist item flipped to `[x]`. Leaving in `doing` per /implement workflow — ready for /review.
+  timestamp: 2026-07-03T15:57:18.457773+00:00
 depends_on:
 - 01KWJ3TKKJPVWDQVZ2VG79RQ70
 - 01KWJ3RH1RE9WJY5353AHD6JSK
@@ -20,17 +29,4 @@ position_column: doing
 position_ordinal: '80'
 title: 'LspSupervisor actor: spec collection, daemon fleet, health loop'
 ---
-## What
-Create `Sources/CodeContextKit/LSP/LspSupervisor.swift` — port of `crates/swissarmyhammer-lsp/src/supervisor.rs`, minus election. On `start()`: run project detection, collect `ServerSpec`s from detected modules deduped by command, create one `LspDaemon` per unique command (all with workspace rootDirectory as rootUri), start them concurrently. Own the periodic health loop (spec.healthCheckInterval, injectable clock) calling each daemon's health check → auto-restart path. Expose `status() -> [ServerStatus]`, `forceRestart(command:)`, `shutdown()` (concurrent graceful teardown), `session(forFileExtension:)` routing an extension to its daemon's session via `Languages.all`, and `anySession()`.
-
-## Acceptance Criteria
-- [x] Polyglot fixture (rust + two js dirs) starts exactly two daemons (rust-analyzer, typescript-language-server) — dedupe verified
-- [x] Health tick on a dead daemon triggers its restart; healthy daemons untouched
-- [x] `session(forFileExtension: "ts")` and `"tsx"` return the same session; unknown extension returns nil
-
-## Tests
-- [x] `Tests/CodeContextKitTests/LspSupervisorTests.swift` with injected daemon/connection fakes + manual clock: dedupe, routing, health-loop restart dispatch, concurrent shutdown completes
-- [x] Run `swift test --filter LspSupervisorTests` → all pass
-
-## Workflow
-- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\nCreate `Sources/CodeContextKit/LSP/LspSupervisor.swift` — port of `crates/swissarmyhammer-lsp/src/supervisor.rs`, minus election. On `start()`: run project detection, collect `ServerSpec`s from detected modules deduped by command, create one `LspDaemon` per unique command (all with workspace rootDirectory as rootUri), start them concurrently. Own the periodic health loop (spec.healthCheckInterval, injectable clock) calling each daemon's health check → auto-restart path. Expose `status() -> [ServerStatus]`, `forceRestart(command:)`, `shutdown()` (concurrent graceful teardown), `session(forFileExtension:)` routing an extension to its daemon's session via `Languages.all`, and `anySession()`.\n\n## Acceptance Criteria\n- [x] Polyglot fixture (rust + two js dirs) starts exactly two daemons (rust-analyzer, typescript-language-server) — dedupe verified\n- [x] Health tick on a dead daemon triggers its restart; healthy daemons untouched\n- [x] `session(forFileExtension: \"ts\")` and `\"tsx\"` return the same session; unknown extension returns nil\n\n## Tests\n- [x] `Tests/CodeContextKitTests/LspSupervisorTests.swift` with injected daemon/connection fakes + manual clock: dedupe, routing, health-loop restart dispatch, concurrent shutdown completes\n- [x] Run `swift test --filter LspSupervisorTests` → all pass\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.\n\n## Review Findings (2026-07-03 10:41)\n\nScope: HEAD~1..HEAD (checkpoint commit 9549d30)\n\n- [x] `Sources/CodeContextKit/LSP/LspSupervisor.swift:174` — The ManagedDaemon construction and assignment block (5 lines) is verbatim duplicated inside insertDaemonForTesting() around line 345. Identical code patterns that differ only in surrounding context should be extracted to a shared helper method to avoid drift and reduce maintenance burden. Extract a private helper method (e.g., `registerManagedDaemon(spec:daemon:)`) that performs the ManagedDaemon construction and assignment. Call it from both performStart (in the for loop) and insertDaemonForTesting (after the cancel line). This eliminates the duplicate and ensures both paths use consistent registration logic.\n\n(Two additional engine-reported findings — a case-binding style fix in `Tests/CodeContextKitTests/LspDaemonTests.swift` and an `@unchecked Sendable` doc comment in `Tests/CodeContextKitTests/Support/ManualClock.swift` — were dropped under the blanket no-existing-test-refactor exception: both cited lines are pre-existing test/test-support code untouched by this commit's diff.)\n
