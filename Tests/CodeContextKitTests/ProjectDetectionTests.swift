@@ -117,7 +117,7 @@ struct ProjectDetectionTests {
     }
 
     @Test
-    func serverSpecsDedupesTwoPackageJsonHitsToOneTypeScriptLanguageServerSpec() async throws {
+    func serverSpecsDedupesTwoPackageJSONHitsToOneTypeScriptLanguageServerSpec() async throws {
         try await withTemporaryWorkspace { root in
             try write("{\"name\": \"web\"}", to: "frontend/package.json", in: root)
             try write("{\"name\": \"admin\"}", to: "admin/package.json", in: root)
