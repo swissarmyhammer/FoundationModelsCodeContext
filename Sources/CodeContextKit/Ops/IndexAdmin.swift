@@ -85,7 +85,7 @@ public struct IndexStatus: Codable, Sendable, Equatable {
     /// The number of files with `embedded = 1`.
     public let embeddedIndexedFiles: Int
 
-    /// The embedded percentage, `0.0` to `100.0`.
+    /// The embedded indexed percentage, `0.0` to `100.0`.
     public let embeddedIndexedPercent: Double
 
     /// Creates an index status report.
@@ -96,8 +96,8 @@ public struct IndexStatus: Codable, Sendable, Equatable {
     ///   - treeSitterIndexedPercent: The tree-sitter indexed percentage.
     ///   - lspIndexedFiles: The number of LSP-indexed files.
     ///   - lspIndexedPercent: The LSP indexed percentage.
-    ///   - embeddedIndexedFiles: The number of embedded files.
-    ///   - embeddedIndexedPercent: The embedded percentage.
+    ///   - embeddedIndexedFiles: The number of embedded-indexed files.
+    ///   - embeddedIndexedPercent: The embedded indexed percentage.
     public init(
         totalFiles: Int,
         treeSitterIndexedFiles: Int,
