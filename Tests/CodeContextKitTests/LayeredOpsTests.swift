@@ -564,4 +564,258 @@ struct LayeredOpsTests {
             #expect(unwrappedOpenIndex < unwrappedReferencesIndex, "syncOpen must run before the live references request")
         }
     }
+
+    @Test
+    func hoverSyncsCurrentDiskContentBeforeIssuingTheLiveRequest() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Sample.swift", content: "func sample() {}\n")
+
+            let (session, connection) = await Self.liveSession(hover: Hover(contents: "func sample()", range: nil))
+
+            _ = try await LiveOpsCore<FakeLanguageServerConnection>.hover(
+                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5
+            )
+
+            let calls = await connection.calls
+            let openIndex = calls.firstIndex { if case .didOpen = $0 { true } else { false } }
+            let hoverIndex = calls.firstIndex { if case .hover = $0 { true } else { false } }
+
+            let unwrappedOpenIndex = try #require(openIndex)
+            let unwrappedHoverIndex = try #require(hoverIndex)
+            #expect(unwrappedOpenIndex < unwrappedHoverIndex, "syncOpen must run before the live hover request")
+        }
+    }
+
+    @Test
+    func typeDefinitionSyncsCurrentDiskContentBeforeIssuingTheLiveRequest() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Sample.swift", content: "struct Sample {}\n")
+
+            let liveLocation = Location(
+                uri: DocumentURI(root.appendingPathComponent("Sample.swift").absoluteString),
+                range: LSPRange(start: Position(line: 0, character: 7), end: Position(line: 0, character: 13))
+            )
+            let (session, connection) = await Self.liveSession(typeDefinition: [liveLocation])
+
+            _ = try await LiveOpsCore<FakeLanguageServerConnection>.typeDefinition(
+                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+            )
+
+            let calls = await connection.calls
+            let openIndex = calls.firstIndex { if case .didOpen = $0 { true } else { false } }
+            let typeDefinitionIndex = calls.firstIndex { if case .typeDefinition = $0 { true } else { false } }
+
+            let unwrappedOpenIndex = try #require(openIndex)
+            let unwrappedTypeDefinitionIndex = try #require(typeDefinitionIndex)
+            #expect(unwrappedOpenIndex < unwrappedTypeDefinitionIndex, "syncOpen must run before the live typeDefinition request")
+        }
+    }
+
+    @Test
+    func implementationsSyncsCurrentDiskContentBeforeIssuingTheLiveRequest() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Drawable.swift", content: "protocol Drawable {}\n")
+
+            let liveLocation = Location(
+                uri: DocumentURI(root.appendingPathComponent("Circle.swift").absoluteString),
+                range: LSPRange(start: Position(line: 0, character: 0), end: Position(line: 0, character: 6))
+            )
+            let (session, connection) = await Self.liveSession(implementations: [liveLocation])
+
+            _ = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
+                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 9
+            )
+
+            let calls = await connection.calls
+            let openIndex = calls.firstIndex { if case .didOpen = $0 { true } else { false } }
+            let implementationsIndex = calls.firstIndex { if case .implementations = $0 { true } else { false } }
+
+            let unwrappedOpenIndex = try #require(openIndex)
+            let unwrappedImplementationsIndex = try #require(implementationsIndex)
+            #expect(unwrappedOpenIndex < unwrappedImplementationsIndex, "syncOpen must run before the live implementations request")
+        }
+    }
+
+    // MARK: - Fall-through on induced live-LSP error (typeDefinition, implementations)
+
+    @Test
+    func typeDefinitionFallsThroughToLspIndexOnInducedLiveError() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Sample.swift", content: "struct Sample {}\n")
+            try await Self.insertLspSymbol(store: store, id: 1, name: "Sample", kind: "struct", filePath: "Sample.swift", startLine: 0, endLine: 0)
+
+            let (session, _) = await Self.liveSession(induceError: true)
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.typeDefinition(
+                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+            )
+
+            #expect(result.sourceLayer == .lspIndex, "a live connection failure must fall through, not surface")
+        }
+    }
+
+    @Test
+    func implementationsFallsThroughToLspIndexOnInducedLiveError() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Drawable.swift", content: "protocol Drawable {}\n")
+            try await Self.insertLspSymbol(store: store, id: 1, name: "Drawable", kind: "interface", filePath: "Drawable.swift", startLine: 0, endLine: 0)
+
+            let (session, _) = await Self.liveSession(induceError: true)
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
+                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0
+            )
+
+            #expect(result.sourceLayer == .lspIndex, "a live connection failure must fall through, not surface")
+        }
+    }
+
+    // MARK: - references: non-empty from_ranges decoding
+
+    @Test
+    func referencesDecodesNonEmptyFromRangesIntoCallSiteLocations() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Lib.swift", content: "func process() {}\n")
+            try await Self.seedFile(store: store, root: root, relativePath: "Caller.swift", content: "func handleRequest() {\n    process()\n}\n")
+
+            try await Self.insertLspSymbol(store: store, id: 1, name: "process", filePath: "Lib.swift", startLine: 0, endLine: 0)
+            try await Self.insertLspSymbol(store: store, id: 2, name: "handleRequest", filePath: "Caller.swift", startLine: 0, endLine: 2)
+            // A non-trivial from_ranges payload — a single call site strictly
+            // narrower than (and offset from) the caller's own declaration
+            // range (line 0-2), so a passing assertion actually proves the
+            // JSON array-of-quads was decoded, not merely that the caller's
+            // whole-symbol range fallback (the empty-from_ranges path
+            // exercised elsewhere) was used instead.
+            try await Self.insertCallEdge(store: store, callerID: 2, calleeID: 1, filePath: "Caller.swift", fromRanges: "[[1,4,1,11]]")
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.references(
+                store: store, session: nil, rootDirectory: root, filePath: "Lib.swift", line: 0, character: 0
+            )
+
+            #expect(result.sourceLayer == .lspIndex)
+            #expect(result.totalCount == 1)
+            let reference = try #require(result.references.first)
+            #expect(reference.filePath == "Caller.swift")
+            #expect(reference.range.start.line == 1)
+            #expect(reference.range.start.character == 4)
+            #expect(reference.range.end.line == 1)
+            #expect(reference.range.end.character == 11)
+        }
+    }
+
+    // MARK: - Security: path-traversal rejection
+
+    @Test
+    func definitionRejectsAPathTraversalFilePathWithoutTouchingTheConnectionOrDiskOutsideTheWorkspace() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            // A real, readable file sitting just outside the workspace root —
+            // if '..' components in `filePath` were resolved instead of
+            // rejected, this file would actually be opened and queried,
+            // proving the traversal guard is live rather than coincidentally
+            // absent (a missing target would look identical to any other
+            // unreadable file). Mirrors LSPIndexWorkerTests's identical
+            // `isSafeRelativePath` regression test.
+            try write("func secret() {}\n", to: "../secret.swift", in: root)
+
+            let liveLocation = Location(
+                uri: DocumentURI(root.appendingPathComponent("../secret.swift").absoluteString),
+                range: LSPRange(start: Position(line: 0, character: 5), end: Position(line: 0, character: 11))
+            )
+            let (session, connection) = await Self.liveSession(definition: [liveLocation])
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.definition(
+                store: store, session: session, rootDirectory: root, filePath: "../secret.swift", line: 0, character: 0
+            )
+
+            #expect(result.sourceLayer == .none, "a path-traversal filePath must never be resolved against disk")
+            let calls = await connection.calls
+            #expect(calls.isEmpty, "a path-traversal filePath must never reach syncOpen or the live request")
+        }
+    }
+
+    // MARK: - implementations: sourceText gated on includeSource
+
+    @Test
+    func implementationsOmitsSourceTextFromTreeSitterLayerByDefault() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Drawable.swift", content: "protocol Drawable {}\n")
+            try await insertChunk(store: store, filePath: "Drawable.swift", symbolPath: "Drawable", text: "protocol Drawable {}", kind: .type, startLine: 0, endLine: 0)
+            try await insertChunk(
+                store: store, filePath: "Circle.swift", symbolPath: "Circle.Drawable",
+                text: "impl Drawable for Circle { func draw() {} }", startLine: 0, endLine: 0
+            )
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
+                store: store, session: nil, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 9
+            )
+
+            #expect(result.sourceLayer == .treeSitter)
+            #expect(result.implementations.first?.sourceText == nil, "sourceText must be gated on includeSource, matching definition/typeDefinition")
+        }
+    }
+
+    @Test
+    func implementationsIncludesSourceTextFromTreeSitterLayerWhenRequested() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Drawable.swift", content: "protocol Drawable {}\n")
+            try await insertChunk(store: store, filePath: "Drawable.swift", symbolPath: "Drawable", text: "protocol Drawable {}", kind: .type, startLine: 0, endLine: 0)
+            try await insertChunk(
+                store: store, filePath: "Circle.swift", symbolPath: "Circle.Drawable",
+                text: "impl Drawable for Circle { func draw() {} }", startLine: 0, endLine: 0
+            )
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
+                store: store, session: nil, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 9, includeSource: true
+            )
+
+            #expect(result.sourceLayer == .treeSitter)
+            #expect(result.implementations.first?.sourceText == "impl Drawable for Circle { func draw() {} }")
+        }
+    }
+
+    @Test
+    func implementationsIncludesSourceTextFromLspIndexLayerWhenRequested() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Drawable.swift", content: "protocol Drawable {}\n")
+            try await Self.insertLspSymbol(store: store, id: 1, name: "Drawable", kind: "interface", filePath: "Drawable.swift", startLine: 0, endLine: 0)
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
+                store: store, session: nil, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0, includeSource: true
+            )
+
+            #expect(result.sourceLayer == .lspIndex)
+            #expect(result.implementations.first?.sourceText == "protocol Drawable {}")
+        }
+    }
+
+    @Test
+    func implementationsIncludesSourceTextFromLiveLayerWhenRequested() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Drawable.swift", content: "protocol Drawable {}\n")
+
+            let liveLocation = Location(
+                uri: DocumentURI(root.appendingPathComponent("Drawable.swift").absoluteString),
+                range: LSPRange(start: Position(line: 0, character: 0), end: Position(line: 0, character: 21))
+            )
+            let (session, _) = await Self.liveSession(implementations: [liveLocation])
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
+                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 9, includeSource: true
+            )
+
+            #expect(result.sourceLayer == .liveLSP)
+            #expect(result.implementations.first?.sourceText == "protocol Drawable {}")
+        }
+    }
 }

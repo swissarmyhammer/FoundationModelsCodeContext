@@ -311,18 +311,19 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         includeSource: Bool
     ) async throws -> DefinitionResult? {
         try await store.read { db in
-            let range = pointRange(line: line, character: character)
-            if let symbol = try LayeredContext.lspSymbolAt(db: db, filePath: filePath, range: range) {
-                let sourceText = includeSource ? readSourceRange(rootDirectory: rootDirectory, filePath: symbol.filePath, range: symbol.range) : nil
-                let location = DefinitionLocation(filePath: symbol.filePath, range: symbol.range, sourceText: sourceText, symbol: symbol)
-                return DefinitionResult(locations: [location], sourceLayer: .lspIndex)
-            }
-            if let chunk = try LayeredContext.tsChunkAt(db: db, filePath: filePath, line: line) {
-                let range = LSPRange(start: Position(line: chunk.startLine, character: 0), end: Position(line: chunk.endLine, character: 0))
-                let location = DefinitionLocation(filePath: filePath, range: range, sourceText: includeSource ? chunk.text : nil, symbol: nil)
-                return DefinitionResult(locations: [location], sourceLayer: .treeSitter)
-            }
-            return nil
+            try indexedLookup(
+                db: db, filePath: filePath, line: line, character: character,
+                fromSymbol: { symbol in
+                    let sourceText = includeSource ? readSourceRange(rootDirectory: rootDirectory, filePath: symbol.filePath, range: symbol.range) : nil
+                    let location = DefinitionLocation(filePath: symbol.filePath, range: symbol.range, sourceText: sourceText, symbol: symbol)
+                    return DefinitionResult(locations: [location], sourceLayer: .lspIndex)
+                },
+                fromChunk: { chunk in
+                    let range = LSPRange(start: Position(line: chunk.startLine, character: 0), end: Position(line: chunk.endLine, character: 0))
+                    let location = DefinitionLocation(filePath: filePath, range: range, sourceText: includeSource ? chunk.text : nil, symbol: nil)
+                    return DefinitionResult(locations: [location], sourceLayer: .treeSitter)
+                }
+            )
         }
     }
 
@@ -386,17 +387,51 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
 
     private static func indexedHover(store: Store, filePath: String, line: Int, character: Int) async throws -> HoverResult? {
         try await store.read { db in
-            let range = pointRange(line: line, character: character)
-            if let symbol = try LayeredContext.lspSymbolAt(db: db, filePath: filePath, range: range) {
-                let contents = symbol.detail ?? "\(symbol.name) (\(symbol.kind))"
-                return HoverResult(contents: contents, range: symbol.range, symbol: symbol, sourceLayer: .lspIndex)
-            }
-            if let chunk = try LayeredContext.tsChunkAt(db: db, filePath: filePath, line: line) {
-                let range = LSPRange(start: Position(line: chunk.startLine, character: 0), end: Position(line: chunk.endLine, character: 0))
-                return HoverResult(contents: chunk.text, range: range, symbol: nil, sourceLayer: .treeSitter)
-            }
-            return nil
+            try indexedLookup(
+                db: db, filePath: filePath, line: line, character: character,
+                fromSymbol: { symbol in
+                    let contents = symbol.detail ?? "\(symbol.name) (\(symbol.kind))"
+                    return HoverResult(contents: contents, range: symbol.range, symbol: symbol, sourceLayer: .lspIndex)
+                },
+                fromChunk: { chunk in
+                    let range = LSPRange(start: Position(line: chunk.startLine, character: 0), end: Position(line: chunk.endLine, character: 0))
+                    return HoverResult(contents: chunk.text, range: range, symbol: nil, sourceLayer: .treeSitter)
+                }
+            )
         }
+    }
+
+    /// Shared "LSP-index symbol at the cursor, else the tree-sitter chunk at
+    /// the cursor's line, else no data" lookup used by both
+    /// `indexedDefinition` and `indexedHover` — the two layer-2/3 helpers
+    /// whose only difference was this control structure's per-branch result
+    /// construction.
+    ///
+    /// - Parameters:
+    ///   - db: The database connection to query.
+    ///   - filePath: The file containing the cursor position.
+    ///   - line: The zero-based cursor line.
+    ///   - character: The zero-based cursor character offset.
+    ///   - fromSymbol: Builds the result from an `lsp_symbols` match.
+    ///   - fromChunk: Builds the result from a `ts_chunks` match, tried only when `fromSymbol` had none.
+    /// - Returns: `fromSymbol`'s result, else `fromChunk`'s, else `nil` when neither layer matched.
+    /// - Throws: Rethrows whatever the underlying `LayeredContext` queries or the closures throw.
+    private static func indexedLookup<T>(
+        db: Database,
+        filePath: String,
+        line: Int,
+        character: Int,
+        fromSymbol: (LayeredSymbolInfo) throws -> T,
+        fromChunk: (LayeredChunkInfo) throws -> T
+    ) throws -> T? {
+        let range = pointRange(line: line, character: character)
+        if let symbol = try LayeredContext.lspSymbolAt(db: db, filePath: filePath, range: range) {
+            return try fromSymbol(symbol)
+        }
+        if let chunk = try LayeredContext.tsChunkAt(db: db, filePath: filePath, line: line) {
+            return try fromChunk(chunk)
+        }
+        return nil
     }
 
     // MARK: - references
@@ -591,6 +626,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - filePath: The file containing the cursor position, relative to `rootDirectory`.
     ///   - line: The zero-based cursor line.
     ///   - character: The zero-based cursor character offset.
+    ///   - includeSource: Whether to read and include source text from disk at each location.
     ///   - maxResults: The maximum number of results to return. Defaults to `defaultMaxImplementations`.
     /// - Returns: The implementations result, tagged with the layer that produced it.
     /// - Throws: Rethrows `Store`'s storage errors.
@@ -601,14 +637,21 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         filePath: String,
         line: Int,
         character: Int,
+        includeSource: Bool = false,
         maxResults: Int = defaultMaxImplementations
     ) async throws -> ImplementationsResult {
         try await cascade(
             liveLayer: {
-                try await liveImplementations(session: session, store: store, rootDirectory: rootDirectory, filePath: filePath, line: line, character: character, maxResults: maxResults)
+                try await liveImplementations(
+                    session: session, store: store, rootDirectory: rootDirectory, filePath: filePath,
+                    line: line, character: character, includeSource: includeSource, maxResults: maxResults
+                )
             },
             indexedLayers: {
-                try await indexedImplementations(store: store, filePath: filePath, line: line, character: character, maxResults: maxResults)
+                try await indexedImplementations(
+                    store: store, rootDirectory: rootDirectory, filePath: filePath, line: line, character: character,
+                    includeSource: includeSource, maxResults: maxResults
+                )
             },
             empty: { ImplementationsResult(implementations: [], sourceLayer: .none) }
         )
@@ -624,6 +667,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         filePath: String,
         line: Int,
         character: Int,
+        includeSource: Bool,
         maxResults: Int
     ) async throws -> ImplementationsResult? {
         guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, filePath: filePath) else {
@@ -640,8 +684,9 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         let implementations = try await store.read { db in
             try rawLocations.prefix(maxResults).map { location -> DefinitionLocation in
                 let path = relativeFilePath(fromURI: location.uri, rootDirectory: rootDirectory)
+                let sourceText = includeSource ? readSourceRange(rootDirectory: rootDirectory, filePath: path, range: location.range) : nil
                 let symbol = try LayeredContext.enrichLocation(db: db, filePath: path, range: location.range).symbol
-                return DefinitionLocation(filePath: path, range: location.range, sourceText: nil, symbol: symbol)
+                return DefinitionLocation(filePath: path, range: location.range, sourceText: sourceText, symbol: symbol)
             }
         }
         return ImplementationsResult(implementations: implementations, sourceLayer: .liveLSP)
@@ -657,11 +702,26 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     /// `enrichLocation`, which by this point can only resolve through
     /// tree-sitter — layer 2 already found nothing) and search chunk text
     /// for `"impl <name>"`.
-    private static func indexedImplementations(store: Store, filePath: String, line: Int, character: Int, maxResults: Int) async throws -> ImplementationsResult? {
+    ///
+    /// `sourceText` is gated on `includeSource` uniformly across both
+    /// layers here (and the live layer above), matching
+    /// `definition`/`typeDefinition`'s contract: a caller controls whether
+    /// source text is populated, rather than it varying by which layer
+    /// happened to answer.
+    private static func indexedImplementations(
+        store: Store,
+        rootDirectory: URL,
+        filePath: String,
+        line: Int,
+        character: Int,
+        includeSource: Bool,
+        maxResults: Int
+    ) async throws -> ImplementationsResult? {
         try await store.read { db in
             let range = pointRange(line: line, character: character)
             if let symbol = try LayeredContext.lspSymbolAt(db: db, filePath: filePath, range: range) {
-                let location = DefinitionLocation(filePath: symbol.filePath, range: symbol.range, sourceText: nil, symbol: symbol)
+                let sourceText = includeSource ? readSourceRange(rootDirectory: rootDirectory, filePath: symbol.filePath, range: symbol.range) : nil
+                let location = DefinitionLocation(filePath: symbol.filePath, range: symbol.range, sourceText: sourceText, symbol: symbol)
                 return ImplementationsResult(implementations: [location], sourceLayer: .lspIndex)
             }
 
@@ -681,7 +741,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
                     filePath: chunk.filePath,
                     range: chunkRange
                 )
-                return DefinitionLocation(filePath: chunk.filePath, range: chunkRange, sourceText: chunk.text, symbol: symbol)
+                return DefinitionLocation(filePath: chunk.filePath, range: chunkRange, sourceText: includeSource ? chunk.text : nil, symbol: symbol)
             }
             return ImplementationsResult(implementations: implementations, sourceLayer: .treeSitter)
         }
@@ -699,6 +759,12 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     /// type-level doc comment, a live-layer failure falls through to the
     /// next layer rather than surfacing.
     ///
+    /// `readFileContents(relativePath:rootDirectory:)` rejects a
+    /// path-traversal `filePath` before touching disk (see its own doc
+    /// comment), so this method's own `DocumentURI` construction below —
+    /// which reuses the exact same `filePath` — never runs on an unsafe
+    /// path either: the `guard` above already returned `nil` for it.
+    ///
     /// - Parameters:
     ///   - session: The session to sync the document to.
     ///   - rootDirectory: The workspace root `filePath` is relative to.
@@ -708,7 +774,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         guard let contents = readFileContents(relativePath: filePath, rootDirectory: rootDirectory) else {
             return nil
         }
-        let uri = documentURI(rootDirectory: rootDirectory, relativePath: filePath)
+        let uri = DocumentURI(rootDirectory.appendingPathComponent(filePath).absoluteString)
         do {
             try await session.syncOpen(uri: uri, text: contents)
         } catch {
@@ -717,13 +783,50 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         return uri
     }
 
-    /// Reads `relativePath`'s content from disk as UTF-8 text, or `nil` if it can't be read or decoded.
+    /// Reads `relativePath`'s content from disk as UTF-8 text, or `nil` if
+    /// it can't be read or decoded, or if `relativePath` fails
+    /// `isSafeRelativePath(_:)`'s path-traversal guard.
+    ///
+    /// This is the sole gateway every disk read in this type goes through
+    /// (`readSourceRange`, and `syncLiveDocument`'s own subsequent
+    /// `DocumentURI` construction, which only runs after this guard has
+    /// already accepted `relativePath`) — see `isSafeRelativePath(_:)`'s doc
+    /// comment for why `relativePath` isn't trusted even though every
+    /// current caller in this file passes the op's own `filePath` argument.
     private static func readFileContents(relativePath: String, rootDirectory: URL) -> String? {
+        guard isSafeRelativePath(relativePath) else {
+            return nil
+        }
         let fileURL = rootDirectory.appendingPathComponent(relativePath)
         guard let data = try? Data(contentsOf: fileURL), let contents = String(data: data, encoding: .utf8) else {
             return nil
         }
         return contents
+    }
+
+    /// Returns whether `relativePath` is safe to resolve against a
+    /// workspace root with `URL.appendingPathComponent(_:)`.
+    ///
+    /// Rejects an absolute path (leading `/`), a home-relative path
+    /// (leading `~`), and any path containing a `..` component — each of
+    /// which `appendingPathComponent` would otherwise happily resolve
+    /// outside the workspace root. Defense-in-depth, mirroring
+    /// `LSPIndexWorker.isSafeRelativePath(_:)` (the identical guard added
+    /// there for the identical concern): a `filePath` reaching this type
+    /// ultimately comes from a public op's caller, but every location this
+    /// type itself surfaces (an LSP-index symbol, a tree-sitter chunk, a
+    /// live LSP response) also carries a `filePath` that could, in
+    /// principle, echo back through a future call site — this guard doesn't
+    /// trust any of it any more than `LSPIndexWorker` trusts store-sourced
+    /// paths.
+    /// - Parameter relativePath: The candidate workspace-relative path.
+    /// - Returns: `false` if resolving `relativePath` against a workspace
+    ///   root could escape it; `true` otherwise.
+    private static func isSafeRelativePath(_ relativePath: String) -> Bool {
+        guard !relativePath.hasPrefix("/"), !relativePath.hasPrefix("~") else {
+            return false
+        }
+        return !relativePath.split(separator: "/").contains("..")
     }
 
     /// Reads the source lines spanning `range` (inclusive) from `filePath` on disk, or `nil` if the
@@ -737,11 +840,6 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         let endLine = min(lines.count - 1, range.end.line)
         guard startLine <= endLine, startLine < lines.count else { return nil }
         return lines[startLine...endLine].joined(separator: "\n")
-    }
-
-    /// Builds the `DocumentURI` for `relativePath` under `rootDirectory`.
-    private static func documentURI(rootDirectory: URL, relativePath: String) -> DocumentURI {
-        DocumentURI(rootDirectory.appendingPathComponent(relativePath).absoluteString)
     }
 
     /// Converts a live LSP response's absolute file `DocumentURI` back to a
