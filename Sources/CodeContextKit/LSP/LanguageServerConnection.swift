@@ -16,7 +16,7 @@ import Foundation
 /// type serializes its own mutable state (in-flight requests, open
 /// documents, ...) automatically, the same way `ProcessLanguageServerConnection`
 /// serializes access to its pending-request table.
-protocol LanguageServerConnection: Actor {
+public protocol LanguageServerConnection: Actor {
     // MARK: - Lifecycle
 
     /// Sends the `initialize` request that starts the LSP handshake.
@@ -203,7 +203,7 @@ protocol LanguageServerConnection: Actor {
 /// Only the `textDocument/publishDiagnostics` push is modeled: it is the
 /// only server-initiated notification this package's v1 scope consumes
 /// (`LspSession`'s diagnostics cache, per plan.md).
-enum ServerNotification: Sendable, Equatable {
+public enum ServerNotification: Sendable, Equatable {
     /// The server replaced the diagnostics for `uri` with `diagnostics`.
     case publishDiagnostics(uri: DocumentURI, diagnostics: [Diagnostic])
 }

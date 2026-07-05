@@ -6,7 +6,7 @@ import GRDB
 // ---------------------------------------------------------------------------
 
 /// Result of `LiveOpsExtended.codeActions`.
-struct CodeActionsResult: Codable, Sendable, Equatable {
+public struct CodeActionsResult: Codable, Sendable, Equatable {
     /// The code actions available at the range, each already run through
     /// `codeAction/resolve` — empty (never an error) when no layer has data.
     let actions: [CodeActionItem]
@@ -31,7 +31,7 @@ struct CodeActionsResult: Codable, Sendable, Equatable {
 /// persisted "renameable" fact to fall back to), so the only interesting
 /// signal is whether it succeeded at all, which `canRename` already
 /// expresses directly.
-struct RenameEditsResult: Codable, Sendable, Equatable {
+public struct RenameEditsResult: Codable, Sendable, Equatable {
     /// Whether the symbol at the cursor can be renamed. `false` (never an
     /// error) when there is no live session, the live server reports the
     /// position isn't renameable, or the live request fails outright.
@@ -70,7 +70,7 @@ struct InboundCall: Codable, Sendable, Equatable {
 }
 
 /// Result of `LiveOpsExtended.inboundCalls`.
-struct InboundCallsResult: Codable, Sendable, Equatable {
+public struct InboundCallsResult: Codable, Sendable, Equatable {
     /// Every caller found — empty (never an error) when no layer has data.
     let calls: [InboundCall]
 
@@ -109,7 +109,7 @@ struct WorkspaceSymbolInfo: Codable, Sendable, Equatable {
 /// `inboundCalls`, there is no per-file cursor position to look up an
 /// `lsp_symbols`/`ts_chunks` row against here) — the only outcome worth
 /// reporting is the (possibly empty) match list itself.
-struct WorkspaceSymbolsResult: Codable, Sendable, Equatable {
+public struct WorkspaceSymbolsResult: Codable, Sendable, Equatable {
     /// The matching symbols — empty (never an error) when no session is
     /// running or the live request fails.
     let symbols: [WorkspaceSymbolInfo]
@@ -119,7 +119,7 @@ struct WorkspaceSymbolsResult: Codable, Sendable, Equatable {
 ///
 /// Deliberately carries no `sourceLayer`: this is a supervisor snapshot, not
 /// a cascaded data lookup — there is nothing to cascade through.
-struct LspStatusResult: Codable, Sendable, Equatable {
+public struct LspStatusResult: Codable, Sendable, Equatable {
     /// A snapshot of every managed daemon's current state, as reported by `LspSupervisor.status()`.
     let servers: [ServerStatus]
 }

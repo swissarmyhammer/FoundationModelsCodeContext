@@ -297,7 +297,7 @@ struct DocumentSymbolParams: Encodable {
 
 /// One entry of the modern, hierarchical `textDocument/documentSymbol`
 /// result shape.
-struct DocumentSymbol: Decodable {
+public struct DocumentSymbol: Decodable, Sendable {
     let name: String
     let detail: String?
     let kind: SymbolKind
@@ -308,7 +308,7 @@ struct DocumentSymbol: Decodable {
 
 /// One entry of the legacy, flat `textDocument/documentSymbol` result
 /// shape, also reused for `workspace/symbol` results.
-struct SymbolInformation: Decodable {
+public struct SymbolInformation: Decodable, Sendable {
     let name: String
     let kind: SymbolKind
     let location: Location
@@ -442,7 +442,7 @@ private struct MarkedStringItem: Decodable {
 /// `MarkedString[]` array; all three are flattened to a single `String`
 /// (array entries joined with `"\n"`), since this package only ever
 /// displays hover text and never needs the structured markup distinction.
-struct Hover: Decodable {
+public struct Hover: Decodable, Sendable {
     let contents: String
     let range: LSPRange?
 
@@ -466,7 +466,7 @@ struct Hover: Decodable {
         case range
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         range = try container.decodeIfPresent(LSPRange.self, forKey: .range)
 
@@ -494,14 +494,14 @@ struct CallHierarchyCallsParams: Encodable {
 
 /// One entry of the `callHierarchy/incomingCalls` result: a caller plus the
 /// ranges within it that call the target.
-struct CallHierarchyIncomingCall: Decodable {
+public struct CallHierarchyIncomingCall: Decodable, Sendable {
     let from: CallHierarchyItem
     let fromRanges: [LSPRange]
 }
 
 /// One entry of the `callHierarchy/outgoingCalls` result: a callee plus the
 /// ranges within the target that call it.
-struct CallHierarchyOutgoingCall: Decodable {
+public struct CallHierarchyOutgoingCall: Decodable, Sendable {
     let to: CallHierarchyItem
     let fromRanges: [LSPRange]
 }
@@ -514,7 +514,7 @@ struct CallHierarchyOutgoingCall: Decodable {
 /// object, a `{ defaultBehavior: true }` object, or `null`. The
 /// `defaultBehavior` shape carries no usable range for this package's
 /// purposes and normalizes to `range == nil`, same as `null`.
-struct PrepareRenameResult: Decodable {
+public struct PrepareRenameResult: Decodable, Sendable {
     let range: LSPRange?
     let placeholder: String?
 
@@ -538,7 +538,7 @@ struct PrepareRenameResult: Decodable {
         let placeholder: String
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {
             range = nil
@@ -576,7 +576,7 @@ struct TextEdit: Codable, Equatable {
 
 /// The result of `textDocument/rename`: a workspace edit keyed by document
 /// URI string.
-struct WorkspaceEdit: Codable, Equatable {
+public struct WorkspaceEdit: Codable, Equatable, Sendable {
     let changes: [String: [TextEdit]]?
 }
 
@@ -653,7 +653,7 @@ struct CodeActionCommand: Codable, Equatable {
 /// One entry of the `textDocument/codeAction` result, also the shape sent
 /// back verbatim (with its `data` field intact) as `codeAction/resolve`'s
 /// params.
-struct CodeActionItem: Codable, Equatable {
+public struct CodeActionItem: Codable, Equatable, Sendable {
     let title: String
     let kind: String?
     let diagnostics: [Diagnostic]?

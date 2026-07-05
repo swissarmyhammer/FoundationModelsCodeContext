@@ -8,7 +8,7 @@ import Foundation
 /// itself only ever takes already-resolved paths — see
 /// `DiagnosticsScopeResolver`'s doc comment for where resolution actually
 /// happens in the Rust reference).
-enum DiagnosticsScope: Sendable, Equatable {
+public enum DiagnosticsScope: Sendable, Equatable {
     /// Every file with a modified, untracked, or staged change in `git
     /// status`, relative to the index/HEAD.
     case workingTree

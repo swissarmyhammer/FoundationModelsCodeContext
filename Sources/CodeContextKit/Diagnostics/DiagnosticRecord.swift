@@ -127,7 +127,7 @@ struct Counts: Sendable, Equatable {
 /// type here rather than kept as a separate wrapper, since this Swift port
 /// has exactly one public entry point (`DiagnosticsOps.diagnostics(...)`)
 /// that always wants both together.
-struct DiagnosticsReport: Sendable, Equatable {
+public struct DiagnosticsReport: Sendable, Equatable {
     /// Every diagnostic record in this report, targets first (in query
     /// order), then folded-in broken dependents (ranked errors-then-warnings),
     /// truncated to the per-report cap.

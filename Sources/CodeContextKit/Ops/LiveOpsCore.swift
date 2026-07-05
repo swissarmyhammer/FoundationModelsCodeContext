@@ -29,7 +29,7 @@ struct DefinitionLocation: Codable, Sendable, Equatable {
 }
 
 /// Result of `LiveOpsCore.definition`/`LiveOpsCore.typeDefinition`.
-struct DefinitionResult: Codable, Sendable, Equatable {
+public struct DefinitionResult: Codable, Sendable, Equatable {
     /// The definition locations found — empty (never an error) when no layer has data.
     let locations: [DefinitionLocation]
 
@@ -38,7 +38,7 @@ struct DefinitionResult: Codable, Sendable, Equatable {
 }
 
 /// Result of `LiveOpsCore.hover`.
-struct HoverResult: Codable, Sendable, Equatable {
+public struct HoverResult: Codable, Sendable, Equatable {
     /// The hover content (markdown, type signature, or source text) — empty
     /// (never an error) when no layer has data.
     let contents: String
@@ -75,7 +75,7 @@ struct FileReferenceGroup: Codable, Sendable, Equatable {
 }
 
 /// Result of `LiveOpsCore.references`.
-struct ReferencesResult: Codable, Sendable, Equatable {
+public struct ReferencesResult: Codable, Sendable, Equatable {
     /// Every reference location (after truncation by `maxResults`).
     let references: [ReferenceLocation]
 
@@ -90,7 +90,7 @@ struct ReferencesResult: Codable, Sendable, Equatable {
 }
 
 /// Result of `LiveOpsCore.implementations`.
-struct ImplementationsResult: Codable, Sendable, Equatable {
+public struct ImplementationsResult: Codable, Sendable, Equatable {
     /// The implementation locations found — empty (never an error) when no layer has data.
     let implementations: [DefinitionLocation]
 

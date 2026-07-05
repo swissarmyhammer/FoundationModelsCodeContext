@@ -104,7 +104,7 @@ private final class StderrTailBuffer: @unchecked Sendable {
 /// Every request races against an injectable `Clock`-driven timeout
 /// (30 seconds by default), so a server that never answers fails the caller
 /// rather than hanging it forever.
-actor ProcessLanguageServerConnection: LanguageServerConnection {
+public actor ProcessLanguageServerConnection: LanguageServerConnection {
     private let process: Process
     private let stdinHandle: FileHandle
     private let stdoutHandle: FileHandle
@@ -125,7 +125,7 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
     private let notificationContinuation: AsyncStream<ServerNotification>.Continuation
 
     /// Server-initiated notifications (currently just `publishDiagnostics`), fanned out as they arrive.
-    nonisolated let serverNotifications: AsyncStream<ServerNotification>
+    public nonisolated let serverNotifications: AsyncStream<ServerNotification>
 
     /// Spawns `command` as a child process and opens a JSON-RPC connection to it over its stdio.
     ///
@@ -260,29 +260,29 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
 
     // MARK: - LanguageServerConnection
 
-    func initialize(rootURI: DocumentURI?) async throws {
+    public func initialize(rootURI: DocumentURI?) async throws {
         let params = InitializeParams(processID: Int(ProcessInfo.processInfo.processIdentifier), rootURI: rootURI)
         _ = try await request(method: "initialize", params: params, resultType: InitializeResult.self)
     }
 
-    func initialized() async throws {
+    public func initialized() async throws {
         try await notifyEmpty(method: "initialized")
     }
 
-    func shutdown() async throws {
+    public func shutdown() async throws {
         _ = try await request(method: "shutdown", params: EmptyPayload(), resultType: EmptyPayload?.self)
     }
 
-    func exit() async throws {
+    public func exit() async throws {
         try await notifyEmpty(method: "exit")
     }
 
-    func didOpen(uri: DocumentURI, languageID: String, version: Int, text: String) async throws {
+    public func didOpen(uri: DocumentURI, languageID: String, version: Int, text: String) async throws {
         let item = TextDocumentItem(uri: uri, languageID: languageID, version: version, text: text)
         try await notify(method: "textDocument/didOpen", params: DidOpenTextDocumentParams(textDocument: item))
     }
 
-    func didChange(uri: DocumentURI, version: Int, text: String) async throws {
+    public func didChange(uri: DocumentURI, version: Int, text: String) async throws {
         let params = DidChangeTextDocumentParams(
             textDocument: VersionedTextDocumentIdentifier(uri: uri, version: version),
             contentChanges: [TextDocumentContentChangeEvent(text: text)]
@@ -290,33 +290,33 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
         try await notify(method: "textDocument/didChange", params: params)
     }
 
-    func didSave(uri: DocumentURI) async throws {
+    public func didSave(uri: DocumentURI) async throws {
         try await notifyTextDocument(method: "textDocument/didSave", uri: uri, makeParams: DidSaveTextDocumentParams.init)
     }
 
-    func didClose(uri: DocumentURI) async throws {
+    public func didClose(uri: DocumentURI) async throws {
         try await notifyTextDocument(method: "textDocument/didClose", uri: uri, makeParams: DidCloseTextDocumentParams.init)
     }
 
-    func documentSymbols(in uri: DocumentURI) async throws -> [DocumentSymbol] {
+    public func documentSymbols(in uri: DocumentURI) async throws -> [DocumentSymbol] {
         let params = DocumentSymbolParams(textDocument: TextDocumentIdentifier(uri: uri))
         let result = try await request(method: "textDocument/documentSymbol", params: params, resultType: DocumentSymbolResult.self)
         return result.symbols
     }
 
-    func definition(in uri: DocumentURI, at position: Position) async throws -> [Location] {
+    public func definition(in uri: DocumentURI, at position: Position) async throws -> [Location] {
         try await positionRequest(method: "textDocument/definition", uri: uri, position: position)
     }
 
-    func typeDefinition(in uri: DocumentURI, at position: Position) async throws -> [Location] {
+    public func typeDefinition(in uri: DocumentURI, at position: Position) async throws -> [Location] {
         try await positionRequest(method: "textDocument/typeDefinition", uri: uri, position: position)
     }
 
-    func hover(in uri: DocumentURI, at position: Position) async throws -> Hover? {
+    public func hover(in uri: DocumentURI, at position: Position) async throws -> Hover? {
         try await requestAtPosition(method: "textDocument/hover", uri: uri, position: position, resultType: Hover?.self)
     }
 
-    func references(in uri: DocumentURI, at position: Position, includeDeclaration: Bool) async throws -> [Location] {
+    public func references(in uri: DocumentURI, at position: Position, includeDeclaration: Bool) async throws -> [Location] {
         let params = ReferenceParams(
             textDocument: TextDocumentIdentifier(uri: uri),
             position: position,
@@ -325,32 +325,32 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
         return try await locationsRequest(method: "textDocument/references", params: params)
     }
 
-    func implementations(in uri: DocumentURI, at position: Position) async throws -> [Location] {
+    public func implementations(in uri: DocumentURI, at position: Position) async throws -> [Location] {
         try await positionRequest(method: "textDocument/implementation", uri: uri, position: position)
     }
 
-    func prepareCallHierarchy(in uri: DocumentURI, at position: Position) async throws -> [CallHierarchyItem] {
+    public func prepareCallHierarchy(in uri: DocumentURI, at position: Position) async throws -> [CallHierarchyItem] {
         try await arrayRequest(method: "textDocument/prepareCallHierarchy", params: positionParams(uri: uri, position: position), resultType: CallHierarchyItem.self)
     }
 
-    func outgoingCalls(of item: CallHierarchyItem) async throws -> [CallHierarchyOutgoingCall] {
+    public func outgoingCalls(of item: CallHierarchyItem) async throws -> [CallHierarchyOutgoingCall] {
         try await arrayRequest(method: "callHierarchy/outgoingCalls", params: CallHierarchyCallsParams(item: item), resultType: CallHierarchyOutgoingCall.self)
     }
 
-    func incomingCalls(of item: CallHierarchyItem) async throws -> [CallHierarchyIncomingCall] {
+    public func incomingCalls(of item: CallHierarchyItem) async throws -> [CallHierarchyIncomingCall] {
         try await arrayRequest(method: "callHierarchy/incomingCalls", params: CallHierarchyCallsParams(item: item), resultType: CallHierarchyIncomingCall.self)
     }
 
-    func prepareRename(in uri: DocumentURI, at position: Position) async throws -> PrepareRenameResult {
+    public func prepareRename(in uri: DocumentURI, at position: Position) async throws -> PrepareRenameResult {
         try await requestAtPosition(method: "textDocument/prepareRename", uri: uri, position: position, resultType: PrepareRenameResult.self)
     }
 
-    func rename(in uri: DocumentURI, at position: Position, newName: String) async throws -> WorkspaceEdit {
+    public func rename(in uri: DocumentURI, at position: Position, newName: String) async throws -> WorkspaceEdit {
         let params = RenameParams(textDocument: TextDocumentIdentifier(uri: uri), position: position, newName: newName)
         return try await request(method: "textDocument/rename", params: params, resultType: WorkspaceEdit.self)
     }
 
-    func codeActions(in uri: DocumentURI, range: LSPRange, diagnostics: [Diagnostic], only: [String]?) async throws -> [CodeActionItem] {
+    public func codeActions(in uri: DocumentURI, range: LSPRange, diagnostics: [Diagnostic], only: [String]?) async throws -> [CodeActionItem] {
         let params = CodeActionParams(
             textDocument: TextDocumentIdentifier(uri: uri),
             range: range,
@@ -359,15 +359,15 @@ actor ProcessLanguageServerConnection: LanguageServerConnection {
         return try await arrayRequest(method: "textDocument/codeAction", params: params, resultType: CodeActionItem.self)
     }
 
-    func resolveCodeAction(item: CodeActionItem) async throws -> CodeActionItem {
+    public func resolveCodeAction(item: CodeActionItem) async throws -> CodeActionItem {
         try await request(method: "codeAction/resolve", params: item, resultType: CodeActionItem.self)
     }
 
-    func workspaceSymbols(query: String) async throws -> [SymbolInformation] {
+    public func workspaceSymbols(query: String) async throws -> [SymbolInformation] {
         try await arrayRequest(method: "workspace/symbol", params: WorkspaceSymbolParams(query: query), resultType: SymbolInformation.self)
     }
 
-    func pullDiagnostics(for uri: DocumentURI) async throws -> [Diagnostic] {
+    public func pullDiagnostics(for uri: DocumentURI) async throws -> [Diagnostic] {
         let params = DocumentDiagnosticParams(textDocument: TextDocumentIdentifier(uri: uri))
         let (id, data) = try await performRequest(method: "textDocument/diagnostic", params: params)
         let resultData = try Self.rawResultData(from: data, expectedID: id)
