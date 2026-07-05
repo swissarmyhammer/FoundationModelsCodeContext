@@ -22,6 +22,24 @@ comments:
 
     Leaving task in `doing` per process (not moving to review/done).
   timestamp: 2026-07-05T20:32:03.642566+00:00
+- actor: wballard
+  id: 01kwt0mc27cvqf0zk4kns3724h
+  text: |-
+    Fixed the 3 round-1 review findings (nesting depth 4 in scripted-lsp-server.swift's "read"/"respond" cases). Pure structural extraction, no DSL behavior change:
+
+    - New `validateReadExpectations(step:message:)` helper (delegating to new `assertExpectedMethod(_:message:)` / `assertExpectedURI(_:message:)`) replaces the two inline `if let ... { guard ... }` blocks in the "read" case. Nesting there is now for > switch/case > guard (depth 3, was 4).
+    - New `resolveTargetID(step:requestsReadSoFar:)` dispatcher (delegating to new `resolveTargetID(forURI:requestsReadSoFar:)` / `resolveTargetID(forIndex:requestsReadSoFar:)`) replaces the inline if/else with two guards in the "respond" case. Nesting there is now for > switch/case (depth 2).
+
+    All extracted helper bodies are byte-for-byte equivalent to the original inline logic (same conditions, same error message text, same exit(1) calls) — verified by manual diff review and confirmed independently by the double-check agent.
+
+    really-done verification:
+    - `swift build`: clean, zero warnings beyond the pre-existing unrelated mlx-swift plugin warning.
+    - `swift build --build-tests`: clean, same caveat.
+    - `swift test --filter ConnectionTests` (wrapped in `timeout 180`, followed by `pkill -9 -f swiftpm-testing-helper` per this task's guidance to avoid the unrelated full-suite hang tracked by ^vhcye6y): 18/18 green across 3 consecutive runs, no flakiness.
+    - Adversarial double-check agent: PASS, no findings — confirmed logic equivalence, nesting resolved, scope contained to the single test-support file, overload resolution correct (no accidental recursion), and doc-comment conventions matched.
+
+    Only Tests/CodeContextKitTests/Support/scripted-lsp-server.swift changed (plus routine kanban bookkeeping files). No production code touched. Leaving task in `doing` per process.
+  timestamp: 2026-07-05T20:48:30.791919+00:00
 position_column: doing
 position_ordinal: '80'
 title: Add ConnectionTests coverage for refactored LSP helper call sites
@@ -33,3 +51,9 @@ However, adversarial review (double-check agent) found: Tests/CodeContextKitTest
 Suggested fix: extend ConnectionTests (or the scripted-lsp-server test DSL) with cases that drive at least one representative call through each new helper's distinct shape against the real subprocess: a no-payload notification (initialized/exit), a textDocument/* notification (didSave/didClose), a position-keyed single-result request (hover/prepareRename), a position-keyed array/optional-array request (prepareCallHierarchy), a non-position array request (workspaceSymbols/codeActions), and a LocationsResult-wrapped request (references, definition/typeDefinition/implementations).
 
 Not fixed in this pass: task scope was running/fixing the existing test suite (157/157 pass, ConnectionTests stress-tested 13x with no flakiness, build clean apart from a pre-existing third-party mlx-swift plugin warning), not authoring new coverage. Logged here per really-done adversarial sign-off gate so the gap isn't silently dropped.
+
+## Review Findings (2026-07-05 15:38)
+
+- [x] `Tests/CodeContextKitTests/Support/scripted-lsp-server.swift:118` — Guard statement nested 4 levels deep (for > guard > switch/case > if > guard) exceeds recommended maximum of 3 and makes the code harder to follow. Extract the expectMethod validation into a separate helper function, or restructure the case block to move validation logic outside the if statement. **Fixed**: extracted `assertExpectedMethod(_:message:)` (and its expectURI sibling) into a new `validateReadExpectations(step:message:)` helper called from the "read" case, reducing nesting to for > switch/case > guard.
+- [x] `Tests/CodeContextKitTests/Support/scripted-lsp-server.swift:136` — Guard statement nested 4 levels deep (for > guard > switch/case > if > guard) exceeds recommended maximum of 3 and makes the code harder to follow. Extract the URI matching logic into a separate helper function to reduce nesting depth and improve readability. **Fixed**: extracted `assertExpectedURI(_:message:)`, called from the same `validateReadExpectations(step:message:)` helper as above.
+- [x] `Tests/CodeContextKitTests/Support/scripted-lsp-server.swift:143` — Guard statement nested 4 levels deep (for > guard > switch/case > else > guard) exceeds recommended maximum of 3 and makes the code harder to follow. Extract the index-based request lookup logic into a separate helper function to reduce nesting depth and improve readability. **Fixed**: extracted `resolveTargetID(forURI:requestsReadSoFar:)` and `resolveTargetID(forIndex:requestsReadSoFar:)`, both called from a new `resolveTargetID(step:requestsReadSoFar:)` dispatcher used by the "respond" case, reducing nesting to for > switch/case > (function call).

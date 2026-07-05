@@ -141,6 +141,70 @@ func requestDocumentURI(from data: Data) -> String? {
     return textDocument["uri"] as? String
 }
 
+/// Asserts a "read" step's `expectMethod` (if present) against the actual
+/// message's `method` field, exiting with a stderr message on mismatch.
+func assertExpectedMethod(_ expectMethod: String, message: Data) {
+    let actualMethod = requestMethod(from: message)
+    guard actualMethod == expectMethod else {
+        FileHandle.standardError.write(Data("scripted-lsp-server: expected method \(expectMethod), got \(actualMethod ?? "nil")\n".utf8))
+        exit(1)
+    }
+}
+
+/// Asserts a "read" step's `expectURI` (if present) against the actual
+/// message's `params.textDocument.uri`, exiting with a stderr message on
+/// mismatch.
+func assertExpectedURI(_ expectURI: String, message: Data) {
+    let actualURI = requestDocumentURI(from: message)
+    guard actualURI == expectURI else {
+        FileHandle.standardError.write(Data("scripted-lsp-server: expected uri \(expectURI), got \(actualURI ?? "nil")\n".utf8))
+        exit(1)
+    }
+}
+
+/// Validates a "read" step's optional `expectMethod`/`expectURI` assertions
+/// against the actual message read from stdin.
+func validateReadExpectations(step: [String: Any], message: Data) {
+    if let expectMethod = step["expectMethod"] as? String {
+        assertExpectedMethod(expectMethod, message: message)
+    }
+    if let expectURI = step["expectURI"] as? String {
+        assertExpectedURI(expectURI, message: message)
+    }
+}
+
+/// Resolves the JSON-RPC id for a "respond" step keyed by `uri`: whichever
+/// request read so far named that document. Exits with a stderr message if
+/// no such request was read, or it was a notification with no id.
+func resolveTargetID(forURI uri: String, requestsReadSoFar: [ReadRequest]) -> Any {
+    guard let matched = requestsReadSoFar.first(where: { $0.uri == uri }), let matchedID = matched.id else {
+        FileHandle.standardError.write(Data("scripted-lsp-server: no request read for uri \(uri)\n".utf8))
+        exit(1)
+    }
+    return matchedID
+}
+
+/// Resolves the JSON-RPC id for a "respond" step keyed by `which`: the
+/// request at that 0-based read-order index. Exits with a stderr message if
+/// that request was a notification with no id.
+func resolveTargetID(forIndex which: Int, requestsReadSoFar: [ReadRequest]) -> Any {
+    guard let whichID = requestsReadSoFar[which].id else {
+        FileHandle.standardError.write(Data("scripted-lsp-server: request at index \(which) has no id (it was a notification)\n".utf8))
+        exit(1)
+    }
+    return whichID
+}
+
+/// Resolves the JSON-RPC id for a "respond" step, by `uri` if present,
+/// otherwise by `which` (defaulting to index 0).
+func resolveTargetID(step: [String: Any], requestsReadSoFar: [ReadRequest]) -> Any {
+    if let uri = step["uri"] as? String {
+        return resolveTargetID(forURI: uri, requestsReadSoFar: requestsReadSoFar)
+    }
+    let which = step["which"] as? Int ?? 0
+    return resolveTargetID(forIndex: which, requestsReadSoFar: requestsReadSoFar)
+}
+
 guard CommandLine.arguments.count > 1,
     let scriptData = CommandLine.arguments[1].data(using: .utf8),
     let steps = try? JSONSerialization.jsonObject(with: scriptData) as? [[String: Any]]
@@ -159,39 +223,12 @@ for step in steps {
             FileHandle.standardError.write(Data("scripted-lsp-server: expected a message, got EOF\n".utf8))
             exit(1)
         }
-        if let expectMethod = step["expectMethod"] as? String {
-            let actualMethod = requestMethod(from: message)
-            guard actualMethod == expectMethod else {
-                FileHandle.standardError.write(Data("scripted-lsp-server: expected method \(expectMethod), got \(actualMethod ?? "nil")\n".utf8))
-                exit(1)
-            }
-        }
-        if let expectURI = step["expectURI"] as? String {
-            let actualURI = requestDocumentURI(from: message)
-            guard actualURI == expectURI else {
-                FileHandle.standardError.write(Data("scripted-lsp-server: expected uri \(expectURI), got \(actualURI ?? "nil")\n".utf8))
-                exit(1)
-            }
-        }
+        validateReadExpectations(step: step, message: message)
         requestsReadSoFar.append(ReadRequest(id: requestID(from: message), uri: requestDocumentURI(from: message)))
 
     case "respond":
         let result = step["result"] ?? NSNull()
-        let targetID: Any
-        if let uri = step["uri"] as? String {
-            guard let matched = requestsReadSoFar.first(where: { $0.uri == uri }), let matchedID = matched.id else {
-                FileHandle.standardError.write(Data("scripted-lsp-server: no request read for uri \(uri)\n".utf8))
-                exit(1)
-            }
-            targetID = matchedID
-        } else {
-            let which = step["which"] as? Int ?? 0
-            guard let whichID = requestsReadSoFar[which].id else {
-                FileHandle.standardError.write(Data("scripted-lsp-server: request at index \(which) has no id (it was a notification)\n".utf8))
-                exit(1)
-            }
-            targetID = whichID
-        }
+        let targetID = resolveTargetID(step: step, requestsReadSoFar: requestsReadSoFar)
         let envelope: [String: Any] = ["jsonrpc": "2.0", "id": targetID, "result": result]
         if let payload = try? JSONSerialization.data(withJSONObject: envelope) {
             writeMessage(payload: payload)
