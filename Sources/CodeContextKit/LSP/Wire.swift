@@ -569,14 +569,14 @@ struct RenameParams: Encodable {
 }
 
 /// A single text replacement within a document.
-struct TextEdit: Codable {
+struct TextEdit: Codable, Equatable {
     let range: LSPRange
     let newText: String
 }
 
 /// The result of `textDocument/rename`: a workspace edit keyed by document
 /// URI string.
-struct WorkspaceEdit: Codable {
+struct WorkspaceEdit: Codable, Equatable {
     let changes: [String: [TextEdit]]?
 }
 
@@ -644,7 +644,7 @@ struct CodeActionParams: Encodable {
 /// The `command` object embedded in a `CodeAction`, or a bare `Command`
 /// result item (the `(Command | CodeAction)[]` union this package doesn't
 /// otherwise model, since every server it targets returns `CodeAction`).
-struct CodeActionCommand: Codable {
+struct CodeActionCommand: Codable, Equatable {
     let title: String
     let command: String
     let arguments: [JSONValue]?
@@ -653,7 +653,7 @@ struct CodeActionCommand: Codable {
 /// One entry of the `textDocument/codeAction` result, also the shape sent
 /// back verbatim (with its `data` field intact) as `codeAction/resolve`'s
 /// params.
-struct CodeActionItem: Codable {
+struct CodeActionItem: Codable, Equatable {
     let title: String
     let kind: String?
     let diagnostics: [Diagnostic]?

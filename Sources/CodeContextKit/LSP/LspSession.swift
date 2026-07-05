@@ -216,6 +216,17 @@ actor LspSession<Connection: LanguageServerConnection> {
         try await connection.outgoingCalls(of: item)
     }
 
+    /// Requests every call made *into* a call-hierarchy item, delegating
+    /// directly to `connection.incomingCalls(of:)`.
+    ///
+    /// - Parameter item: The item previously returned by
+    ///   `prepareCallHierarchy(uri:position:)`.
+    /// - Returns: Zero or more incoming calls.
+    /// - Throws: Whatever `connection.incomingCalls(of:)` throws.
+    func incomingCalls(item: CallHierarchyItem) async throws -> [CallHierarchyIncomingCall] {
+        try await connection.incomingCalls(of: item)
+    }
+
     /// Requests the definition site of the symbol at a position, delegating
     /// directly to `connection.definition(in:at:)`.
     ///
@@ -287,6 +298,120 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// - Throws: Whatever `connection.implementations(in:at:)` throws.
     func implementations(uri: DocumentURI, at position: Position) async throws -> [Location] {
         try await connection.implementations(in: uri, at: position)
+    }
+
+    /// Requests the code actions available for a range, delegating directly
+    /// to `connection.codeActions(in:range:diagnostics:only:)`.
+    ///
+    /// - Parameters:
+    ///   - uri: The document containing the range; should already be synced
+    ///     via `syncOpen(uri:text:)` so the server sees its current content.
+    ///   - range: The span to request actions for.
+    ///   - diagnostics: The diagnostics currently in scope for `range`.
+    ///   - only: If non-`nil`, restricts the server to these code-action kinds.
+    /// - Returns: Zero or more code actions.
+    /// - Throws: Whatever `connection.codeActions(in:range:diagnostics:only:)` throws.
+    func codeActions(uri: DocumentURI, range: LSPRange, diagnostics: [Diagnostic], only: [String]?) async throws -> [CodeActionItem] {
+        try await connection.codeActions(in: uri, range: range, diagnostics: diagnostics, only: only)
+    }
+
+    /// Resolves a code action's deferred fields, delegating directly to
+    /// `connection.resolveCodeAction(item:)`.
+    ///
+    /// - Parameter item: The code action previously returned by `codeActions(uri:range:diagnostics:only:)`.
+    /// - Returns: The same action with its deferred fields filled in.
+    /// - Throws: Whatever `connection.resolveCodeAction(item:)` throws.
+    func resolveCodeAction(item: CodeActionItem) async throws -> CodeActionItem {
+        try await connection.resolveCodeAction(item: item)
+    }
+
+    /// Searches the workspace for symbols matching a query string,
+    /// delegating directly to `connection.workspaceSymbols(query:)`.
+    ///
+    /// Unlike every other request wrapper above, this one is document-less:
+    /// it needs no prior `syncOpen(uri:text:)` call, since `workspace/symbol`
+    /// is not scoped to any single open document.
+    /// - Parameter query: The search string, interpreted by the server (typically fuzzy).
+    /// - Returns: Zero or more matching symbols.
+    /// - Throws: Whatever `connection.workspaceSymbols(query:)` throws.
+    func workspaceSymbols(query: String) async throws -> [SymbolInformation] {
+        try await connection.workspaceSymbols(query: query)
+    }
+
+    /// A first-in-first-out mutual-exclusion gate held by `prepareRenameAndRename`.
+    ///
+    /// `LspSession` is a Swift actor, and actors are reentrant at every
+    /// `await`: while `prepareRenameAndRename` is suspended awaiting
+    /// `connection.prepareRename(in:at:)`, a *different* concurrent
+    /// `prepareRenameAndRename` call already queued on this same actor is
+    /// free to run its own `prepareRename`/`rename` pair before the first
+    /// call resumes and issues its own `rename` — splitting what should be
+    /// one atomic request/response pair across two logically unrelated
+    /// rename batches. This flag, together with `renameLockWaiters`, closes
+    /// exactly that gap: whichever caller acquires the gate first runs its
+    /// whole `prepareRename` + `rename` pair to completion before the next
+    /// queued caller's pair begins. Port of `swissarmyhammer-lsp`'s
+    /// `lsp_multi_request_batch` "hold the client for the whole batch"
+    /// semantics — this session has no cross-process client to hold, so the
+    /// gate is scoped to serializing this session's own rename batches
+    /// against each other instead.
+    private var renameLockHeld = false
+
+    /// Continuations of `prepareRenameAndRename` calls queued behind
+    /// `renameLockHeld`, resumed one at a time by `releaseRenameLock()` in
+    /// FIFO order.
+    private var renameLockWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Waits until no other `prepareRenameAndRename` batch holds the gate,
+    /// then claims it. Paired with `releaseRenameLock()`.
+    private func acquireRenameLock() async {
+        guard renameLockHeld else {
+            renameLockHeld = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            renameLockWaiters.append(continuation)
+        }
+    }
+
+    /// Releases the gate `acquireRenameLock()` claimed: hands it directly to
+    /// the next FIFO waiter if one is queued, or marks it free otherwise.
+    private func releaseRenameLock() {
+        guard renameLockWaiters.isEmpty else {
+            renameLockWaiters.removeFirst().resume()
+            return
+        }
+        renameLockHeld = false
+    }
+
+    /// Runs `prepareRename` then, only if the server reports the position is
+    /// renameable, `rename` — as one atomic batch (see `acquireRenameLock()`'s
+    /// documentation): no other concurrent `prepareRenameAndRename` call on
+    /// this session can interleave its own `prepareRename`/`rename` pair
+    /// between this call's two requests.
+    ///
+    /// - Parameters:
+    ///   - uri: The document containing the cursor position; should already
+    ///     be synced via `syncOpen(uri:text:)` so the server sees its
+    ///     current content.
+    ///   - position: The cursor position to query.
+    ///   - newName: The symbol's new name.
+    /// - Returns: `prepareRename`'s answer, alongside the `rename` edit —
+    ///   `edit` is `nil` when `prepareRename` reports the position can't be
+    ///   renamed, in which case `rename` is never called at all.
+    /// - Throws: Whatever `connection.prepareRename(in:at:)`/
+    ///   `connection.rename(in:at:newName:)` throw.
+    func prepareRenameAndRename(
+        uri: DocumentURI, at position: Position, newName: String
+    ) async throws -> (prepare: PrepareRenameResult, edit: WorkspaceEdit?) {
+        await acquireRenameLock()
+        defer { releaseRenameLock() }
+        let prepare = try await connection.prepareRename(in: uri, at: position)
+        guard prepare.range != nil else {
+            return (prepare, nil)
+        }
+        let edit = try await connection.rename(in: uri, at: position, newName: newName)
+        return (prepare, edit)
     }
 
     /// Notifies the server that a document was closed, then forgets it from

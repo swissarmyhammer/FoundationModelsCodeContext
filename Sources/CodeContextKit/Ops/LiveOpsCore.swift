@@ -166,7 +166,12 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - empty: Builds the `SourceLayer.none` result when neither layer had data.
     /// - Returns: The first layer's result, or `empty()`.
     /// - Throws: Rethrows whatever `liveLayer`/`indexedLayers` throw.
-    private static func cascade<T: Sendable>(
+    ///
+    /// Not `private`: `LiveOpsExtended` (`Ops/LiveOpsExtended.swift`) reuses
+    /// this exact cascade shape for `codeActions`/`inboundCalls` rather than
+    /// duplicating it, matching this type's own "every op cascades
+    /// uniformly" design (see this type's doc comment).
+    static func cascade<T: Sendable>(
         liveLayer: () async throws -> T?,
         indexedLayers: () async throws -> T?,
         empty: () -> T
@@ -770,7 +775,11 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - rootDirectory: The workspace root `filePath` is relative to.
     ///   - filePath: The file to sync, relative to `rootDirectory`.
     /// - Returns: The synced document's URI, or `nil` on any failure.
-    private static func syncLiveDocument(session: LspSession<Connection>, rootDirectory: URL, filePath: String) async -> DocumentURI? {
+    ///
+    /// Not `private`: `LiveOpsExtended` reuses this exact "sync current disk
+    /// content before a live request" helper for `codeActions`/`renameEdits`/
+    /// `inboundCalls` rather than duplicating it.
+    static func syncLiveDocument(session: LspSession<Connection>, rootDirectory: URL, filePath: String) async -> DocumentURI? {
         guard let contents = readFileContents(relativePath: filePath, rootDirectory: rootDirectory) else {
             return nil
         }
@@ -820,7 +829,10 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
 
     /// Builds a zero-width `LSPRange` at `(line, character)`, the shape
     /// `LayeredContext.lspSymbolAt`/`tsChunkAt` expect for a cursor lookup.
-    private static func pointRange(line: Int, character: Int) -> LSPRange {
+    ///
+    /// Not `private`: `LiveOpsExtended.inboundCalls`'s LSP-index layer reuses
+    /// this exact cursor-lookup shape.
+    static func pointRange(line: Int, character: Int) -> LSPRange {
         LSPRange(start: Position(line: line, character: character), end: Position(line: line, character: character))
     }
 }

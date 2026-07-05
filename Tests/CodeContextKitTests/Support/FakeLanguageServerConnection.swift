@@ -70,6 +70,14 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
     var workspaceSymbolsResult: Result<[SymbolInformation], Error> = .success([])
     var pullDiagnosticsResult: Result<[Diagnostic], Error> = .success([])
 
+    /// Optional hook invoked right after `prepareRename`/`rename` record their call and before
+    /// they return their scripted result — lets a test insert a controlled delay keyed on which
+    /// of the two methods was just called, to prove (or disprove) that two concurrent higher-level
+    /// batch calls interleave their requests on this connection. Scoped to only these two methods
+    /// (rather than every method) since they are the only ones this test target currently needs
+    /// controlled timing for; see `LiveOpsExtendedTests`'s rename-atomicity test.
+    var renameCallHook: (@Sendable (Call) async -> Void)?
+
     private let notificationContinuation: AsyncStream<ServerNotification>.Continuation
 
     /// Server-initiated notifications, fed by tests via `emit(notification:)`.
@@ -140,6 +148,51 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
     /// - Parameter result: The scripted outcome to install as `implementationsResult`.
     func setImplementationsResult(_ result: Result<[Location], Error>) {
         implementationsResult = result
+    }
+
+    /// Scripts the result `incomingCalls(of:)` returns (or throws) on its next call.
+    /// - Parameter result: The scripted outcome to install as `incomingCallsResult`.
+    func setIncomingCallsResult(_ result: Result<[CallHierarchyIncomingCall], Error>) {
+        incomingCallsResult = result
+    }
+
+    /// Scripts the result `prepareRename(in:at:)` returns (or throws) on its next call.
+    /// - Parameter result: The scripted outcome to install as `prepareRenameResult`.
+    func setPrepareRenameResult(_ result: Result<PrepareRenameResult, Error>) {
+        prepareRenameResult = result
+    }
+
+    /// Scripts the result `rename(in:at:newName:)` returns (or throws) on its next call.
+    /// - Parameter result: The scripted outcome to install as `renameResult`.
+    func setRenameResult(_ result: Result<WorkspaceEdit, Error>) {
+        renameResult = result
+    }
+
+    /// Scripts the result `codeActions(in:range:diagnostics:only:)` returns (or throws) on its
+    /// next call.
+    /// - Parameter result: The scripted outcome to install as `codeActionsResult`.
+    func setCodeActionsResult(_ result: Result<[CodeActionItem], Error>) {
+        codeActionsResult = result
+    }
+
+    /// Scripts the result `resolveCodeAction(item:)` returns (or throws) on its next call.
+    /// - Parameter result: The scripted outcome to install as `resolveCodeActionResult`.
+    func setResolveCodeActionResult(_ result: Result<CodeActionItem, Error>) {
+        resolveCodeActionResult = result
+    }
+
+    /// Scripts the result `workspaceSymbols(query:)` returns (or throws) on its next call.
+    /// - Parameter result: The scripted outcome to install as `workspaceSymbolsResult`.
+    func setWorkspaceSymbolsResult(_ result: Result<[SymbolInformation], Error>) {
+        workspaceSymbolsResult = result
+    }
+
+    /// Installs (or clears) `renameCallHook`.
+    /// - Parameter hook: Called with the just-recorded `Call` right after `prepareRename`/`rename`
+    ///   record it, before either returns its scripted result. Pass `nil` to remove a previously
+    ///   installed hook.
+    func setRenameCallHook(_ hook: (@Sendable (Call) async -> Void)?) {
+        renameCallHook = hook
     }
 
     /// Pushes a server-initiated notification onto `serverNotifications`, simulating an
@@ -237,12 +290,16 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
     }
 
     func prepareRename(in uri: DocumentURI, at position: Position) async throws -> PrepareRenameResult {
-        calls.append(.prepareRename(uri: uri, position: position))
+        let call = Call.prepareRename(uri: uri, position: position)
+        calls.append(call)
+        await renameCallHook?(call)
         return try prepareRenameResult.get()
     }
 
     func rename(in uri: DocumentURI, at position: Position, newName: String) async throws -> WorkspaceEdit {
-        calls.append(.rename(uri: uri, position: position, newName: newName))
+        let call = Call.rename(uri: uri, position: position, newName: newName)
+        calls.append(call)
+        await renameCallHook?(call)
         return try renameResult.get()
     }
 

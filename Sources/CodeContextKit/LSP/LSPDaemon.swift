@@ -6,7 +6,7 @@ import Foundation
 /// `LSPDaemon.stateUpdates`. Every state below can transition into `.failed` (an unexpected
 /// exit, a spawn failure, or a handshake failure/timeout), and every state but `.notStarted`
 /// can be reached again via a restart.
-public enum LSPDaemonState: Sendable, Equatable {
+public enum LSPDaemonState: Sendable, Equatable, Codable {
     /// The daemon has never been started, or has completed a graceful `shutdown()`.
     case notStarted
 
