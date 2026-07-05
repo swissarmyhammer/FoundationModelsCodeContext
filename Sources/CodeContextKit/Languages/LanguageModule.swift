@@ -20,7 +20,9 @@ public protocol LanguageModule: Sendable {
     static var fileExtensions: [String] { get }
 
     /// The tree-sitter grammar entry point, or `nil` for a detection-only
-    /// module with no parser (not used by the v1 modules).
+    /// module with no parser (used by `SQLLanguage`, whose upstream grammar
+    /// has no working SwiftPM package — see `Languages.swift`'s grammar
+    /// availability table and `SQLLanguage`'s doc comment).
     static var treeSitterLanguage: Language? { get }
 
     /// Definition node kind → meta-type, e.g. `"function_item": .function`,
@@ -38,6 +40,8 @@ public protocol LanguageModule: Sendable {
     static var projectMarkers: [ProjectMarker] { get }
 
     /// This language's LSP server spec, or `nil` for a tree-sitter-only
-    /// module with no language server (not used by the v1 modules).
+    /// module with no language server (used by the sql, json, yaml,
+    /// markdown, and bash format modules — none of them has an entry in
+    /// `builtin/lsp/*.yaml`).
     static var languageServer: ServerSpec? { get }
 }

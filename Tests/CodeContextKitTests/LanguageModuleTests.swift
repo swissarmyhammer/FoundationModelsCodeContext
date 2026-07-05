@@ -37,6 +37,7 @@ struct LanguageModuleTests {
                 "swift", "rust", "python",
                 "typescript", "tsx", "javascript", "go",
                 "c", "cpp", "java", "csharp", "php",
+                "sql", "json", "yaml", "markdown", "bash",
             ])
     }
 
@@ -77,6 +78,16 @@ struct LanguageModuleTests {
         #expect(Languages.module(forFileExtension: "java")?.name == "java")
         #expect(Languages.module(forFileExtension: "cs")?.name == "csharp")
         #expect(Languages.module(forFileExtension: "php")?.name == "php")
+    }
+
+    @Test
+    func moduleForFileExtensionResolvesEveryTreeSitterOnlyFormatExtension() {
+        #expect(Languages.module(forFileExtension: "sql")?.name == "sql")
+        #expect(Languages.module(forFileExtension: "json")?.name == "json")
+        #expect(Languages.module(forFileExtension: "yaml")?.name == "yaml")
+        #expect(Languages.module(forFileExtension: "yml")?.name == "yaml")
+        #expect(Languages.module(forFileExtension: "md")?.name == "markdown")
+        #expect(Languages.module(forFileExtension: "sh")?.name == "bash")
     }
 
     @Test
@@ -167,6 +178,44 @@ struct LanguageModuleTests {
     }
 
     @Test
+    func sqlChunkKindsMapCreateStatementsToFunctionAndTypeAnalogues() {
+        #expect(SQLLanguage.chunkKinds["create_function"] == .function)
+        #expect(SQLLanguage.chunkKinds["create_table"] == .type)
+        #expect(SQLLanguage.chunkKinds["create_view"] == .type)
+    }
+
+    @Test
+    func sqlChunkKindsHasNoCreateProcedureEntry() {
+        // `tree-sitter-sql` v0.3.11 (the version this project's Rust sibling
+        // pins) has no `create_procedure` rule — only a `keyword_procedure`
+        // token and a `// TODO: procedure` comment in its grammar — so there
+        // is deliberately no entry for it here, unlike the Rust
+        // `chunk.rs` reference, which lists one that never matches.
+        #expect(SQLLanguage.chunkKinds["create_procedure"] == nil)
+    }
+
+    @Test
+    func jsonChunkKindsMapPairToOther() {
+        #expect(JSONLanguage.chunkKinds["pair"] == .other)
+    }
+
+    @Test
+    func yamlChunkKindsMapMappingPairsToOther() {
+        #expect(YAMLLanguage.chunkKinds["block_mapping_pair"] == .other)
+        #expect(YAMLLanguage.chunkKinds["flow_pair"] == .other)
+    }
+
+    @Test
+    func markdownChunkKindsMapSectionToOther() {
+        #expect(MarkdownLanguage.chunkKinds["section"] == .other)
+    }
+
+    @Test
+    func bashChunkKindsMapFunctionDefinitionToFunction() {
+        #expect(BashLanguage.chunkKinds["function_definition"] == .function)
+    }
+
+    @Test
     func serverSpecDefaultsMatchPlan() {
         let spec = ServerSpec(command: "rust-analyzer", languageIDs: ["rust"], installHint: "install it")
         #expect(spec.startupTimeout == .seconds(30))
@@ -226,19 +275,42 @@ struct LanguageModuleTests {
     }
 
     @Test
-    func everyModuleHasATreeSitterLanguage() {
-        for module in Languages.all {
+    func everyModuleHasATreeSitterLanguageExceptDocumentedGrammarGaps() {
+        // Every module has a working grammar except `SQLLanguage`: its
+        // upstream `tree-sitter-sql` grammar has no working SwiftPM package
+        // (the generated `parser.c` isn't committed to git — see
+        // `SQLLanguage`'s doc comment and the gap noted in `Languages.swift`),
+        // so it deliberately declares `treeSitterLanguage: nil`.
+        for module in Languages.all where module.name != "sql" {
             #expect(module.treeSitterLanguage != nil)
         }
     }
 
     @Test
-    func everyModuleDeclaresALanguageServer() {
-        // Every v1 module (three tree-sitter-only-at-first swift/rust/python
-        // plus the eight LSP-backed ones added here) has an LSP server spec.
-        for module in Languages.all {
+    func sqlGrammarIsNilPendingAWorkingSwiftPMWrapper() {
+        #expect(SQLLanguage.treeSitterLanguage == nil)
+    }
+
+    @Test
+    func everyLspBackedModuleDeclaresALanguageServer() {
+        // Every v1 LSP-backed module (three tree-sitter-only-at-first
+        // swift/rust/python plus the eight LSP-backed ones added afterward)
+        // has an LSP server spec; the five tree-sitter-only format modules
+        // (sql, json, yaml, markdown, bash) added afterward intentionally
+        // have none.
+        let treeSitterOnlyFormats: Set<String> = ["sql", "json", "yaml", "markdown", "bash"]
+        for module in Languages.all where !treeSitterOnlyFormats.contains(module.name) {
             #expect(module.languageServer != nil)
         }
+    }
+
+    @Test
+    func everyTreeSitterOnlyFormatModuleHasNoLanguageServer() {
+        #expect(SQLLanguage.languageServer == nil)
+        #expect(JSONLanguage.languageServer == nil)
+        #expect(YAMLLanguage.languageServer == nil)
+        #expect(MarkdownLanguage.languageServer == nil)
+        #expect(BashLanguage.languageServer == nil)
     }
 
     @Test
@@ -293,5 +365,31 @@ struct LanguageModuleTests {
     func phpGrammarParsesWithoutError() throws {
         let language = try #require(PHPLanguage.treeSitterLanguage)
         #expect(try parsesWithoutError(source: "<?php function greet($name) { return $name; } ?>", language: language))
+    }
+
+    @Test
+    func jsonGrammarParsesWithoutError() throws {
+        let language = try #require(JSONLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: #"{"key": "value"}"#, language: language))
+    }
+
+    @Test
+    func yamlGrammarParsesWithoutError() throws {
+        let language = try #require(YAMLLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "key: value\n", language: language))
+    }
+
+    @Test
+    func markdownGrammarParsesWithoutError() throws {
+        let language = try #require(MarkdownLanguage.treeSitterLanguage)
+        #expect(
+            try parsesWithoutError(
+                source: "# Title\n\nSome text.\n\n## Subsection\n\nMore text.\n", language: language))
+    }
+
+    @Test
+    func bashGrammarParsesWithoutError() throws {
+        let language = try #require(BashLanguage.treeSitterLanguage)
+        #expect(try parsesWithoutError(source: "greet() {\n  echo \"hi\"\n}\n", language: language))
     }
 }

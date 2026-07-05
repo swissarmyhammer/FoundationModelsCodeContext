@@ -5,12 +5,15 @@
 /// Every other consumer (chunker, project detection, LSP supervisor,
 /// extension→language routing) is generic over `Languages.all`.
 ///
-/// ## Grammar availability (v1 set)
+/// ## Grammar availability
 ///
-/// Every v1 language's tree-sitter grammar ships a working upstream SwiftPM
-/// `Package.swift` under the `tree-sitter` GitHub org (or, for Swift itself,
-/// `alex-pinkus`), so every module below has a real, non-`nil`
-/// `treeSitterLanguage` — none needed a wrapper package to fill a gap:
+/// Every v1 (LSP-backed) language's tree-sitter grammar ships a working
+/// upstream SwiftPM `Package.swift` under the `tree-sitter` GitHub org (or,
+/// for Swift itself, `alex-pinkus`), so every module below has a real,
+/// non-`nil` `treeSitterLanguage` — none needed a wrapper package to fill a
+/// gap. The five tree-sitter-only format modules added afterward (sql, json,
+/// yaml, markdown, bash) mostly continue that pattern, with one documented
+/// exception:
 ///
 /// | Language   | Upstream repo                    | SwiftPM support |
 /// |------------|-----------------------------------|------------------|
@@ -26,15 +29,22 @@
 /// | Java       | `tree-sitter/tree-sitter-java`    | yes |
 /// | C#         | `tree-sitter/tree-sitter-c-sharp` | yes |
 /// | PHP        | `tree-sitter/tree-sitter-php`     | yes |
+/// | JSON       | `tree-sitter/tree-sitter-json`    | yes |
+/// | YAML       | `tree-sitter-grammars/tree-sitter-yaml` | yes (pinned exact; see `Package.swift`) |
+/// | Markdown   | `tree-sitter-grammars/tree-sitter-markdown` | yes |
+/// | Bash       | `tree-sitter/tree-sitter-bash`    | yes |
+/// | SQL        | `DerekStride/tree-sitter-sql`     | **no** — the generated `src/parser.c` isn't committed to git (only `src/scanner.c` is); `SQLLanguage.treeSitterLanguage` is `nil` until a working wrapper exists — see `SQLLanguage`'s doc comment |
 ///
-/// A future language whose grammar has no upstream SwiftPM support would
-/// leave `treeSitterLanguage: nil` (already optional per the
-/// `LanguageModule` protocol) and add a row above noting the gap, rather
-/// than standing up a wrapper package as a workaround.
+/// A future language whose grammar has no upstream SwiftPM support follows
+/// SQL's precedent: leave `treeSitterLanguage: nil` (already optional per the
+/// `LanguageModule` protocol), add a row above noting the gap, and document
+/// it on the module itself — rather than standing up a wrapper package as a
+/// workaround.
 public enum Languages {
-    /// Every registered language module, in the order new v1 modules were
-    /// ported (swift, rust, python, then the LSP-backed remainder of the v1
-    /// set — see plan.md port order step 4).
+    /// Every registered language module, in the order new modules were
+    /// ported: swift, rust, python, then the LSP-backed remainder of the v1
+    /// set (plan.md port order step 4), then the tree-sitter-only format
+    /// modules (sql, json, yaml, markdown, bash).
     public static let all: [any LanguageModule.Type] = [
         SwiftLanguage.self,
         RustLanguage.self,
@@ -48,6 +58,11 @@ public enum Languages {
         JavaLanguage.self,
         CSharpLanguage.self,
         PHPLanguage.self,
+        SQLLanguage.self,
+        JSONLanguage.self,
+        YAMLLanguage.self,
+        MarkdownLanguage.self,
+        BashLanguage.self,
     ]
 
     /// Looks up the module registered for a file extension.

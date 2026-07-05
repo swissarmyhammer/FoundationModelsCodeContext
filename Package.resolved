@@ -1,5 +1,5 @@
 {
-  "originHash" : "9593d06fc1704dc89327526f893a918c6468efeeb33a0e2fba89b816508acf10",
+  "originHash" : "49a1037cfb441fa6cddacfe7a2f65154f3143933b9e04ea095b756877a78f22c",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -74,6 +74,15 @@
       }
     },
     {
+      "identity" : "tree-sitter-bash",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter/tree-sitter-bash",
+      "state" : {
+        "revision" : "a06c2e4415e9bc0346c6b86d401879ffb44058f7",
+        "version" : "0.25.1"
+      }
+    },
+    {
       "identity" : "tree-sitter-c",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tree-sitter/tree-sitter-c",
@@ -128,6 +137,24 @@
       }
     },
     {
+      "identity" : "tree-sitter-json",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter/tree-sitter-json",
+      "state" : {
+        "revision" : "ee35a6ebefcef0c5c416c0d1ccec7370cfca5a24",
+        "version" : "0.24.8"
+      }
+    },
+    {
+      "identity" : "tree-sitter-markdown",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
+      "state" : {
+        "revision" : "f969cd3ae3f9fbd4e43205431d0ae286014c05b5",
+        "version" : "0.5.3"
+      }
+    },
+    {
       "identity" : "tree-sitter-php",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tree-sitter/tree-sitter-php",
@@ -170,6 +197,15 @@
       "state" : {
         "revision" : "f975a621f4e7f532fe322e13c4f79495e0a7b2e7",
         "version" : "0.23.2"
+      }
+    },
+    {
+      "identity" : "tree-sitter-yaml",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter-grammars/tree-sitter-yaml",
+      "state" : {
+        "revision" : "b733d3f5f5005890f324333dd57e1f0badec5c87",
+        "version" : "0.7.0"
       }
     },
     {

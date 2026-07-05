@@ -24,6 +24,25 @@ let treeSitterCPPPackage = "tree-sitter-cpp"
 let treeSitterJavaPackage = "tree-sitter-java"
 let treeSitterCSharpPackage = "tree-sitter-c-sharp"
 let treeSitterPHPPackage = "tree-sitter-php"
+let treeSitterJSONPackage = "tree-sitter-json"
+let treeSitterYAMLPackage = "tree-sitter-yaml"
+let treeSitterMarkdownPackage = "tree-sitter-markdown"
+let treeSitterBashPackage = "tree-sitter-bash"
+
+// `tree-sitter-sql` (DerekStride/tree-sitter-sql, the grammar this project's
+// Rust sibling depends on as the `tree-sitter-sequel` crate — crates.io
+// reserves the `tree-sitter-sql` name) has no working SwiftPM dependency: its
+// root-level `Package.swift` lists `src/parser.c` and `src/scanner.c` as
+// build sources, but `src/parser.c` — the generated parser — is not
+// committed to git at any tagged release or on `main`; only the hand-written
+// `src/scanner.c` is checked in. The generated parser is produced by
+// `tree-sitter generate` and bundled only into the npm/crates.io release
+// tarballs SwiftPM never fetches. So there is no SQL entry in
+// `grammarProducts`/`dependencies` below; `SQLLanguage.swift` documents the
+// gap and declares `treeSitterLanguage: nil` rather than standing up a
+// wrapper package to vendor generated sources ourselves (see
+// `Languages.swift`'s stated policy for grammars with no upstream SwiftPM
+// support).
 
 let grammarProducts: [Target.Dependency] = [
     .product(name: "TreeSitterSwift", package: treeSitterSwiftPackage),
@@ -42,6 +61,16 @@ let grammarProducts: [Target.Dependency] = [
     .product(name: "TreeSitterJava", package: treeSitterJavaPackage),
     .product(name: "TreeSitterCSharp", package: treeSitterCSharpPackage),
     .product(name: "TreeSitterPHP", package: treeSitterPHPPackage),
+    .product(name: "TreeSitterJSON", package: treeSitterJSONPackage),
+    .product(name: "TreeSitterYAML", package: treeSitterYAMLPackage),
+    // `tree-sitter-markdown` bundles the block-level grammar and the
+    // separate inline-markup grammar as two targets under a single
+    // "TreeSitterMarkdown" library product; depending on that one product
+    // makes only the `TreeSitterMarkdown` (block-level) module importable
+    // without an extra `import TreeSitterMarkdownInline`, which
+    // `MarkdownLanguage` doesn't need — see its doc comment.
+    .product(name: "TreeSitterMarkdown", package: treeSitterMarkdownPackage),
+    .product(name: "TreeSitterBash", package: treeSitterBashPackage),
 ]
 
 let package = Package(
@@ -88,6 +117,17 @@ let package = Package(
         .package(url: "https://github.com/tree-sitter/\(treeSitterJavaPackage)", from: "0.23.5"),
         .package(url: "https://github.com/tree-sitter/\(treeSitterCSharpPackage)", from: "0.23.1"),
         .package(url: "https://github.com/tree-sitter/\(treeSitterPHPPackage)", from: "0.23.11"),
+        .package(url: "https://github.com/tree-sitter/\(treeSitterJSONPackage)", from: "0.24.0"),
+        // Pinned exact: v0.7.1+ manifests gate `src/scanner.c` on
+        // `FileManager.default.fileExists(atPath:)` — the same
+        // `tree-sitter-python`/`tree-sitter-javascript` issue documented
+        // above — so the external scanner silently drops out of the build
+        // and the linker fails with undefined
+        // `tree_sitter_yaml_external_scanner_*` symbols. v0.7.0 still lists
+        // `src/scanner.c` unconditionally.
+        .package(url: "https://github.com/tree-sitter-grammars/\(treeSitterYAMLPackage)", exact: "0.7.0"),
+        .package(url: "https://github.com/tree-sitter-grammars/\(treeSitterMarkdownPackage)", from: "0.5.0"),
+        .package(url: "https://github.com/tree-sitter/\(treeSitterBashPackage)", from: "0.25.0"),
     ],
     targets: [
         .target(
