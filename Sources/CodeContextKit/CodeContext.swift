@@ -56,6 +56,24 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// How long the background index loop idles between passes when nothing new triggered it.
     private static var indexLoopIdleSleep: Duration { .milliseconds(300) }
 
+    /// Default `maxResults` for the bounded index-scan queries (`getSymbol(...)`,
+    /// `searchSymbol(...)`, `grepCode(...)`) that don't need a caller-tunable cap most of the time.
+    ///
+    /// A computed property, like `indexLoopIdleSleep` above: `CodeContext` is generic over
+    /// `Connection`, and generic types can't have stored static properties. `@usableFromInline`,
+    /// not `public`: it's referenced from those `public` methods' default argument values, which
+    /// requires at least this visibility, but it isn't meant as API surface in its own right.
+    @usableFromInline
+    static var defaultMaxQueryResults: Int { 50 }
+
+    /// Default `includeSource` for the live ops (`definition(...)`, `typeDefinition(...)`,
+    /// `implementations(...)`) that can optionally embed the resolved location's source text.
+    ///
+    /// See `defaultMaxQueryResults`'s doc comment for why this is a computed, `@usableFromInline`
+    /// property rather than a stored `private` constant.
+    @usableFromInline
+    static var defaultIncludeSource: Bool { false }
+
     /// Whether `start()` has completed and `stop()` has not yet been called; guards both methods
     /// against being run twice concurrently or out of order.
     private var isStarted = false
@@ -306,12 +324,12 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     // MARK: - Indexed ops
 
     /// See `SymbolOps.getSymbol(store:query:maxResults:)`.
-    public func getSymbol(query: String, maxResults: Int = 50) async throws -> GetSymbolResult {
+    public func getSymbol(query: String, maxResults: Int = defaultMaxQueryResults) async throws -> GetSymbolResult {
         try await SymbolOps.getSymbol(store: store, query: query, maxResults: maxResults)
     }
 
     /// See `SymbolOps.searchSymbol(store:query:kind:maxResults:)`.
-    public func searchSymbol(query: String, kind: SymbolMetaType? = nil, maxResults: Int = 50) async throws -> [SearchSymbolMatch] {
+    public func searchSymbol(query: String, kind: SymbolMetaType? = nil, maxResults: Int = defaultMaxQueryResults) async throws -> [SearchSymbolMatch] {
         try await SymbolOps.searchSymbol(store: store, query: query, kind: kind, maxResults: maxResults)
     }
 
@@ -335,7 +353,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         pattern: String,
         languages: [String] = [],
         filePattern: String? = nil,
-        maxResults: Int = 50
+        maxResults: Int = defaultMaxQueryResults
     ) async throws -> GrepCodeResult {
         try await GrepCode.run(store: store, pattern: pattern, languages: languages, filePattern: filePattern, maxResults: maxResults)
     }
@@ -365,7 +383,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     // MARK: - Live ops
 
     /// See `LiveOpsCore.definition(store:session:rootDirectory:filePath:line:character:includeSource:)`.
-    public func definition(filePath: String, line: Int, character: Int, includeSource: Bool = false) async throws -> DefinitionResult {
+    public func definition(filePath: String, line: Int, character: Int, includeSource: Bool = defaultIncludeSource) async throws -> DefinitionResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.definition(
             store: store, session: session, rootDirectory: rootDirectory,
@@ -374,7 +392,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     }
 
     /// See `LiveOpsCore.typeDefinition(store:session:rootDirectory:filePath:line:character:includeSource:)`.
-    public func typeDefinition(filePath: String, line: Int, character: Int, includeSource: Bool = false) async throws -> DefinitionResult {
+    public func typeDefinition(filePath: String, line: Int, character: Int, includeSource: Bool = defaultIncludeSource) async throws -> DefinitionResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.typeDefinition(
             store: store, session: session, rootDirectory: rootDirectory,
@@ -410,7 +428,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         filePath: String,
         line: Int,
         character: Int,
-        includeSource: Bool = false,
+        includeSource: Bool = defaultIncludeSource,
         maxResults: Int = 20 // mirrors LiveOpsCore's own private defaultMaxImplementations
     ) async throws -> ImplementationsResult {
         let session = await session(forFilePath: filePath)
