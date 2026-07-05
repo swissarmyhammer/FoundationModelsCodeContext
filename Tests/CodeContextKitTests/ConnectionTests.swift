@@ -102,6 +102,39 @@ struct ConnectionTests {
         ]
     }
 
+    /// A minimal wire-shape `Location` JSON object at `uri`.
+    private static func locationJSON(uri: String) -> [String: Any] {
+        [
+            "uri": uri,
+            "range": ["start": ["line": 0, "character": 0], "end": ["line": 0, "character": 1]],
+        ]
+    }
+
+    /// A minimal wire-shape `CallHierarchyItem` JSON object named `name` at `uri`.
+    private static func callHierarchyItemJSON(name: String, uri: String) -> [String: Any] {
+        [
+            "name": name,
+            "kind": 12,
+            "uri": uri,
+            "range": ["start": ["line": 0, "character": 0], "end": ["line": 0, "character": 1]],
+            "selectionRange": ["start": ["line": 0, "character": 0], "end": ["line": 0, "character": 1]],
+        ]
+    }
+
+    /// A minimal wire-shape flat `SymbolInformation` JSON object named `name` at `uri`.
+    private static func symbolInformationJSON(name: String, uri: String) -> [String: Any] {
+        [
+            "name": name,
+            "kind": 12,
+            "location": Self.locationJSON(uri: uri),
+        ]
+    }
+
+    /// A minimal wire-shape `CodeAction` JSON object titled `title`.
+    private static func codeActionJSON(title: String) -> [String: Any] {
+        ["title": title]
+    }
+
     @Test
     func requestReceivesItsScriptedTypedResponse() async throws {
         let steps: [[String: Any]] = [
@@ -312,6 +345,221 @@ struct ConnectionTests {
                 pollsRemaining -= 1
             }
             #expect(tail.contains("panic: something went wrong"))
+        }
+    }
+
+    // MARK: - Refactored helper call sites (notifyEmpty, notifyTextDocument,
+    // positionParams/requestAtPosition, arrayRequest, locationsRequest)
+
+    @Test
+    func initializedAndExitSendNoPayloadNotifications() async throws {
+        // `initialized()` and `exit()` both route through `notifyEmpty`, the shape shared
+        // by every fire-and-forget notification with no params. Neither has a response to
+        // assert on directly, so the script instead asserts on the wire method name as it
+        // reads each one (exiting with a stderr message on a mismatch, which would then
+        // surface as a request timeout/failure below). A canary `documentSymbols` request
+        // after both notifications proves neither one corrupted the Content-Length-framed
+        // byte stream — a malformed frame would desync every subsequent read, including
+        // this one.
+        let steps: [[String: Any]] = [
+            ["action": "read", "expectMethod": "initialized"],
+            ["action": "read", "expectMethod": "exit"],
+            ["action": "read"],
+            ["action": "respond", "which": 2, "result": [Self.documentSymbolJSON(name: "after-notifications")]],
+        ]
+        try await Self.withConnection(steps: steps) { connection in
+            try await connection.initialized()
+            try await connection.exit()
+
+            let symbols = try await connection.documentSymbols(in: DocumentURI("file:///a.swift"))
+            #expect(symbols.first?.name == "after-notifications")
+        }
+    }
+
+    @Test
+    func didSaveAndDidCloseSendTextDocumentNotifications() async throws {
+        // `didSave(uri:)` and `didClose(uri:)` both route through `notifyTextDocument`, the
+        // shape shared by every `textDocument/*` notification whose params wrap a bare
+        // `TextDocumentIdentifier`. As above, the script asserts on both the method name and
+        // the carried `uri` as it reads each notification, and a canary request afterward
+        // proves the stream is still framed correctly.
+        let steps: [[String: Any]] = [
+            ["action": "read", "expectMethod": "textDocument/didSave", "expectURI": "file:///saved.swift"],
+            ["action": "read", "expectMethod": "textDocument/didClose", "expectURI": "file:///closed.swift"],
+            ["action": "read"],
+            ["action": "respond", "which": 2, "result": [Self.documentSymbolJSON(name: "after-textdocument-notifications")]],
+        ]
+        try await Self.withConnection(steps: steps) { connection in
+            try await connection.didSave(uri: DocumentURI("file:///saved.swift"))
+            try await connection.didClose(uri: DocumentURI("file:///closed.swift"))
+
+            let symbols = try await connection.documentSymbols(in: DocumentURI("file:///a.swift"))
+            #expect(symbols.first?.name == "after-textdocument-notifications")
+        }
+    }
+
+    @Test
+    func hoverReturnsAPositionKeyedSingleResult() async throws {
+        // `hover(in:at:)` routes through `requestAtPosition`, which sends `positionParams`
+        // and decodes the result directly (no array or `LocationsResult` wrapping).
+        let steps: [[String: Any]] = [
+            ["action": "read"],
+            [
+                "action": "respond", "which": 0,
+                "result": [
+                    "contents": ["kind": "markdown", "value": "widget docs"],
+                    "range": ["start": ["line": 0, "character": 0], "end": ["line": 0, "character": 6]],
+                ],
+            ],
+        ]
+        try await Self.withConnection(steps: steps) { connection in
+            let hover = try await connection.hover(in: DocumentURI("file:///a.swift"), at: Position(line: 0, character: 3))
+            #expect(hover?.contents == "widget docs")
+            #expect(hover?.range?.start.character == 0)
+        }
+    }
+
+    @Test
+    func prepareRenameReturnsAPositionKeyedSingleResult() async throws {
+        // `prepareRename(in:at:)` also routes through `requestAtPosition`, sharing the same
+        // shape as `hover` above but with a different result type.
+        let steps: [[String: Any]] = [
+            ["action": "read"],
+            [
+                "action": "respond", "which": 0,
+                "result": [
+                    "range": ["start": ["line": 1, "character": 0], "end": ["line": 1, "character": 5]],
+                    "placeholder": "widget",
+                ],
+            ],
+        ]
+        try await Self.withConnection(steps: steps) { connection in
+            let result = try await connection.prepareRename(in: DocumentURI("file:///a.swift"), at: Position(line: 1, character: 2))
+            #expect(result.placeholder == "widget")
+            #expect(result.range?.start.line == 1)
+        }
+    }
+
+    @Test
+    func prepareCallHierarchyReturnsAPositionKeyedArrayResult() async throws {
+        // `prepareCallHierarchy(in:at:)` routes through `arrayRequest`, using
+        // `positionParams` for its params — the position-keyed array-request shape,
+        // distinct from `requestAtPosition`'s single-result shape above.
+        let steps: [[String: Any]] = [
+            ["action": "read"],
+            ["action": "respond", "which": 0, "result": [Self.callHierarchyItemJSON(name: "widget", uri: "file:///a.swift")]],
+        ]
+        try await Self.withConnection(steps: steps) { connection in
+            let items = try await connection.prepareCallHierarchy(in: DocumentURI("file:///a.swift"), at: Position(line: 0, character: 0))
+            #expect(items.count == 1)
+            #expect(items.first?.name == "widget")
+        }
+    }
+
+    @Test
+    func outgoingCallsAndIncomingCallsNormalizeANullResultToAnEmptyArray() async throws {
+        // `outgoingCalls(of:)`/`incomingCalls(of:)` also route through `arrayRequest`, but
+        // with non-position (`CallHierarchyCallsParams`) params, and here a scripted `null`
+        // result exercises `arrayRequest`'s optional-array normalization directly, rather
+        // than an already-empty array indistinguishable from "the server sent no results".
+        let item = CallHierarchyItem(
+            name: "widget",
+            kind: .function,
+            detail: nil,
+            uri: DocumentURI("file:///a.swift"),
+            range: LSPRange(start: Position(line: 0, character: 0), end: Position(line: 0, character: 1)),
+            selectionRange: LSPRange(start: Position(line: 0, character: 0), end: Position(line: 0, character: 1))
+        )
+        // `outgoingCalls`/`incomingCalls` are awaited sequentially below (not concurrently, unlike
+        // `outOfOrderResponsesAreMatchedByIDNotArrivalOrder()` above), so the second request is only
+        // sent once the first response arrives — the script must respond to each in turn rather
+        // than reading both up front, or its second "read" would block forever waiting for a
+        // request the client won't send until this script unblocks its first `await` by responding.
+        let steps: [[String: Any]] = [
+            ["action": "read"],
+            ["action": "respond", "which": 0, "result": NSNull()],
+            ["action": "read"],
+            ["action": "respond", "which": 1, "result": NSNull()],
+        ]
+        try await Self.withConnection(steps: steps) { connection in
+            let outgoing = try await connection.outgoingCalls(of: item)
+            let incoming = try await connection.incomingCalls(of: item)
+            #expect(outgoing.isEmpty)
+            #expect(incoming.isEmpty)
+        }
+    }
+
+    @Test
+    func codeActionsAndWorkspaceSymbolsReturnNonPositionArrayResults() async throws {
+        // `codeActions(in:range:diagnostics:only:)` and `workspaceSymbols(query:)` route
+        // through `arrayRequest` with params that carry no cursor position at all — the
+        // non-position array-request shape, distinct from `prepareCallHierarchy` above.
+        // Awaited sequentially, so (as in `outgoingCallsAndIncomingCallsNormalizeANullResultToAnEmptyArray()`
+        // above) the script must respond to each in turn rather than reading both up front.
+        let steps: [[String: Any]] = [
+            ["action": "read"],
+            ["action": "respond", "which": 0, "result": [Self.codeActionJSON(title: "Fix it")]],
+            ["action": "read"],
+            ["action": "respond", "which": 1, "result": [Self.symbolInformationJSON(name: "widget", uri: "file:///a.swift")]],
+        ]
+        try await Self.withConnection(steps: steps) { connection in
+            let actions = try await connection.codeActions(
+                in: DocumentURI("file:///a.swift"),
+                range: LSPRange(start: Position(line: 0, character: 0), end: Position(line: 0, character: 1)),
+                diagnostics: [],
+                only: nil
+            )
+            let symbols = try await connection.workspaceSymbols(query: "widget")
+
+            #expect(actions.first?.title == "Fix it")
+            #expect(symbols.first?.name == "widget")
+        }
+    }
+
+    @Test
+    func referencesReturnsALocationsResultWrappedResult() async throws {
+        // `references(in:at:includeDeclaration:)` calls `locationsRequest` directly (its
+        // params additionally carry `ReferenceContext`, unlike `positionRequest`'s callers
+        // below), unwrapping the scripted array through `LocationsResult`.
+        let steps: [[String: Any]] = [
+            ["action": "read"],
+            ["action": "respond", "which": 0, "result": [Self.locationJSON(uri: "file:///a.swift"), Self.locationJSON(uri: "file:///b.swift")]],
+        ]
+        try await Self.withConnection(steps: steps) { connection in
+            let locations = try await connection.references(
+                in: DocumentURI("file:///a.swift"),
+                at: Position(line: 0, character: 0),
+                includeDeclaration: true
+            )
+            #expect(locations.map(\.uri.value) == ["file:///a.swift", "file:///b.swift"])
+        }
+    }
+
+    @Test
+    func definitionTypeDefinitionAndImplementationsReturnLocationsResultWrappedResults() async throws {
+        // `definition`/`typeDefinition`/`implementations` all route through `positionRequest`
+        // (which builds `positionParams` and delegates to `locationsRequest`, same as
+        // `references` above but without the extra context). Scripting a bare `Location`
+        // object, an array, and a `null` result across the three exercises all three shapes
+        // `LocationsResult`'s decoder normalizes. Awaited sequentially, so (as in the
+        // `arrayRequest` tests above) the script must respond to each in turn rather than
+        // reading all three requests up front.
+        let steps: [[String: Any]] = [
+            ["action": "read"],
+            ["action": "respond", "which": 0, "result": Self.locationJSON(uri: "file:///def.swift")],
+            ["action": "read"],
+            ["action": "respond", "which": 1, "result": [Self.locationJSON(uri: "file:///type-def.swift")]],
+            ["action": "read"],
+            ["action": "respond", "which": 2, "result": NSNull()],
+        ]
+        try await Self.withConnection(steps: steps) { connection in
+            let definitions = try await connection.definition(in: DocumentURI("file:///a.swift"), at: Position(line: 0, character: 0))
+            let typeDefinitions = try await connection.typeDefinition(in: DocumentURI("file:///a.swift"), at: Position(line: 0, character: 0))
+            let implementations = try await connection.implementations(in: DocumentURI("file:///a.swift"), at: Position(line: 0, character: 0))
+
+            #expect(definitions.map(\.uri.value) == ["file:///def.swift"])
+            #expect(typeDefinitions.map(\.uri.value) == ["file:///type-def.swift"])
+            #expect(implementations.isEmpty)
         }
     }
 }
