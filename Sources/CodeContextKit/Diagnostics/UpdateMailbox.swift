@@ -132,11 +132,34 @@ final class UpdateMailbox: @unchecked Sendable {
     }
 
     /// Registers `continuation` as waiting under `token`, unless `token` was
-    /// already cancelled before registration ran — in which case it resumes
-    /// immediately instead.
-    private func registerWaiter(token: Int, continuation: CheckedContinuation<Void, Never>) {
+    /// already cancelled before registration ran, or `record(_:)`/`markClosed()`
+    /// already ran since the caller's own `takeQueuedIfAny()` check came up
+    /// empty — in either case it resumes immediately instead of registering.
+    ///
+    /// That second check matters exactly like `ManualClock.registerWaiter(token:deadline:continuation:)`'s
+    /// `deadline <= currentInstant` check (`Tests/CodeContextKitTests/Support/ManualClock.swift`):
+    /// `next()` calls `takeQueuedIfAny()` *before* creating this continuation, so there's a window
+    /// — however small — between that miss and this registration actually running in which
+    /// `record(_:)`/`markClosed()` can run on another task. Before this check existed, `record(_:)`
+    /// running in that window found `waiters` still empty (nothing to resume), appended to
+    /// `queued`, and returned; registration then ran anyway and stored the continuation regardless,
+    /// orphaning it — nothing but the *entire* `Settle.race(...)` `TaskGroup`'s eventual
+    /// cancellation (from a sibling `Clock.sleep(until:)` branch winning) would ever wake it, and if
+    /// that branch was itself starved of a chance to run under the same scheduling pressure that
+    /// lost this race, the continuation — and the whole quiescence loop awaiting it — hung forever.
+    /// Not `private`: unit-tested directly (`UpdateMailboxTests`), since forcing the exact
+    /// register-after-record ordering this guards against through the public `next()`/`record(_:)`
+    /// API alone would mean winning a race on demand rather than sequencing it deterministically —
+    /// `next()`'s own `takeQueuedIfAny()` fast path would otherwise consume a `record(_:)` call made
+    /// before `next()` starts, never reaching this method at all.
+    func registerWaiter(token: Int, continuation: CheckedContinuation<Void, Never>) {
         lock.lock()
         if cancelledTokensAwaitingRegistration.remove(token) != nil {
+            lock.unlock()
+            continuation.resume()
+            return
+        }
+        if !queued.isEmpty || isClosed {
             lock.unlock()
             continuation.resume()
             return
