@@ -135,13 +135,16 @@ struct DiagnosticsTests {
         clock.advance(by: .milliseconds(200))
         continuation.yield(DiagnosticUpdate(uri: uri, diagnostics: [diag]))
 
-        // Give the drain task time to record the update and the settle loop
-        // time to start its next iteration (re-registering fresh debounce
-        // and hard-timeout sleeps) before advancing the clock any further —
-        // `waitForWaiter` alone can't distinguish "the stale iteration-1
-        // waiters are still registered" from "the restarted iteration-2
-        // waiters are registered", since it only checks a count.
-        try await Task.sleep(for: .milliseconds(50))
+        // Wait specifically for the *restarted* debounce window's own deadline (200ms now +
+        // 300ms settleWindow = 500ms) to actually be registered on the clock before advancing any
+        // further — not a fixed real-time sleep guessing that the drain task has recorded the
+        // update and the settle loop has looped back by then. `waitForWaiter(count:)` alone can't
+        // tell "the stale iteration-1 waiters are still registered" apart from "the restarted
+        // iteration-2 waiters are registered", since it only checks a count, and a fixed sleep can
+        // be wrong for however long the code under test's own scheduling is starved — see task
+        // `^vhcye6y`: this exact gap caused two full-suite hangs under severe scheduler contention
+        // even though `Settle`/`UpdateMailbox` were already correct.
+        await clock.waitForWaiter(withDeadline: ManualClock.Instant(offset: .milliseconds(500)))
 
         // The window must have restarted: at t=300 (the *original* deadline)
         // the task must still be running, not settled.

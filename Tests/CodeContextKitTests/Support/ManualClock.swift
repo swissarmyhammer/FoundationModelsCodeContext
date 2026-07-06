@@ -154,6 +154,33 @@ final class ManualClock: Clock, @unchecked Sendable {
         return waiters.count >= count
     }
 
+    /// Polls until a waiter registered for exactly `deadline` exists.
+    ///
+    /// `waitForWaiter(count:)` only tells a caller *how many* callers are suspended in
+    /// `sleep(until:tolerance:)` — it can't distinguish a still-registered *stale* waiter
+    /// (e.g. an iteration's debounce sleep that's about to be cancelled once its race resolves)
+    /// from a *fresh* one (e.g. a restarted debounce window's new deadline), since both count the
+    /// same. A test that needs to know specifically "the restarted debounce window's deadline is
+    /// now registered" — not just "some waiter or other is registered" — should wait on this
+    /// instead of inferring that fact from a fixed real-time sleep, which can be wrong for however
+    /// long the code under test's own scheduling is starved (see task `^vhcye6y`: exactly this gap
+    /// in `DiagnosticsTests.updateAtT200RestartsQuiescenceWindowSoSettleFiresAtT500NotT300()`
+    /// caused two observed full-suite hangs under severe scheduler contention, even though
+    /// `Settle`/`UpdateMailbox` themselves were already correct).
+    /// - Parameter deadline: The exact instant a registered waiter must be targeting.
+    func waitForWaiter(withDeadline deadline: Instant) async {
+        while !hasWaiterSynchronously(withDeadline: deadline) {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+    }
+
+    /// Synchronously checks whether any registered waiter targets `deadline`, under `lock`.
+    private func hasWaiterSynchronously(withDeadline deadline: Instant) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiters.values.contains { $0.deadline == deadline }
+    }
+
     /// Advances the clock by `duration`, releasing every waiter whose deadline has now passed.
     /// - Parameter duration: How far forward to move the clock.
     func advance(by duration: Duration) {
