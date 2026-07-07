@@ -6,12 +6,17 @@ import Foundation
 /// Ports `swissarmyhammer-lsp`'s `DaemonStatus`. `state` already carries the daemon's pid
 /// (`.running(pid:)`) and consecutive-failure count (`.failed(reason:attempts:)`), so this type
 /// adds no further fields beyond the command identifying which managed daemon the state belongs to.
-public struct ServerStatus: Sendable, Equatable, Codable {
+public struct ServerStatus: Sendable, Equatable, Codable, Identifiable {
     /// The server executable this status describes, matching the owning daemon's `ServerSpec.command`.
     public let command: String
 
     /// The daemon's lifecycle state at the moment `status()` was called.
     public let state: LSPDaemonState
+
+    /// Conforms `ServerStatus` to `Identifiable` for direct use in SwiftUI's `ForEach(state.servers) { ... }`
+    /// (see plan.md's "Goal" example) — `command` is already the supervisor's own uniqueness key (one
+    /// daemon per unique server command), so it needs no separate synthesized identifier.
+    public var id: String { command }
 
     /// Creates a server status snapshot.
     /// - Parameters:
