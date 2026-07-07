@@ -40,6 +40,6 @@ public struct RoutedEmbedderAdapter: TextEmbedding {
     ///   order as `texts`.
     /// - Throws: Whatever `RoutedEmbedder.embed(_:)` throws.
     public func embed(_ texts: [String]) async throws -> [[Float]] {
-        try await routedEmbedder.embed(texts)
+        try await routedEmbedder.embed(texts: texts)
     }
 }
