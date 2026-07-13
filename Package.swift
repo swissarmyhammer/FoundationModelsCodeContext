@@ -87,7 +87,18 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "../FoundationModelsRouter"),
+        // Referenced by URL rather than local path deliberately: RankKit (the
+        // path dependency below) also depends on FoundationModelsRouter by
+        // this exact URL — by CI necessity, see RankKit's Package.swift — and
+        // SwiftPM rejects one package identity ('foundationmodelsrouter')
+        // reached through two different origins (URL vs. path); today it's a
+        // "Conflicting identity" warning, escalating to an error in future
+        // SwiftPM versions. Keep the URL + branch spelling identical to
+        // RankKit's so both chains resolve to a single origin. For local
+        // co-development of the sibling checkout, use
+        // `swift package edit foundationmodelsrouter --path ../FoundationModelsRouter`.
+        .package(url: "https://github.com/swissarmyhammer/FoundationModelsRouter", branch: "main"),
+        .package(path: "../RankKit"),
         // Pinned exact rather than `from:`: SwiftTreeSitter is still pre-1.0,
         // where ChimeHQ has made breaking API changes across minor versions,
         // so an open `from:` range could silently pull in a breaking update.
@@ -134,6 +145,7 @@ let package = Package(
             name: packageName,
             dependencies: [
                 .product(name: "FoundationModelsRouter", package: "FoundationModelsRouter"),
+                .product(name: "RankKit", package: "RankKit"),
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
                 .product(name: "GRDB", package: "GRDB.swift"),
             ] + grammarProducts,
@@ -141,7 +153,14 @@ let package = Package(
         ),
         .testTarget(
             name: "\(packageName)Tests",
-            dependencies: [.target(name: packageName)],
+            dependencies: [
+                .target(name: packageName),
+                // Test files exercise RankKit primitives directly (e.g.
+                // `CosineScoring.matvecScores`, `Tokenizer`/`Trigram`
+                // disjointness assertions), so the module must be an explicit
+                // dependency here, not just reachable through CodeContextKit.
+                .product(name: "RankKit", package: "RankKit"),
+            ],
             path: "Tests/\(packageName)Tests",
             // `scripted-lsp-server.swift` is a standalone script launched via
             // `/usr/bin/env swift <path>` as a scripted subprocess in

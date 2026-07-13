@@ -88,7 +88,9 @@ CodeContextKit/
 
 ### Dependencies
 
-- `../FoundationModelsRouter` (local path) — embeddings via `RoutedEmbedder`
+- **FoundationModelsRouter** (GitHub URL, `main` — spelled identically to
+  RankKit's declaration so the shared package identity resolves to a single
+  origin; see the comment in `Package.swift`) — embeddings via `RoutedEmbedder`
   (`embed([String]) async throws -> [[Float]]`, L2-normalized, runtime `dimension`).
 - **SwiftTreeSitter** (ChimeHQ) + per-language grammar packages.
 - **GRDB** for SQLite (WAL, migrations, `DatabasePool` for concurrent reads).
@@ -467,9 +469,9 @@ Ops surface (public methods on `CodeContext`, mirroring the Rust op set):
 
 ## Port order (each step compiles + is tested before the next)
 
-1. **Package scaffold** — Package.swift (deps: FoundationModelsRouter path,
-   SwiftTreeSitter, GRDB, initial grammars), `Log` constants, error enum,
-   CI-able `swift test`.
+1. **Package scaffold** — Package.swift (deps: FoundationModelsRouter — now a
+   GitHub URL dependency on `main`, see Dependencies above — SwiftTreeSitter,
+   GRDB, initial grammars), `Log` constants, error enum, CI-able `swift test`.
 2. **Store** — GRDB schema + migrations, dirty-flag helpers, Float32-blob
    embedding codec, meta table (embedder dimension).
 3. **Walker/reconciler** — gitignore-aware walk, concurrent hashing,

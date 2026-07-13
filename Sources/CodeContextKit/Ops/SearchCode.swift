@@ -1,4 +1,5 @@
 import Foundation
+import RankKit
 
 /// The relative weight of each ranking signal
 /// `SearchCode.run(corpus:embedder:query:topK:weights:)` fuses via
@@ -233,11 +234,14 @@ public enum SearchCode {
             return ([], [Double](repeating: 0.0, count: snapshot.chunkCount))
         }
 
-        let corpus = BM25Corpus(queryTokens: queryTokens, documents: zip(snapshot.documentLengths, snapshot.termSets))
-        let scores = snapshot.chunkIds.indices.map { chunkIndex in
+        let corpus = BM25Corpus(
+            queryTokens: queryTokens,
+            documents: snapshot.rankedDocuments.lazy.map { ($0.documentLength, $0.termSet) }
+        )
+        let scores = snapshot.rankedDocuments.map { document in
             corpus.score(
-                weightedTermFrequency: snapshot.weightedTermFrequencies[chunkIndex],
-                documentLength: snapshot.documentLengths[chunkIndex],
+                weightedTermFrequency: document.weightedTermFrequency,
+                documentLength: document.documentLength,
                 queryTokens: queryTokens
             )
         }
@@ -245,9 +249,9 @@ public enum SearchCode {
     }
 
     /// Computes the trigram fuzzy-ranking signal: `query`'s canonical
-    /// trigram set scored against each chunk's `symbolPath` (weighted
-    /// `BM25.symbolPathFieldWeight`) and `text` (weighted
-    /// `BM25.bodyFieldWeight`) trigram sets.
+    /// trigram set scored against each chunk's `symbolPath` (the primary
+    /// field, weighted `BM25.primaryFieldWeight`) and `text` (the body
+    /// field, weighted `BM25.bodyFieldWeight`) trigram sets.
     ///
     /// - Returns: The matching chunk indices ranked descending by score (see
     ///   `rankingOfPositiveScores(scores:)`), and the full-length, positionally
@@ -258,9 +262,9 @@ public enum SearchCode {
         }
 
         let querySet = Trigram.canonicalTrigramSet(text: query)
-        let scores = snapshot.chunkIds.indices.map { chunkIndex in
-            BM25.symbolPathFieldWeight * Trigram.dice(querySet: querySet, targetSet: snapshot.symbolPathTrigramSets[chunkIndex])
-                + BM25.bodyFieldWeight * Trigram.dice(querySet: querySet, targetSet: snapshot.textTrigramSets[chunkIndex])
+        let scores = snapshot.rankedDocuments.map { document in
+            BM25.primaryFieldWeight * Trigram.dice(querySet: querySet, targetSet: document.primaryTrigramSet)
+                + BM25.bodyFieldWeight * Trigram.dice(querySet: querySet, targetSet: document.bodyTrigramSet)
         }
         return (rankingOfPositiveScores(scores: scores), scores)
     }

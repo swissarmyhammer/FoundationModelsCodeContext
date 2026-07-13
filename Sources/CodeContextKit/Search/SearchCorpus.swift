@@ -1,6 +1,6 @@
-import Accelerate
 import Foundation
 import GRDB
+import RankKit
 
 /// A cached, contiguous snapshot of one workspace's `ts_chunks` table, ready
 /// for BM25/trigram keyword scoring and `vDSP_mmul` cosine scoring — the
@@ -58,30 +58,13 @@ public struct SearchCorpusSnapshot: Sendable {
     /// `cosineScores(queryVector:)` is the sanctioned way to score it.
     let embeddingMatrix: [Float]
 
-    /// Each chunk's weighted BM25 term frequency — `symbolPaths[i]`'s tokens
-    /// weighted `BM25.symbolPathFieldWeight`, `texts[i]`'s tokens weighted
-    /// `BM25.bodyFieldWeight` — positionally aligned with `chunkIds`.
-    let weightedTermFrequencies: [[String: Double]]
-
-    /// Each chunk's distinct term set — `Set(weightedTermFrequencies[i].keys)`
-    /// — positionally aligned with `chunkIds`. Cached separately so
-    /// `BM25Corpus.init(queryTokens:documents:)` doesn't need to rebuild it
-    /// from `weightedTermFrequencies` on every query.
-    let termSets: [Set<String>]
-
-    /// Each chunk's unweighted token count across both fields, positionally
-    /// aligned with `chunkIds` — the `|D|`
-    /// `BM25Corpus.score(weightedTermFrequency:documentLength:queryTokens:)`
-    /// needs for length normalization.
-    let documentLengths: [Int]
-
-    /// Each chunk's canonical trigram set for `symbolPaths[i]`, positionally
-    /// aligned with `chunkIds`.
-    let symbolPathTrigramSets: [Set<String>]
-
-    /// Each chunk's canonical trigram set for `texts[i]`, positionally
-    /// aligned with `chunkIds`.
-    let textTrigramSets: [Set<String>]
+    /// Each chunk's precomputed BM25/trigram statistics — `symbolPaths[i]`
+    /// as the primary field (weighted `BM25.primaryFieldWeight`), `texts[i]`
+    /// as the body field (weighted `BM25.bodyFieldWeight`) — positionally
+    /// aligned with `chunkIds`. `RankKit.RankedDocument` carries the
+    /// weighted term frequency, term set, document length, and both trigram
+    /// sets the BM25/trigram scoring stages consume.
+    let rankedDocuments: [RankedDocument]
 
     /// The number of chunks in this snapshot.
     public var chunkCount: Int { chunkIds.count }
@@ -103,95 +86,11 @@ public struct SearchCorpusSnapshot: Sendable {
     ///   every score is `0.0` if `queryVector`'s length doesn't match
     ///   `embeddingDimension` or the corpus has no chunks.
     public func cosineScores(queryVector: [Float]) -> [Float] {
-        Self.matvecCosineScores(
+        CosineScoring.matvecScores(
             matrix: embeddingMatrix,
             rowCount: chunkCount,
             dimension: embeddingDimension,
             queryVector: queryVector
-        )
-    }
-
-    /// Computes one dot-product score per row of `matrix` against
-    /// `queryVector`, via a single `vDSP_mmul` matrix–vector product — the
-    /// Accelerate primitive `cosineScores(queryVector:)` wraps.
-    ///
-    /// `vDSP_mmul` multiplies `matrix` (treated as `rowCount × dimension`)
-    /// by `queryVector` (treated as `dimension × 1`), producing the
-    /// `rowCount × 1` result in one call — the vDSP counterpart to
-    /// `cblas_sgemv` plan.md calls out for this scoring step, chosen here
-    /// over the CBLAS entry point because `cblas_sgemv` is deprecated on
-    /// this platform in favor of an ILP64 interface this package doesn't
-    /// otherwise need.
-    ///
-    /// Kept as a standalone, pure function (rather than inlined into
-    /// `cosineScores(queryVector:)`) so it can be unit-tested against a
-    /// scalar dot-product reference on synthetic fixtures, independent of
-    /// loading a real corpus from a `Store`.
-    ///
-    /// - Parameters:
-    ///   - matrix: A row-major `rowCount × dimension` matrix; `matrix.count`
-    ///     must equal `rowCount * dimension`.
-    ///   - rowCount: The number of rows in `matrix`.
-    ///   - dimension: The number of columns in `matrix`, and the required
-    ///     length of `queryVector`.
-    ///   - queryVector: The vector to score every row of `matrix` against.
-    /// - Returns: One score per row, in row order; every score is `0.0` if
-    ///   `rowCount` or `dimension` is `0`, or `queryVector.count !=
-    ///   dimension`.
-    static func matvecCosineScores(matrix: [Float], rowCount: Int, dimension: Int, queryVector: [Float]) -> [Float] {
-        guard rowCount > 0, dimension > 0, queryVector.count == dimension else {
-            return [Float](repeating: 0.0, count: rowCount)
-        }
-
-        var result = [Float](repeating: 0.0, count: rowCount)
-        matrix.withUnsafeBufferPointer { matrixBuffer in
-            queryVector.withUnsafeBufferPointer { queryBuffer in
-                result.withUnsafeMutableBufferPointer { resultBuffer in
-                    multiplyMatrixByVector(
-                        matrixBuffer: matrixBuffer,
-                        queryBuffer: queryBuffer,
-                        resultBuffer: resultBuffer,
-                        rowCount: rowCount,
-                        dimension: dimension
-                    )
-                }
-            }
-        }
-        return result
-    }
-
-    /// Calls `vDSP_mmul` over three already-`withUnsafe(Mutable)BufferPointer`-bound buffers, or
-    /// does nothing if any of them has no base address (an empty backing array).
-    ///
-    /// Factored out of `matvecCosineScores(matrix:rowCount:dimension:queryVector:)`'s triple
-    /// nested `withUnsafeBufferPointer` calls so that unavoidable nesting doesn't also have to
-    /// carry the pointer-validation `guard` inline, one level deeper still.
-    ///
-    /// - Parameters:
-    ///   - matrixBuffer: The bound buffer over the row-major `rowCount × dimension` matrix.
-    ///   - queryBuffer: The bound buffer over the length-`dimension` query vector.
-    ///   - resultBuffer: The bound mutable buffer `vDSP_mmul` writes the `rowCount` scores into.
-    ///   - rowCount: The number of rows in `matrixBuffer`.
-    ///   - dimension: The number of columns in `matrixBuffer`, and the length of `queryBuffer`.
-    private static func multiplyMatrixByVector(
-        matrixBuffer: UnsafeBufferPointer<Float>,
-        queryBuffer: UnsafeBufferPointer<Float>,
-        resultBuffer: UnsafeMutableBufferPointer<Float>,
-        rowCount: Int,
-        dimension: Int
-    ) {
-        guard
-            let matrixBase = matrixBuffer.baseAddress,
-            let queryBase = queryBuffer.baseAddress,
-            let resultBase = resultBuffer.baseAddress
-        else {
-            return
-        }
-        vDSP_mmul(
-            matrixBase, 1,
-            queryBase, 1,
-            resultBase, 1,
-            vDSP_Length(rowCount), 1, vDSP_Length(dimension)
         )
     }
 }
@@ -278,50 +177,10 @@ public actor SearchCorpus {
         return build(rows: rows)
     }
 
-    /// One row's BM25/trigram precomputation, ready to append to
-    /// `SearchCorpusSnapshot`'s parallel arrays.
-    ///
-    /// Factored out of `build(rows:)`'s per-row loop so that function stays
-    /// a thin fold over rows rather than mixing tokenization/BM25/trigram
-    /// details with array bookkeeping.
-    private struct RowPrecomputation {
-        let weightedTermFrequency: [String: Double]
-        let termSet: Set<String>
-        let documentLength: Int
-        let symbolPathTrigramSet: Set<String>
-        let textTrigramSet: Set<String>
-    }
-
-    /// Tokenizes `row`'s symbol path and body text, builds its BM25
-    /// field-weighted term frequency map and term set, and its symbol-path
-    /// and body trigram sets.
-    ///
-    /// - Parameter row: The chunk row to precompute BM25/trigram data for.
-    /// - Returns: The precomputed data, ready for `build(rows:)` to append
-    ///   into `SearchCorpusSnapshot`'s parallel arrays.
-    private static func preprocessRow(row: ChunkRow) -> RowPrecomputation {
-        let symbolPathTokens = Tokenizer.tokenize(text: row.symbolPath)
-        let bodyTokens = Tokenizer.tokenize(text: row.text)
-
-        var weightedTermFrequency: [String: Double] = [:]
-        for token in symbolPathTokens {
-            weightedTermFrequency[token, default: 0.0] += BM25.symbolPathFieldWeight
-        }
-        for token in bodyTokens {
-            weightedTermFrequency[token, default: 0.0] += BM25.bodyFieldWeight
-        }
-
-        return RowPrecomputation(
-            weightedTermFrequency: weightedTermFrequency,
-            termSet: Set(weightedTermFrequency.keys),
-            documentLength: symbolPathTokens.count + bodyTokens.count,
-            symbolPathTrigramSet: Trigram.canonicalTrigramSet(text: row.symbolPath),
-            textTrigramSet: Trigram.canonicalTrigramSet(text: row.text)
-        )
-    }
-
     /// Folds `rows` into a `SearchCorpusSnapshot`: decodes embeddings into
-    /// one contiguous matrix, and precomputes each row's BM25/trigram data.
+    /// one contiguous matrix, and precomputes each row's BM25/trigram data
+    /// as a `RankKit.RankedDocument` (symbol path as the primary field, body
+    /// text as the body field).
     private static func build(rows: [ChunkRow]) -> SearchCorpusSnapshot {
         let embeddingDimension = rows.lazy.compactMap { $0.embedding.map { EmbeddingCodec.decode($0).count } }.first ?? 0
 
@@ -330,17 +189,6 @@ public actor SearchCorpus {
         var embeddedFlags: [Bool] = []
         embeddedFlags.reserveCapacity(rows.count)
 
-        var weightedTermFrequencies: [[String: Double]] = []
-        var termSets: [Set<String>] = []
-        var documentLengths: [Int] = []
-        var symbolPathTrigramSets: [Set<String>] = []
-        var textTrigramSets: [Set<String>] = []
-        weightedTermFrequencies.reserveCapacity(rows.count)
-        termSets.reserveCapacity(rows.count)
-        documentLengths.reserveCapacity(rows.count)
-        symbolPathTrigramSets.reserveCapacity(rows.count)
-        textTrigramSets.reserveCapacity(rows.count)
-
         for row in rows {
             appendEmbeddingRow(
                 embedding: row.embedding,
@@ -348,13 +196,6 @@ public actor SearchCorpus {
                 matrix: &embeddingMatrix,
                 embeddedFlags: &embeddedFlags
             )
-
-            let precomputed = preprocessRow(row: row)
-            weightedTermFrequencies.append(precomputed.weightedTermFrequency)
-            termSets.append(precomputed.termSet)
-            documentLengths.append(precomputed.documentLength)
-            symbolPathTrigramSets.append(precomputed.symbolPathTrigramSet)
-            textTrigramSets.append(precomputed.textTrigramSet)
         }
 
         return SearchCorpusSnapshot(
@@ -368,11 +209,7 @@ public actor SearchCorpus {
             embeddedFlags: embeddedFlags,
             embeddingDimension: embeddingDimension,
             embeddingMatrix: embeddingMatrix,
-            weightedTermFrequencies: weightedTermFrequencies,
-            termSets: termSets,
-            documentLengths: documentLengths,
-            symbolPathTrigramSets: symbolPathTrigramSets,
-            textTrigramSets: textTrigramSets
+            rankedDocuments: rows.map { RankedDocument(primaryText: $0.symbolPath, bodyText: $0.text) }
         )
     }
 

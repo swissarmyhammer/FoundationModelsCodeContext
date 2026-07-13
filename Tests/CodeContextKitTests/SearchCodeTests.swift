@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import RankKit
 import Testing
 
 @testable import CodeContextKit
@@ -11,7 +12,8 @@ private func normalized(_ vector: [Float]) -> [Float] {
     return vector.map { $0 / magnitude }
 }
 
-/// Tests for `SearchCorpusSnapshot.matvecCosineScores(matrix:rowCount:dimension:queryVector:)`:
+/// Tests for `RankKit.CosineScoring.matvecScores(matrix:rowCount:dimension:queryVector:)`
+/// (the primitive `SearchCorpusSnapshot.cosineScores(queryVector:)` wraps):
 /// the `vDSP_mmul`-backed matvec against a scalar dot-product reference, plus
 /// its documented degenerate-input behavior.
 struct SearchCorpusMatvecTests {
@@ -23,7 +25,7 @@ struct SearchCorpusMatvecTests {
         let matrix = matrixRows.flatMap { $0 }
         let queryVector = normalized((0..<dimension).map { _ in Float.random(in: -1...1) })
 
-        let matvecScores = SearchCorpusSnapshot.matvecCosineScores(
+        let matvecScores = CosineScoring.matvecScores(
             matrix: matrix, rowCount: rowCount, dimension: dimension, queryVector: queryVector
         )
 
@@ -37,13 +39,13 @@ struct SearchCorpusMatvecTests {
     @Test
     func matvecCosineScoresIsZeroWhenQueryDimensionDoesNotMatch() {
         let matrix: [Float] = [1, 0, 0, 0, 1, 0]
-        let scores = SearchCorpusSnapshot.matvecCosineScores(matrix: matrix, rowCount: 2, dimension: 3, queryVector: [1, 0])
+        let scores = CosineScoring.matvecScores(matrix: matrix, rowCount: 2, dimension: 3, queryVector: [1, 0])
         #expect(scores == [0.0, 0.0])
     }
 
     @Test
     func matvecCosineScoresIsEmptyForZeroRows() {
-        let scores = SearchCorpusSnapshot.matvecCosineScores(matrix: [], rowCount: 0, dimension: 3, queryVector: [1, 0, 0])
+        let scores = CosineScoring.matvecScores(matrix: [], rowCount: 0, dimension: 3, queryVector: [1, 0, 0])
         #expect(scores.isEmpty)
     }
 }
@@ -124,8 +126,8 @@ struct SearchCodeTests {
             let embedder = FakeEmbedder(dimension: Self.embeddingDimension)
 
             // A chunk with zero token/trigram overlap with `query` — verified
-            // directly below, per RankerTests' "assert the per-signal claim
-            // directly" convention — but whose stored embedding is crafted to
+            // directly below, per the "assert the per-signal claim directly"
+            // convention — but whose stored embedding is crafted to
             // be *exactly* the query's own embedding (FakeEmbedder is
             // deterministic, so embedding `query` again at search time
             // reproduces the same vector). This isolates the cosine signal:
