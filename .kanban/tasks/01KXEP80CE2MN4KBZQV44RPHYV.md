@@ -26,6 +26,14 @@ comments:
   id: 01kxevpyc5z323krmmq5h9ywpf
   text: 'Iteration 1 /test verified: 440 tests, 439 pass; sole failure is pre-existing FSEvents sandbox test (tracked as ^0b1sma1, test-failure tag). Tester fixed a warning this change introduced: SwiftPM "conflicting identity for foundationmodelsrouter" — RankKit pulls FMR by URL while we declared it by local path; Package.swift now declares FMR by URL (branch: main), resolved commit a3d8c04 identical to the local checkout; plan.md updated in two places to match. Remaining mlx-swift llbuild bundle warning is pre-existing. Next: /commit checkpoint.'
   timestamp: 2026-07-13T23:06:35.269362+00:00
+- actor: claude-code
+  id: 01kxew5zwwg88t8enxj6v7cb4f
+  text: 'Review verdict (2026-07-13 18:08, scope: review sha HEAD~1..HEAD, checkpoint 7425383): 1 finding (1 confirmed, 2 refuted of 14 attempted). Finding: Package.swift duplicates the hardcoded base URL "https://github.com/tree-sitter/" 12 times in the dependencies array — extract to a named constant. Findings appended to the task description as a dated checklist; task remains in Review.'
+  timestamp: 2026-07-13T23:14:48.348613+00:00
+- actor: claude-code
+  id: 01kxg38n5k9r14zq2bhaae9bf5
+  text: 'Review finding fixed: extracted the repeated GitHub grammar-org base URLs in Package.swift to named constants with a doc comment, following the existing packageName/tree-sitter package-name constants pattern — `treeSitterOrgURL = "https://github.com/tree-sitter/"` (was repeated 12x) and `treeSitterGrammarsOrgURL = "https://github.com/tree-sitter-grammars/"` (was repeated 2x, the YAML/Markdown grammars; extracted for symmetry since it is the same variation axis — which org hosts the grammar). All 14 `.package(url:)` sites now interpolate `"\(orgURL)\(packageNameConstant)"`. Single-use URLs (swissarmyhammer, ChimeHQ, groue, alex-pinkus) left literal per rule-of-three. Verification: swift build clean (only the pre-existing mlx-swift llbuild bundle warning); Package.resolved UNCHANGED (not in git status — resolution is byte-identical); swift test = 440/440 passed this run (even the usually-flaky WatcherTests FSEvents test passed). Finding checkbox flipped to [x] in the description; task left in doing.'
+  timestamp: 2026-07-14T10:37:50.131060+00:00
 position_column: doing
 position_ordinal: '80'
 title: Adopt RankKit for hybrid search/ranking and delete redundant Search/ primitives
@@ -67,3 +75,7 @@ Wire the dependency and rewire consumers:
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
+
+## Review Findings (2026-07-13 18:08)
+
+- [x] `Package.swift:108` — The base URL "https://github.com/tree-sitter/" is hardcoded and repeated 12 times across the dependencies array (lines 108, 116, 117, 124, 125, 126, 127, 128, 129, 130, 131, 141). This should be extracted to a named constant to eliminate duplication and reduce the risk of typos or divergence. Define a constant near the top of the dependencies array: `let treeSitterOrgURL = "https://github.com/tree-sitter/"` and update each reference to use string interpolation or concatenation.

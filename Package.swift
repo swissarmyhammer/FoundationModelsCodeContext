@@ -29,6 +29,14 @@ let treeSitterYAMLPackage = "tree-sitter-yaml"
 let treeSitterMarkdownPackage = "tree-sitter-markdown"
 let treeSitterBashPackage = "tree-sitter-bash"
 
+// The two GitHub organizations hosting the grammar packages above. Most
+// grammars live in the canonical `tree-sitter` org; the YAML and Markdown
+// grammars are community-maintained under `tree-sitter-grammars`. Extracted
+// so each base URL has a single source of truth, like the package-name
+// constants above.
+let treeSitterOrgURL = "https://github.com/tree-sitter/"
+let treeSitterGrammarsOrgURL = "https://github.com/tree-sitter-grammars/"
+
 // `tree-sitter-sql` (DerekStride/tree-sitter-sql, the grammar this project's
 // Rust sibling depends on as the `tree-sitter-sequel` crate — crates.io
 // reserves the `tree-sitter-sql` name) has no working SwiftPM dependency: its
@@ -105,7 +113,7 @@ let package = Package(
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", exact: "0.25.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
         .package(url: "https://github.com/alex-pinkus/\(treeSitterSwiftPackage)", exact: "0.7.3-with-generated-files"),
-        .package(url: "https://github.com/tree-sitter/\(treeSitterRustPackage)", from: "0.24.0"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterRustPackage)", from: "0.24.0"),
         // Pinned exact: v0.24.0+ manifests gate `src/scanner.c` on
         // `FileManager.default.fileExists(atPath:)`, which resolves against
         // the *top-level build's* working directory rather than this
@@ -113,22 +121,22 @@ let package = Package(
         // out of the build and the linker fails with undefined
         // `tree_sitter_python_external_scanner_*` symbols. v0.23.6 still
         // lists `src/scanner.c` unconditionally.
-        .package(url: "https://github.com/tree-sitter/\(treeSitterPythonPackage)", exact: "0.23.6"),
-        .package(url: "https://github.com/tree-sitter/\(treeSitterTypeScriptPackage)", from: "0.23.2"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterPythonPackage)", exact: "0.23.6"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterTypeScriptPackage)", from: "0.23.2"),
         // Pinned exact: the same `src/scanner.c`-gated-on-`FileManager` issue
         // documented above for `tree-sitter-python` also hits
         // `tree-sitter-javascript` starting at v0.25.0 (unresolved path
         // check drops the external scanner and the linker fails with
         // undefined `tree_sitter_javascript_external_scanner_*` symbols).
         // v0.23.1 still lists `src/scanner.c` unconditionally.
-        .package(url: "https://github.com/tree-sitter/\(treeSitterJavaScriptPackage)", exact: "0.23.1"),
-        .package(url: "https://github.com/tree-sitter/\(treeSitterGoPackage)", from: "0.23.4"),
-        .package(url: "https://github.com/tree-sitter/\(treeSitterCPackage)", from: "0.24.1"),
-        .package(url: "https://github.com/tree-sitter/\(treeSitterCPPPackage)", from: "0.23.4"),
-        .package(url: "https://github.com/tree-sitter/\(treeSitterJavaPackage)", from: "0.23.5"),
-        .package(url: "https://github.com/tree-sitter/\(treeSitterCSharpPackage)", from: "0.23.1"),
-        .package(url: "https://github.com/tree-sitter/\(treeSitterPHPPackage)", from: "0.23.11"),
-        .package(url: "https://github.com/tree-sitter/\(treeSitterJSONPackage)", from: "0.24.0"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterJavaScriptPackage)", exact: "0.23.1"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterGoPackage)", from: "0.23.4"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterCPackage)", from: "0.24.1"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterCPPPackage)", from: "0.23.4"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterJavaPackage)", from: "0.23.5"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterCSharpPackage)", from: "0.23.1"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterPHPPackage)", from: "0.23.11"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterJSONPackage)", from: "0.24.0"),
         // Pinned exact: v0.7.1+ manifests gate `src/scanner.c` on
         // `FileManager.default.fileExists(atPath:)` — the same
         // `tree-sitter-python`/`tree-sitter-javascript` issue documented
@@ -136,9 +144,9 @@ let package = Package(
         // and the linker fails with undefined
         // `tree_sitter_yaml_external_scanner_*` symbols. v0.7.0 still lists
         // `src/scanner.c` unconditionally.
-        .package(url: "https://github.com/tree-sitter-grammars/\(treeSitterYAMLPackage)", exact: "0.7.0"),
-        .package(url: "https://github.com/tree-sitter-grammars/\(treeSitterMarkdownPackage)", from: "0.5.0"),
-        .package(url: "https://github.com/tree-sitter/\(treeSitterBashPackage)", from: "0.25.0"),
+        .package(url: "\(treeSitterGrammarsOrgURL)\(treeSitterYAMLPackage)", exact: "0.7.0"),
+        .package(url: "\(treeSitterGrammarsOrgURL)\(treeSitterMarkdownPackage)", from: "0.5.0"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterBashPackage)", from: "0.25.0"),
     ],
     targets: [
         .target(
