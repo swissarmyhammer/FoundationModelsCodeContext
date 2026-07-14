@@ -34,8 +34,12 @@ comments:
   id: 01kxg38n5k9r14zq2bhaae9bf5
   text: 'Review finding fixed: extracted the repeated GitHub grammar-org base URLs in Package.swift to named constants with a doc comment, following the existing packageName/tree-sitter package-name constants pattern — `treeSitterOrgURL = "https://github.com/tree-sitter/"` (was repeated 12x) and `treeSitterGrammarsOrgURL = "https://github.com/tree-sitter-grammars/"` (was repeated 2x, the YAML/Markdown grammars; extracted for symmetry since it is the same variation axis — which org hosts the grammar). All 14 `.package(url:)` sites now interpolate `"\(orgURL)\(packageNameConstant)"`. Single-use URLs (swissarmyhammer, ChimeHQ, groue, alex-pinkus) left literal per rule-of-three. Verification: swift build clean (only the pre-existing mlx-swift llbuild bundle warning); Package.resolved UNCHANGED (not in git status — resolution is byte-identical); swift test = 440/440 passed this run (even the usually-flaky WatcherTests FSEvents test passed). Finding checkbox flipped to [x] in the description; task left in doing.'
   timestamp: 2026-07-14T10:37:50.131060+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01kxg3nhffz3dfhdzg382z66e0
+  text: 'Review verdict (2026-07-14 05:42): CLEAN. Scope: review sha HEAD~1..HEAD (checkpoint b4c3102, "refactor(manifest): extract tree-sitter org base URLs into named constants", iteration 2). Engine counts: 0 findings, 14 validators attempted, 0 failed. The sole prior finding from the 2026-07-13 18:08 review (Package.swift tree-sitter base-URL constant extraction) is checked as done in this commit. swift test 440/440 on this tree; Package.resolved unchanged. Task moved review -> done.'
+  timestamp: 2026-07-14T10:44:52.335171+00:00
+position_column: done
+position_ordinal: a380
 title: Adopt RankKit for hybrid search/ranking and delete redundant Search/ primitives
 ---
 ## What

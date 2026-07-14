@@ -8,7 +8,8 @@ import Testing
 /// gitignore/`.code-context/`/extension filtering — driven entirely against
 /// `FakeFileEventSource` and a `ManualClock` so no test waits on real
 /// wall-clock time or the real FSEvents API. One real-FSEvents integration
-/// test lives at the bottom of this file.
+/// test lives at the bottom of this file, gated at runtime on whether the
+/// environment actually delivers FSEvents callbacks.
 struct WatcherTests {
     /// Counts `nudgeWorkers` invocations, so tests can assert "exactly one
     /// nudge per flush" without a real indexing worker to observe.
@@ -327,7 +328,58 @@ struct WatcherTests {
 
     // MARK: - Real FSEvents integration
 
-    @Test
+    /// Probes whether this environment actually delivers FSEvents
+    /// callbacks: starts a production `FSEventsFileEventSource` on a fresh
+    /// temporary directory and re-touches a canary file once per second,
+    /// reporting deliverable as soon as ANY raw event arrives and
+    /// undeliverable only after ten touches go unanswered. Sandboxed
+    /// environments where fseventsd delivery is absent then get a visible
+    /// skip on the integration test below (via the same `ConditionTrait`
+    /// mechanism `LiveSourceKitTests` gates with, chosen there because a
+    /// disabled trait reports a genuine *skip* rather than a vacuous pass)
+    /// instead of a spurious 15-second failure.
+    ///
+    /// The canary is re-touched repeatedly rather than written once
+    /// because FSEvents delivery here is known to be intermittent and
+    /// slow, not just absent: a single write can race stream registration
+    /// and be lost forever, which would misreport a slow-but-working
+    /// environment as a dead one.
+    private static func fsEventsAreDeliverable() async -> Bool {
+        (try? await withTemporaryWorkspace { root in
+            let (events, continuation) = AsyncStream<Void>.makeStream()
+            let subscription = FSEventsFileEventSource().start(rootDirectory: root) { _ in
+                continuation.yield()
+            }
+            defer { subscription.stop() }
+
+            let canaryURL = root.appendingPathComponent("canary.rs")
+            return await withTaskGroup(of: Bool.self) { group in
+                group.addTask {
+                    for await _ in events {
+                        return true
+                    }
+                    return false
+                }
+                group.addTask {
+                    for _ in 0..<10 {
+                        try? "fn canary() {}\n".write(to: canaryURL, atomically: true, encoding: .utf8)
+                        do {
+                            try await Task.sleep(for: .seconds(1))
+                        } catch {
+                            // Cancelled: the event task already won.
+                            return false
+                        }
+                    }
+                    return false
+                }
+                let delivered = await group.next() ?? false
+                group.cancelAll()
+                return delivered
+            }
+        }) ?? false
+    }
+
+    @Test(.enabled("FSEvents events are not deliverable in this environment", { await WatcherTests.fsEventsAreDeliverable() }))
     func realFSEventsDetectsFileWriteAndMarksItDirty() async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
@@ -347,11 +399,23 @@ struct WatcherTests {
             try write("fn a() {}", to: "a.rs", in: root)
 
             let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+            var lastWrite = ContinuousClock.now
             var dirty: [String] = []
             while ContinuousClock.now < deadline {
                 dirty = try await store.drainTsDirty()
                 if !dirty.isEmpty {
                     break
+                }
+                // Re-write the same content when the last write has gone
+                // unnoticed for a while: even after the registration sleep
+                // above, a single write can race FSEvents stream
+                // registration and be lost forever in this environment's
+                // intermittent delivery. Spaced well past the 200ms
+                // debounce so re-writes can never perpetually restart the
+                // watcher's reset-on-each-event quiet-window timer.
+                if lastWrite.duration(to: ContinuousClock.now) > .seconds(2) {
+                    try write("fn a() {}", to: "a.rs", in: root)
+                    lastWrite = ContinuousClock.now
                 }
                 try await Task.sleep(for: .milliseconds(200))
             }
