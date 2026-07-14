@@ -15,7 +15,7 @@ comments:
   text: |-
     Implementation landed and verified green; leaving in doing for /review.
 
-    What changed (Tests/CodeContextKitTests/WatcherTests.swift only):
+    What changed (Tests/FoundationModelsCodeContextTests/WatcherTests.swift only):
     1. Runtime deliverability gate: new private static async probe fsEventsAreDeliverable() — starts a production FSEventsFileEventSource on a fresh withTemporaryWorkspace dir, re-touches a canary file once/second up to 10 times, returns true the moment ANY raw event arrives, false after ~10s of silence (re-touching, not write-once, so slow registration can't misreport a working env as dead). Wired as Swift Testing async ConditionTrait: @Test(.enabled("FSEvents events are not deliverable in this environment", { await WatcherTests.fsEventsAreDeliverable() })) — same mechanism LiveSourceKitTests gates with; skip is visible ("➜ skipped: ..."), never a vacuous pass.
     2. Test hardening (assertion untouched): inside the existing 15s poll loop, a.rs is re-written with identical content whenever the last write went unnoticed >2s — well past the 200ms reset-on-each-event debounce so re-writes can never perpetually postpone the flush, but immune to a single write racing stream registration.
 
@@ -30,13 +30,13 @@ comments:
   timestamp: 2026-07-14T10:59:15.054003+00:00
 - actor: claude-code
   id: 01kxg4xvxk6zdpfywzgdvppxs8
-  text: 'Review verdict (2026-07-14): CLEAN. Engine run `review sha HEAD~1..HEAD` (checkpoint 5daabfd, "fix(test): gate real-FSEvents watcher test on runtime deliverability probe") returned 0 findings (14 checks attempted, 1 candidate refuted, 0 failed). Test-only change in Tests/CodeContextKitTests/WatcherTests.swift adding a runtime FSEvents-deliverability probe via ConditionTrait; full suite 440 pass / 0 fail / 1 explicit skip; adversarial double-check PASSed. Task moved review -> done.'
+  text: 'Review verdict (2026-07-14): CLEAN. Engine run `review sha HEAD~1..HEAD` (checkpoint 5daabfd, "fix(test): gate real-FSEvents watcher test on runtime deliverability probe") returned 0 findings (14 checks attempted, 1 candidate refuted, 0 failed). Test-only change in Tests/FoundationModelsCodeContextTests/WatcherTests.swift adding a runtime FSEvents-deliverability probe via ConditionTrait; full suite 440 pass / 0 fail / 1 explicit skip; adversarial double-check PASSed. Task moved review -> done.'
   timestamp: 2026-07-14T11:06:53.747556+00:00
 position_column: done
 position_ordinal: a480
 title: 'WatcherTests.realFSEventsDetectsFileWriteAndMarksItDirty fails: FSEvents not delivered in sandbox'
 ---
-Tests/CodeContextKitTests/WatcherTests.swift:359
+Tests/FoundationModelsCodeContextTests/WatcherTests.swift:359
 
 Expectation failed: dirty == ["a.rs"] -> dirty is [] after 16s. The real-FSEvents OS integration test never receives FSEvents callbacks in this sandboxed environment.
 

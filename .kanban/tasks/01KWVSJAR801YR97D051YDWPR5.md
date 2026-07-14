@@ -30,7 +30,7 @@ comments:
 - actor: wballard
   id: 01kwvvyj35vym4an6gssms97xw
   text: |-
-    Important pivot, with root-cause reasoning: read `awaitResponse` in Sources/CodeContextKit/LSP/ProcessLanguageServerConnection.swift — it races a `clock.sleep(for: timeout)` task against the response continuation via `withThrowingTaskGroup`. This means ANY failure — whether the real delay was marginal (1s over) or effectively unbounded (never arrives) — surfaces as `.timeout` at essentially exactly the configured duration. My earlier read of "failures cluster suspiciously close to the exact configured timeout" as evidence of a bounded-but-occasionally-slow cold start was therefore a red herring: that signature is tautological for a timeout race, not diagnostic of *why* the response was late.
+    Important pivot, with root-cause reasoning: read `awaitResponse` in Sources/FoundationModelsCodeContext/LSP/ProcessLanguageServerConnection.swift — it races a `clock.sleep(for: timeout)` task against the response continuation via `withThrowingTaskGroup`. This means ANY failure — whether the real delay was marginal (1s over) or effectively unbounded (never arrives) — surfaces as `.timeout` at essentially exactly the configured duration. My earlier read of "failures cluster suspiciously close to the exact configured timeout" as evidence of a bounded-but-occasionally-slow cold start was therefore a red herring: that signature is tautological for a timeout race, not diagnostic of *why* the response was late.
 
     The real signal is the failure RATE across timeout values: 60s gave ~12.5% (1/8), and 90s gave ~13% (4/31 cumulative across this session's batches) — essentially flat, not shrinking, despite a 50% further increase in patience. If the failure mode were "occasionally the interpreter cold-starts slowly," a materially larger timeout should have captured most of that tail and driven the rate down substantially. It didn't. That's much more consistent with "occasionally the response genuinely never arrives on that attempt" (a transient spawn/pipe failure with no natural time bound) than with "occasionally slow."
 
@@ -69,7 +69,7 @@ comments:
 - actor: wballard
   id: 01kwvwkkt2dmrvcbbpkpxjjhdn
   text: |-
-    really-done fresh verification pass (this run, in this session): `swift build` clean, exit 0, zero new warnings. Fresh full `swift test` run: 473/473 tests passed, 37/37 suites, ConnectionTests suite passed in 6.252s. git diff confirms the only code change is Tests/CodeContextKitTests/ConnectionTests.swift (kanban database files also show as modified/untracked but are not code).
+    really-done fresh verification pass (this run, in this session): `swift build` clean, exit 0, zero new warnings. Fresh full `swift test` run: 473/473 tests passed, 37/37 suites, ConnectionTests suite passed in 6.252s. git diff confirms the only code change is Tests/FoundationModelsCodeContextTests/ConnectionTests.swift (kanban database files also show as modified/untracked but are not code).
 
     Adversarial double-check dispatched (double-check agent) against the retry-based fix, reviewing: correctness of the `catch CodeContextError.timeout` retry pattern, whether it weakens assertions/coverage, whether `withConnection`'s close()-on-every-exit-path guarantee still holds correctly across the two separate invocations on retry, doc-comment accuracy, and any new-flakiness risk. Awaiting verdict before finalizing.
   timestamp: 2026-07-06T14:16:40.514027+00:00
@@ -78,14 +78,14 @@ comments:
   text: |-
     Adversarial double-check (double-check agent) returned VERDICT: PASS. It independently built the package, built the test target, and ran `swift test --filter ConnectionTests` (18/18 passed) as part of its review — not just reading the diff. Confirmed: the `catch CodeContextError.timeout` pattern is valid and correctly scoped (won't mask other error cases or a second timeout); assertions are unchanged/not weakened; `withConnection`'s close()-on-every-exit-path guarantee holds correctly across both sequential attempts (no concurrent double-spawn, no leaked process between attempts — traced through `ProcessLanguageServerConnection.close()`'s idempotent SIGKILL/reap and `awaitResponse`'s timeout race, which only fails the pending request and does not itself touch the process); doc comments are accurate; no nondeterminism introduced into the `.serialized` suite's process accounting. One cosmetic-only nit flagged (awkward wording "one filer session" in the inline comment) — fixed immediately (now "one filed bug report"), rebuilt and re-ran the full suite (473/473 clean) to confirm the wording-only edit didn't regress anything. No re-spawn of double-check needed for a comment-only change.
 
-    Final state: build clean (zero new warnings), full `swift test` green (473/473, 37/37 suites), diff scoped to Tests/CodeContextKitTests/ConnectionTests.swift only. Task remains in `doing` per the implement skill's process, ready for `/review`.
+    Final state: build clean (zero new warnings), full `swift test` green (473/473, 37/37 suites), diff scoped to Tests/FoundationModelsCodeContextTests/ConnectionTests.swift only. Task remains in `doing` per the implement skill's process, ready for `/review`.
   timestamp: 2026-07-06T14:21:17.401157+00:00
 - actor: wballard
   id: 01kwvxef5emnh5sxvb4af8x3n3
   text: |-
     Round 1 review (2026-07-06 09:27), scope HEAD~1..HEAD (commit 93c0b2a): clean, 0 findings across all validators (15 attempted, 0 confirmed, 0 refuted).
 
-    Confirmed against `git diff HEAD~1..HEAD` that the commit touches only Tests/CodeContextKitTests/ConnectionTests.swift: adds the private `withRetryOnSpawnContention<T: Sendable>` helper (catches `CodeContextError.timeout` once, retries the operation exactly once via a fresh `withConnection` subprocess spawn) and its single call site wrapping `requestReceivesItsScriptedTypedResponse()`. No other tests or call sites touched.
+    Confirmed against `git diff HEAD~1..HEAD` that the commit touches only Tests/FoundationModelsCodeContextTests/ConnectionTests.swift: adds the private `withRetryOnSpawnContention<T: Sendable>` helper (catches `CodeContextError.timeout` once, retries the operation exactly once via a fresh `withConnection` subprocess spawn) and its single call site wrapping `requestReceivesItsScriptedTypedResponse()`. No other tests or call sites touched.
 
     Verification per the task/implementer notes: 26/26 clean runs during implementation including concurrent-stress testing, plus independent re-verification (5/5 ConnectionTests runs, 4/4 full-suite runs, retry path directly observed firing and recovering in a live run). Alternative of raising the timeout was empirically ruled out (60s/90s tested, failure rate flat ~12-13%) before choosing the retry approach — documented in the new code comment.
 
@@ -95,7 +95,7 @@ position_column: done
 position_ordinal: a280
 title: ConnectionTests.requestReceivesItsScriptedTypedResponse flaky timeout under load (2/5 full-suite runs)
 ---
-Tests/CodeContextKitTests/ConnectionTests.swift:138-139
+Tests/FoundationModelsCodeContextTests/ConnectionTests.swift:138-139
 
 While independently re-verifying kanban task ^nssme48 (DiagnosticsScope.swift `knownExtensions` LSP filter fix), ran `swift test` (full suite, 473 tests/37 suites) 5 times back to back. 3 passed clean (473/473, 6-13s each); 2 failed with the identical signature:
 

@@ -1,6 +1,6 @@
-# CodeContextKit
+# FoundationModelsCodeContext
 
-[![CI](https://github.com/swissarmyhammer/CodeContextKit/actions/workflows/ci.yml/badge.svg)](https://github.com/swissarmyhammer/CodeContextKit/actions/workflows/ci.yml)
+[![CI](https://github.com/swissarmyhammer/FoundationModelsCodeContext/actions/workflows/ci.yml/badge.svg)](https://github.com/swissarmyhammer/FoundationModelsCodeContext/actions/workflows/ci.yml)
 
 In-process code intelligence for Swift: one actor that indexes a workspace,
 supervises its language servers, and answers questions about the code.
@@ -13,7 +13,7 @@ plain `Codable & Sendable` value, so wrapping ops as FoundationModels `Tool`s
 for an in-process agent harness is a thin shim over one async method.
 
 ```swift
-import CodeContextKit
+import FoundationModelsCodeContext
 
 // `embedder` is any `TextEmbedding`; `RoutedEmbedderAdapter` wraps a
 // FoundationModelsRouter embedding model.
@@ -42,7 +42,7 @@ diagnostics) that SwiftUI views can bind to directly.
 Add to your `Package.swift` dependencies (requires macOS 27):
 
 ```swift
-.package(url: "https://github.com/swissarmyhammer/CodeContextKit", branch: "main")
+.package(url: "https://github.com/swissarmyhammer/FoundationModelsCodeContext", branch: "main")
 ```
 
 ## Documentation

@@ -3,7 +3,7 @@ comments:
 - actor: wballard
   id: 01kwjqrgdd4natj8vtv9hfz385
   text: |-
-    Implemented all 9 LSP-backed v1 language modules: TypeScript, TSX, JavaScript, Go, C, CPP, Java, CSharp, PHP under Sources/CodeContextKit/Languages/, following the Swift/Rust/Python pattern exactly. Registered in Languages.all (now 12 modules total).
+    Implemented all 9 LSP-backed v1 language modules: TypeScript, TSX, JavaScript, Go, C, CPP, Java, CSharp, PHP under Sources/FoundationModelsCodeContext/Languages/, following the Swift/Rust/Python pattern exactly. Registered in Languages.all (now 12 modules total).
 
     Scope note applied per explicit instruction: did NOT create any wrapper GitHub repos. Instead researched grammar availability directly — turns out all 9 needed grammars already have working upstream SwiftPM support (all under github.com/tree-sitter/*), so every new module got a real non-nil treeSitterLanguage. No nil grammars ended up being needed; grammar availability table is effectively "9/9 resolved from upstream SPM". Added deps to Package.swift: tree-sitter-typescript (bundles both TypeScript and TSX as two targets under one "TreeSitterTypeScript" product — no separate TSX product exists upstream), tree-sitter-javascript, tree-sitter-go, tree-sitter-c, tree-sitter-cpp, tree-sitter-java, tree-sitter-c-sharp, tree-sitter-php.
 
@@ -11,7 +11,7 @@ comments:
 
     Shared-instance de-duplication: SharedServerSpecs.swift (typeScriptFamily used by ts/tsx/js, clangd used by c/cpp), SharedChunkKinds.swift (identical js/ts/tsx chunk-kind + container tables), SharedProjectMarkers.swift (package.json marker for ts/tsx/js; CMakeLists.txt+Makefile markers for c/cpp) — added the latter two after the local review tool caught the duplication on first pass (two review/fix cycles).
 
-    Extended Tests/CodeContextKitTests/LanguageModuleTests.swift: extension resolution for all 8 new extensions (ts/tsx/js/go/c/cpp/java/cs/php), chunk-kind spot checks per module, shared-ServerSpec equality + dedupe-by-command assertions for both shared-spec families, and a parse-smoke test per new grammar (Parser().setLanguage + parse + assert !rootNode.hasError). 38 tests in LanguageModuleTests, 153/153 across the full suite pass, clean `swift build` from a fully wiped `.build`+`Package.resolved` with zero warnings in our own code (one pre-existing deprecation warning lives inside the sibling FoundationModelsRouter dependency).
+    Extended Tests/FoundationModelsCodeContextTests/LanguageModuleTests.swift: extension resolution for all 8 new extensions (ts/tsx/js/go/c/cpp/java/cs/php), chunk-kind spot checks per module, shared-ServerSpec equality + dedupe-by-command assertions for both shared-spec families, and a parse-smoke test per new grammar (Parser().setLanguage + parse + assert !rootNode.hasError). 38 tests in LanguageModuleTests, 153/153 across the full suite pass, clean `swift build` from a fully wiped `.build`+`Package.resolved` with zero warnings in our own code (one pre-existing deprecation warning lives inside the sibling FoundationModelsRouter dependency).
 
     Local review tool ran twice; two real duplication findings addressed (see SharedProjectMarkers above), two casing-nitpick findings refuted against established codebase precedent (LspSymbols/LspCallEdges/drainLspDirty already use "Lsp" not "lsp"; the original pre-existing test was already named registryContainsAllThreeV1Modules with capital V1), one false-positive "Set == Array literal doesn't compile" finding refuted by the fact it compiles and passes (Set's ExpressibleByArrayLiteral). Adversarial double-check agent dispatched for independent verification before handoff.
   timestamp: 2026-07-03T00:58:48.109185+00:00
@@ -30,7 +30,7 @@ position_ordinal: '8680'
 title: LSP-backed v1 language modules (ts/tsx/js, go, c/cpp, java, c#, php)
 ---
 ## What
-Add the LSP-backed remainder of the v1 set, one file per module under `Sources/CodeContextKit/Languages/`: TypeScript, TSX, JavaScript (shared `typescript-language-server` ServerSpec instance), Go (`gopls`), C and C++ (shared `clangd` spec), Java (`jdtls`), CSharp (`omnisharp`), PHP (`intelephense`). Register in `Languages.all`. Add grammar SPM dependencies to `Package.swift`. **Grammar availability spike (explicit AC below): enumerate which of these grammars ship upstream Package.swift support and which need a wrapper package; record the findings as a table in the module files' doc comments, and create wrapper repos under the swissarmyhammer org only for the ones that need it.** Chunk-kind tables ported per language from Rust `chunk.rs`; markers from `swissarmyhammer-project-detection`; specs from `builtin/lsp/*.yaml`.
+Add the LSP-backed remainder of the v1 set, one file per module under `Sources/FoundationModelsCodeContext/Languages/`: TypeScript, TSX, JavaScript (shared `typescript-language-server` ServerSpec instance), Go (`gopls`), C and C++ (shared `clangd` spec), Java (`jdtls`), CSharp (`omnisharp`), PHP (`intelephense`). Register in `Languages.all`. Add grammar SPM dependencies to `Package.swift`. **Grammar availability spike (explicit AC below): enumerate which of these grammars ship upstream Package.swift support and which need a wrapper package; record the findings as a table in the module files' doc comments, and create wrapper repos under the swissarmyhammer org only for the ones that need it.** Chunk-kind tables ported per language from Rust `chunk.rs`; markers from `swissarmyhammer-project-detection`; specs from `builtin/lsp/*.yaml`.
 
 ## Acceptance Criteria
 - [ ] Extension lookup resolves .ts/.tsx/.js/.go/.c/.cpp/.java/.cs/.php
@@ -38,7 +38,7 @@ Add the LSP-backed remainder of the v1 set, one file per module under `Sources/C
 - [ ] Grammar availability table documented; every grammar dependency resolves and parses a snippet (non-error root node)
 
 ## Tests
-- [ ] Extend `Tests/CodeContextKitTests/LanguageModuleTests.swift`: per-module chunkKinds spot checks (e.g. java `method_declaration` → .method, c# `class_declaration` → .type); shared-spec identity assertions; parse smoke test per grammar
+- [ ] Extend `Tests/FoundationModelsCodeContextTests/LanguageModuleTests.swift`: per-module chunkKinds spot checks (e.g. java `method_declaration` → .method, c# `class_declaration` → .type); shared-spec identity assertions; parse smoke test per grammar
 - [ ] Run `swift test --filter LanguageModuleTests` → all pass
 
 ## Workflow

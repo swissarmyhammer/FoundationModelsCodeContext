@@ -4,10 +4,10 @@ comments:
   id: 01kwj6mc8f70jbr3fsp6hv9ccs
   text: |-
     Implemented. New files:
-    - Sources/CodeContextKit/Index/Migrations.swift — `Schema` enum (table/column name constants shared with Store) + `Migrations.migrator` (GRDB `DatabaseMigrator`, single `v1_createSchema` migration) creating `indexed_files`, `ts_chunks`, `lsp_symbols`, `lsp_call_edges`, `meta` per plan.md.
-    - Sources/CodeContextKit/Index/Store.swift — `Store` (final class, `Sendable`, wraps a `DatabasePool`) + `IndexLayer` enum. `init(rootDirectory:)` bootstraps `.code-context/` + self-`.gitignore` (`*`), opens the pool (WAL mode is automatic for `DatabasePool`), runs migrations synchronously, throws `CodeContextError.storage` on any failure. Dirty-flag API: `markDirty` (upsert + reset all 3 flags), `drainTsDirty`/`drainLspDirty` (SELECT file_path WHERE flag=0), `markIndexed(filePath:layer:)`. Also `embedderDimension()`/`setEmbedderDimension(_:)` against the `meta` table, and generic `read`/`write` escape hatches for subsystems that need direct query access (walker, TS/LSP workers, search — all later tasks).
-    - Sources/CodeContextKit/Index/EmbeddingCodec.swift — `encode`/`decode` via `Float.bitPattern.littleEndian`, exact round-trip including NaN/inf/-0.0.
-    - Tests/CodeContextKitTests/StoreTests.swift — 14 tests total (10 Store + 4 codec): fresh-open schema/gitignore/WAL, dirty-flag drain/mark cycle, markDirty re-dirtying on change, meta round-trip, FK cascade (with a second untouched file proving delete scoping), codec round-trip (arbitrary/empty/1024-dim/little-endian-byte-order/NaN-inf-signed-zero via bitPattern).
+    - Sources/FoundationModelsCodeContext/Index/Migrations.swift — `Schema` enum (table/column name constants shared with Store) + `Migrations.migrator` (GRDB `DatabaseMigrator`, single `v1_createSchema` migration) creating `indexed_files`, `ts_chunks`, `lsp_symbols`, `lsp_call_edges`, `meta` per plan.md.
+    - Sources/FoundationModelsCodeContext/Index/Store.swift — `Store` (final class, `Sendable`, wraps a `DatabasePool`) + `IndexLayer` enum. `init(rootDirectory:)` bootstraps `.code-context/` + self-`.gitignore` (`*`), opens the pool (WAL mode is automatic for `DatabasePool`), runs migrations synchronously, throws `CodeContextError.storage` on any failure. Dirty-flag API: `markDirty` (upsert + reset all 3 flags), `drainTsDirty`/`drainLspDirty` (SELECT file_path WHERE flag=0), `markIndexed(filePath:layer:)`. Also `embedderDimension()`/`setEmbedderDimension(_:)` against the `meta` table, and generic `read`/`write` escape hatches for subsystems that need direct query access (walker, TS/LSP workers, search — all later tasks).
+    - Sources/FoundationModelsCodeContext/Index/EmbeddingCodec.swift — `encode`/`decode` via `Float.bitPattern.littleEndian`, exact round-trip including NaN/inf/-0.0.
+    - Tests/FoundationModelsCodeContextTests/StoreTests.swift — 14 tests total (10 Store + 4 codec): fresh-open schema/gitignore/WAL, dirty-flag drain/mark cycle, markDirty re-dirtying on change, meta round-trip, FK cascade (with a second untouched file proving delete scoping), codec round-trip (arbitrary/empty/1024-dim/little-endian-byte-order/NaN-inf-signed-zero via bitPattern).
 
     Design decisions / deviations:
     - `lsp_call_edges` gained a `file_path` column (FK CASCADE to `indexed_files`) not explicitly spelled out in the task's one-line schema summary, alongside `caller_id`/`callee_id` (FK CASCADE to `lsp_symbols`). This is redundant with the cascade already implied transitively through `lsp_symbols`, but makes deletion scoping direct/obvious and matches the plan.md line `lsp_call_edges(caller_id, callee_id, files, from_ranges, source)` — "files" there is read as the call-site's file, singular per edge row.
@@ -44,7 +44,7 @@ position_ordinal: '8180'
 title: 'SQLite store: GRDB schema, migrations, dirty flags, embedding codec'
 ---
 ## What
-Create `Sources/CodeContextKit/Index/Store.swift` (+ `Migrations.swift`, `EmbeddingCodec.swift`). GRDB `DatabasePool` opened at `<root>/.code-context/kit.db`, WAL mode, directory bootstrap with self-`.gitignore` (`*`). Schema per plan.md: `indexed_files` (file_path PK, content_hash BLOB, file_size, last_seen_at, ts_indexed/lsp_indexed/embedded flags), `ts_chunks` (file_path FK CASCADE, byte/line ranges, text, symbol_path, kind meta-type TEXT, embedding BLOB nullable), `lsp_symbols`, `lsp_call_edges` (source 'lsp'|'treesitter'), `meta` (embedder dimension). Dirty-flag helpers (markDirty, drainTsDirty, drainLspDirty, markIndexed). `EmbeddingCodec`: [Float] ⇄ little-endian Data round-trip.
+Create `Sources/FoundationModelsCodeContext/Index/Store.swift` (+ `Migrations.swift`, `EmbeddingCodec.swift`). GRDB `DatabasePool` opened at `<root>/.code-context/kit.db`, WAL mode, directory bootstrap with self-`.gitignore` (`*`). Schema per plan.md: `indexed_files` (file_path PK, content_hash BLOB, file_size, last_seen_at, ts_indexed/lsp_indexed/embedded flags), `ts_chunks` (file_path FK CASCADE, byte/line ranges, text, symbol_path, kind meta-type TEXT, embedding BLOB nullable), `lsp_symbols`, `lsp_call_edges` (source 'lsp'|'treesitter'), `meta` (embedder dimension). Dirty-flag helpers (markDirty, drainTsDirty, drainLspDirty, markIndexed). `EmbeddingCodec`: [Float] ⇄ little-endian Data round-trip.
 
 ## Acceptance Criteria
 - [x] Opening a store on a fresh directory creates `.code-context/kit.db` + `.gitignore` and runs all migrations
@@ -52,7 +52,7 @@ Create `Sources/CodeContextKit/Index/Store.swift` (+ `Migrations.swift`, `Embedd
 - [x] Embedding codec round-trips arbitrary [Float] exactly
 
 ## Tests
-- [x] `Tests/CodeContextKitTests/StoreTests.swift`: fresh-open creates schema; dirty-flag drain/mark cycle; FK cascade; codec round-trip incl. empty and 1024-dim vectors
+- [x] `Tests/FoundationModelsCodeContextTests/StoreTests.swift`: fresh-open creates schema; dirty-flag drain/mark cycle; FK cascade; codec round-trip incl. empty and 1024-dim vectors
 - [x] Run `swift test --filter StoreTests` → all pass
 
 ## Workflow
@@ -60,5 +60,5 @@ Create `Sources/CodeContextKit/Index/Store.swift` (+ `Migrations.swift`, `Embedd
 
 ## Review Findings (2026-07-02 15:02)
 
-- [x] `Sources/CodeContextKit/Index/Store.swift:11` — The diff adds `IndexLayer.embedding` and updates `markIndexed` to support marking files as indexed for the embedding layer, but omits the corresponding `drainEmbeddingDirty` function to read files awaiting embedding — the consuming side of the write/read pair is missing. Add `drainEmbeddingDirty() async throws -> [String]` following the pattern of `drainTsDirty` and `drainLspDirty` so embedding workers can retrieve files marked dirty.
-- [x] `Sources/CodeContextKit/Index/Store.swift:18` — Computed property `column` on public enum `IndexLayer` lacks an explicit access modifier; implicit `internal` should be spelled explicitly to clarify API intent. Mark the property as `fileprivate var column: String {` to explicitly restrict it to Store.swift, or at minimum `internal var column: String {` to make the module-internal scope explicit.
+- [x] `Sources/FoundationModelsCodeContext/Index/Store.swift:11` — The diff adds `IndexLayer.embedding` and updates `markIndexed` to support marking files as indexed for the embedding layer, but omits the corresponding `drainEmbeddingDirty` function to read files awaiting embedding — the consuming side of the write/read pair is missing. Add `drainEmbeddingDirty() async throws -> [String]` following the pattern of `drainTsDirty` and `drainLspDirty` so embedding workers can retrieve files marked dirty.
+- [x] `Sources/FoundationModelsCodeContext/Index/Store.swift:18` — Computed property `column` on public enum `IndexLayer` lacks an explicit access modifier; implicit `internal` should be spelled explicitly to clarify API intent. Mark the property as `fileprivate var column: String {` to explicitly restrict it to Store.swift, or at minimum `internal var column: String {` to make the module-internal scope explicit.

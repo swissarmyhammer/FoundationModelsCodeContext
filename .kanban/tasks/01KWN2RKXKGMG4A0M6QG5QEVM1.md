@@ -37,7 +37,7 @@ title: 'TreeSitterWorker: same path-traversal risk as LSPIndexWorker for indexed
 ---
 ## What
 
-`Sources/CodeContextKit/Index/TreeSitterWorker.swift`'s `readAndChunk(relativePath:rootDirectory:)` resolves `relativePath` — sourced from `indexed_files.file_path` via `store.drainTsDirty()` / `Store.drainDirty(column:)` — against `rootDirectory` with `appendingPathComponent(_:)` and then reads it with `Data(contentsOf:)`, with no validation that `relativePath` doesn't contain a `..` component or a leading `/`/`~`.
+`Sources/FoundationModelsCodeContext/Index/TreeSitterWorker.swift`'s `readAndChunk(relativePath:rootDirectory:)` resolves `relativePath` — sourced from `indexed_files.file_path` via `store.drainTsDirty()` / `Store.drainDirty(column:)` — against `rootDirectory` with `appendingPathComponent(_:)` and then reads it with `Data(contentsOf:)`, with no validation that `relativePath` doesn't contain a `..` component or a leading `/`/`~`.
 
 This is the identical defense-in-depth concern already fixed in `LSPIndexWorker.swift`'s `processFile` (task `01KWJ3WNDEXN2N4BSACPC5H3J4`, "LSP indexer worker: documentSymbol + call hierarchy into the store"), via a new private helper `isSafeRelativePath(_:)`:
 
@@ -70,5 +70,5 @@ No findings. The engine ran 15 checks across the `HEAD~1..HEAD` diff (commit cd2
 Manually cross-checked against `git diff HEAD~1..HEAD`:
 - `readAndChunk` now guards with `RelativePath.isSafeRelativePath(relativePath)` before any `URL`/disk access, rejecting `..` components and leading `/`/`~` — reuses the pre-existing shared helper in `RelativePath.swift` (hoisted there in commit `d7685da`, prior to this task), not a duplicate of `LSPIndexWorker`'s guard.
 - On rejection the file is marked tree-sitter-indexed with nothing written (returns `nil`, same code path as an unresolvable language module or unreadable file), matching `LSPIndexWorker`'s established "don't retry forever" pattern for permanently-bad inputs.
-- New regression test `runRejectsAPathTraversalRelativePathWithoutReadingTheFile` in `Tests/CodeContextKitTests/TreeSitterWorkerTests.swift` seeds a real, readable file just outside the workspace root via a `..`-containing `file_path`, and asserts zero rows in `ts_chunks` — a genuine discriminating test, not a missing-path stand-in.
+- New regression test `runRejectsAPathTraversalRelativePathWithoutReadingTheFile` in `Tests/FoundationModelsCodeContextTests/TreeSitterWorkerTests.swift` seeds a real, readable file just outside the workspace root via a `..`-containing `file_path`, and asserts zero rows in `ts_chunks` — a genuine discriminating test, not a missing-path stand-in.
 - Diff is scoped exactly to the task: `TreeSitterWorker.swift`, its test file, and the two kanban bookkeeping files. No unrelated changes.

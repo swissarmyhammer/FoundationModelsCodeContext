@@ -6,7 +6,7 @@ import PackageDescription
 // Repeated identifiers extracted to named constants so the manifest has a
 // single source of truth, following the pattern established by the sibling
 // FoundationModelsRouter package.
-let packageName = "CodeContextKit"
+let packageName = "FoundationModelsCodeContext"
 
 // Per-language tree-sitter grammar packages. `alex-pinkus/tree-sitter-swift`
 // does not commit generated parser sources on its default branch (SwiftPM
@@ -172,7 +172,7 @@ let package = Package(
                 // Test files exercise RankKit primitives directly (e.g.
                 // `CosineScoring.matvecScores`, `Tokenizer`/`Trigram`
                 // disjointness assertions), so the module must be an explicit
-                // dependency here, not just reachable through CodeContextKit.
+                // dependency here, not just reachable through FoundationModelsCodeContext.
                 .product(name: "RankKit", package: "RankKit"),
             ],
             path: "Tests/\(packageName)Tests",

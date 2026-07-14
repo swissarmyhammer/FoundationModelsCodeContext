@@ -1,7 +1,7 @@
-# CodeContextKit — Port Plan
+# FoundationModelsCodeContext — Port Plan
 
 Port the code-context and LSP capabilities from `../swissarmyhammer` (Rust) to a
-Swift package, **CodeContextKit**, used strictly **in-process**. One process, one
+Swift package, **FoundationModelsCodeContext**, used strictly **in-process**. One process, one
 workspace, one owner of the index and the LSP servers.
 
 ## Goal
@@ -53,24 +53,24 @@ consequences here:
 
 | Area | Rust source | Swift home |
 |---|---|---|
-| Workspace lifecycle, SQLite schema, cleanup, invalidation | `crates/swissarmyhammer-code-context/{workspace,db,cleanup,invalidation}.rs` | `Sources/CodeContextKit/Index/` |
-| Tree-sitter registry + semantic chunking | `crates/swissarmyhammer-treesitter/{language,chunk}.rs` | `Sources/CodeContextKit/TreeSitter/` |
-| TS call-edge heuristic | `crates/swissarmyhammer-code-context/ts_callgraph.rs` | `Sources/CodeContextKit/TreeSitter/` |
-| Hybrid ranker (BM25 + trigram + cosine, RRF) | `crates/swissarmyhammer-search/` | sibling [RankKit](https://github.com/swissarmyhammer/RankKit) package; `Sources/CodeContextKit/Search/` keeps only corpus glue |
-| LSP transport, session, daemon, supervisor | `crates/swissarmyhammer-lsp/{client,session,daemon,supervisor,types,diagnostics}.rs` | `Sources/CodeContextKit/LSP/` |
-| LSP background indexer (documentSymbol + call hierarchy → SQLite) | `crates/swissarmyhammer-code-context/{lsp_worker,lsp_communication,lsp_indexer}.rs` | `Sources/CodeContextKit/Index/` |
-| Layered cascade (LiveLsp → LspIndex → TreeSitter → None) | `crates/swissarmyhammer-code-context/layered_context.rs` | `Sources/CodeContextKit/Ops/` |
-| Query ops | `crates/swissarmyhammer-code-context/ops/*.rs` | `Sources/CodeContextKit/Ops/` |
-| Diagnose + settle engine | `crates/swissarmyhammer-diagnostics/{diagnose,settle,record}.rs` | `Sources/CodeContextKit/Diagnostics/` |
-| Project detection (marker files) | `crates/swissarmyhammer-project-detection/` | `Sources/CodeContextKit/Projects/` |
+| Workspace lifecycle, SQLite schema, cleanup, invalidation | `crates/swissarmyhammer-code-context/{workspace,db,cleanup,invalidation}.rs` | `Sources/FoundationModelsCodeContext/Index/` |
+| Tree-sitter registry + semantic chunking | `crates/swissarmyhammer-treesitter/{language,chunk}.rs` | `Sources/FoundationModelsCodeContext/TreeSitter/` |
+| TS call-edge heuristic | `crates/swissarmyhammer-code-context/ts_callgraph.rs` | `Sources/FoundationModelsCodeContext/TreeSitter/` |
+| Hybrid ranker (BM25 + trigram + cosine, RRF) | `crates/swissarmyhammer-search/` | sibling [RankKit](https://github.com/swissarmyhammer/RankKit) package; `Sources/FoundationModelsCodeContext/Search/` keeps only corpus glue |
+| LSP transport, session, daemon, supervisor | `crates/swissarmyhammer-lsp/{client,session,daemon,supervisor,types,diagnostics}.rs` | `Sources/FoundationModelsCodeContext/LSP/` |
+| LSP background indexer (documentSymbol + call hierarchy → SQLite) | `crates/swissarmyhammer-code-context/{lsp_worker,lsp_communication,lsp_indexer}.rs` | `Sources/FoundationModelsCodeContext/Index/` |
+| Layered cascade (LiveLsp → LspIndex → TreeSitter → None) | `crates/swissarmyhammer-code-context/layered_context.rs` | `Sources/FoundationModelsCodeContext/Ops/` |
+| Query ops | `crates/swissarmyhammer-code-context/ops/*.rs` | `Sources/FoundationModelsCodeContext/Ops/` |
+| Diagnose + settle engine | `crates/swissarmyhammer-diagnostics/{diagnose,settle,record}.rs` | `Sources/FoundationModelsCodeContext/Diagnostics/` |
+| Project detection (marker files) | `crates/swissarmyhammer-project-detection/` | `Sources/FoundationModelsCodeContext/Projects/` |
 
 ## Package shape
 
 ```
-CodeContextKit/
+FoundationModelsCodeContext/
   Package.swift            // swift-tools-version 6.1+, macOS 27 (floor inherited
                            // from FoundationModelsRouter)
-  Sources/CodeContextKit/
+  Sources/FoundationModelsCodeContext/
     CodeContext.swift      // public facade (actor)
     Languages/             // one LanguageModule per language (strategy) — grammar,
                            // chunk rules, project markers, server spec in one file
@@ -84,7 +84,7 @@ CodeContextKit/
     Projects/              // project-type detection
     Embedding/             // TextEmbedding protocol + FoundationModelsRouter adapter
     Logging/               // os.Logger subsystem/category constants
-  Tests/CodeContextKitTests/
+  Tests/FoundationModelsCodeContextTests/
 ```
 
 ### Dependencies
@@ -107,13 +107,13 @@ CodeContextKit/
   (cross-platform backends) does not apply.
 - Unified logging is structured, near-zero-cost when not captured, has built-in
   privacy redaction, and is queryable after the fact:
-  `log stream --predicate 'subsystem == "com.swissarmyhammer.CodeContextKit"'`
+  `log stream --predicate 'subsystem == "com.swissarmyhammer.FoundationModelsCodeContext"'`
   or Console.app — exactly what you want when a language server dies at 2am.
 - Categories map onto the Rust `tracing` targets we're porting:
 
 ```swift
 enum Log {
-    static let subsystem = "com.swissarmyhammer.CodeContextKit"
+    static let subsystem = "com.swissarmyhammer.FoundationModelsCodeContext"
     static let lsp        = Logger(subsystem: subsystem, category: "lsp")        // spawn/exit/restart/handshake
     static let lspWire    = Logger(subsystem: subsystem, category: "lsp-wire")   // request/response ids (.debug)
     static let index      = Logger(subsystem: subsystem, category: "index")      // walk/reconcile/chunk counts
@@ -176,7 +176,7 @@ Rust's `notify`/`async-watcher`; `FanoutWatcher` collapses to direct calls.
 ### Language modules (strategy pattern)
 
 Everything language-specific lives in **one module per language, one file
-each**, under `Sources/CodeContextKit/Languages/`. This replaces the Rust
+each**, under `Sources/FoundationModelsCodeContext/Languages/`. This replaces the Rust
 side's three parallel tables (tree-sitter `LANGUAGES`, the YAML `ServerSpec`
 registry, and the project-detection marker table) with a single strategy:
 
@@ -273,7 +273,7 @@ explainability. No embeddings at all → keyword-only results plus an
 
 ### Embeddings
 
-CodeContextKit defines a tiny seam and never owns model lifecycle:
+FoundationModelsCodeContext defines a tiny seam and never owns model lifecycle:
 
 ```swift
 public protocol TextEmbedding: Sendable {
@@ -545,7 +545,7 @@ Ops surface (public methods on `CodeContext`, mirroring the Rust op set):
    kinds, project markers, server spec) lives in one `LanguageModule` per
    language, one file each, registered in `Languages.all`; all consumers are
    generic over that list (see "Language modules").
-4. ~~Index compatibility~~ **Resolved: not needed.** CodeContextKit owns its
+4. ~~Index compatibility~~ **Resolved: not needed.** FoundationModelsCodeContext owns its
    schema outright — same `.code-context/` directory convention, but its own
    `kit.db` file, so Rust sah's `index.db` and ours can coexist in one
    workspace with no shared writer and no schema coupling. Migrations via

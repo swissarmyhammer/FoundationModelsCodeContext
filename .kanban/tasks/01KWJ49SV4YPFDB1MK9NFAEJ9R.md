@@ -16,7 +16,7 @@ comments:
 - actor: wballard
   id: 01kwswkz6hz79arsvzn0g8t1vy
   text: |-
-    Implemented Tests/CodeContextKitTests/LiveSourceKitTests.swift. Verification results:
+    Implemented Tests/FoundationModelsCodeContextTests/LiveSourceKitTests.swift. Verification results:
     1. `swift build --build-tests` and plain `swift build`: clean, zero warnings/errors introduced by this file (only the pre-existing unrelated `mlx-swift_Cmlx.bundle` "missing creator for mutated node" build-system warning, present before this task too).
     2. Ungated: `swift test --filter LiveSourceKitTests` -> `Suite LiveSourceKitTests skipped: "gated behind CCK_LIVE_LSP=1"`, exit 0, 0.001s. Meets "without CCK_LIVE_LSP=1, suite reports skipped, exit 0."
     3. Gated: `CCK_LIVE_LSP=1 timeout 300 swift test --filter LiveSourceKitTests` -> **passed for real** in 63.4s: real sourcekit-lsp spawned against a temp SwiftPM fixture, settled to `state.isReady`, live `definition()` returned `.liveLSP`, `kill -9` on the daemon's real pid, supervisor's health loop (60s cadence, no override on `SwiftLanguage.languageServer`) detected the dead process, transitioned through `.failed(attempts: 1)` (asserted from `state.servers`, not logs), backed off 1s, and successfully respawned+re-handshook under a fresh pid, then a second live `definition()` call again returned `.liveLSP`. All within one run, one `@Test`.
@@ -39,7 +39,7 @@ comments:
   timestamp: 2026-07-05T19:43:43.997520+00:00
 - actor: wballard
   id: 01kwsxrhp51exgdx0hkpa3qpdf
-  text: 'Round 1 review (scope: HEAD~1..HEAD, commit a09fbf4) — clean. Engine attempted 15 checks across design/reuse/correctness/tests/security/clarity/performance/swift validators, 0 findings. Scope is entirely new: Tests/CodeContextKitTests/LiveSourceKitTests.swift. Moved doing -> review -> done.'
+  text: 'Round 1 review (scope: HEAD~1..HEAD, commit a09fbf4) — clean. Engine attempted 15 checks across design/reuse/correctness/tests/security/clarity/performance/swift validators, 0 findings. Scope is entirely new: Tests/FoundationModelsCodeContextTests/LiveSourceKitTests.swift. Moved doing -> review -> done.'
   timestamp: 2026-07-05T19:58:21.893229+00:00
 depends_on:
 - 01KWJ3YW2ZK0J862WBYDY8WF8X
@@ -48,7 +48,7 @@ position_ordinal: 9d80
 title: Gated live sourcekit-lsp integration smoke (crash/restart)
 ---
 ## What
-Create `Tests/CodeContextKitTests/LiveSourceKitTests.swift` — the real-server end-to-end smoke from plan.md testing strategy, gated on env `CCK_LIVE_LSP=1` (suite skips otherwise, so CI without the gate stays green). Against a temp swift fixture package using the real `sourcekit-lsp` from the active toolchain: `CodeContext.start()` → await `state.isReady` server-settled → `definition` on a known symbol returns `.liveLSP` → read the daemon pid from `state.servers` and `kill -9` it → assert the supervisor auto-restarts (state transitions failed → running, restart counter incremented) → a post-restart `definition` succeeds again. Generous timeouts; skip (not fail) with a clear message if `sourcekit-lsp` is not on PATH even when gated in.
+Create `Tests/FoundationModelsCodeContextTests/LiveSourceKitTests.swift` — the real-server end-to-end smoke from plan.md testing strategy, gated on env `CCK_LIVE_LSP=1` (suite skips otherwise, so CI without the gate stays green). Against a temp swift fixture package using the real `sourcekit-lsp` from the active toolchain: `CodeContext.start()` → await `state.isReady` server-settled → `definition` on a known symbol returns `.liveLSP` → read the daemon pid from `state.servers` and `kill -9` it → assert the supervisor auto-restarts (state transitions failed → running, restart counter incremented) → a post-restart `definition` succeeds again. Generous timeouts; skip (not fail) with a clear message if `sourcekit-lsp` is not on PATH even when gated in.
 
 ## Acceptance Criteria
 - [ ] Without `CCK_LIVE_LSP=1`, the suite reports skipped, exit 0

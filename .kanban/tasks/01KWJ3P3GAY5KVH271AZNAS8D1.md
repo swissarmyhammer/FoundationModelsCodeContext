@@ -3,13 +3,13 @@ comments:
 - actor: wballard
   id: 01kwj5e71v4acd3xd442dsd8gr
   text: |-
-    Implemented via TDD: wrote Tests/CodeContextKitTests/ScaffoldTests.swift referencing Log.subsystem and CodeContextError first (RED — failed with "target 'CodeContextKit' is empty" since Sources/CodeContextKit had no files yet), then added Log.swift and CodeContextError.swift to go GREEN.
+    Implemented via TDD: wrote Tests/FoundationModelsCodeContextTests/ScaffoldTests.swift referencing Log.subsystem and CodeContextError first (RED — failed with "target 'FoundationModelsCodeContext' is empty" since Sources/FoundationModelsCodeContext had no files yet), then added Log.swift and CodeContextError.swift to go GREEN.
 
     Files created:
     - Package.swift (swift-tools-version 6.1, .macOS("27.0"))
-    - Sources/CodeContextKit/Logging/Log.swift — 7 category loggers + subsystem
-    - Sources/CodeContextKit/CodeContextError.swift — public enum, Error & Sendable, 7 cases
-    - Tests/CodeContextKitTests/ScaffoldTests.swift
+    - Sources/FoundationModelsCodeContext/Logging/Log.swift — 7 category loggers + subsystem
+    - Sources/FoundationModelsCodeContext/CodeContextError.swift — public enum, Error & Sendable, 7 cases
+    - Tests/FoundationModelsCodeContextTests/ScaffoldTests.swift
 
     FoundationModelsRouter check: the sibling path `../FoundationModelsRouter` DOES exist on disk (/Users/wballard/github/swissarmyhammer/FoundationModelsRouter) and resolves/builds fine as a path dependency — no need to omit it.
 
@@ -35,7 +35,7 @@ position_ordinal: '80'
 title: 'Package scaffold: Package.swift, deps, logging, errors'
 ---
 ## What
-Create the SPM package per plan.md "Package shape". `Package.swift` (swift-tools-version 6.1, platform `.macOS("27.0")`) with dependencies: `.package(path: "../FoundationModelsRouter")`, SwiftTreeSitter (ChimeHQ), GRDB, and the first grammar packages (tree-sitter-swift, tree-sitter-rust, tree-sitter-python — more added by the language-module tasks). Create `Sources/CodeContextKit/Logging/Log.swift` (os.Logger constants: subsystem `com.swissarmyhammer.CodeContextKit`, categories lsp, lsp-wire, index, watcher, embedding, search, diagnostics) and `Sources/CodeContextKit/CodeContextError.swift` (error enum: binaryNotFound, spawnFailed, handshakeFailed, timeout, notRunning, storage, embedding cases). Empty `Tests/CodeContextKitTests/` target using Swift Testing.
+Create the SPM package per plan.md "Package shape". `Package.swift` (swift-tools-version 6.1, platform `.macOS("27.0")`) with dependencies: `.package(path: "../FoundationModelsRouter")`, SwiftTreeSitter (ChimeHQ), GRDB, and the first grammar packages (tree-sitter-swift, tree-sitter-rust, tree-sitter-python — more added by the language-module tasks). Create `Sources/FoundationModelsCodeContext/Logging/Log.swift` (os.Logger constants: subsystem `com.swissarmyhammer.FoundationModelsCodeContext`, categories lsp, lsp-wire, index, watcher, embedding, search, diagnostics) and `Sources/FoundationModelsCodeContext/CodeContextError.swift` (error enum: binaryNotFound, spawnFailed, handshakeFailed, timeout, notRunning, storage, embedding cases). Empty `Tests/FoundationModelsCodeContextTests/` target using Swift Testing.
 
 ## Acceptance Criteria
 - [x] `swift build` succeeds on macOS 27 with all declared dependencies resolved
@@ -43,7 +43,7 @@ Create the SPM package per plan.md "Package shape". `Package.swift` (swift-tools
 - [x] `Log` exposes the seven category loggers; error enum is public and Sendable
 
 ## Tests
-- [x] `Tests/CodeContextKitTests/ScaffoldTests.swift`: smoke test asserting `CodeContextError` cases construct and `Log.subsystem` constant is correct
+- [x] `Tests/FoundationModelsCodeContextTests/ScaffoldTests.swift`: smoke test asserting `CodeContextError` cases construct and `Log.subsystem` constant is correct
 - [x] Run `swift test` → all pass
 
 ## Workflow

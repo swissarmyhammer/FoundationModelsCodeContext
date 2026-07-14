@@ -3,9 +3,9 @@ comments:
 - actor: wballard
   id: 01kwkrcnt1rwg7s9vabnqc1y1p
   text: |-
-    Implemented. New: Sources/CodeContextKit/LSP/LspDaemon.swift — LspDaemonState enum (notStarted/notFound/starting/running(pid)/failed(reason,attempts)/shuttingDown), ConnectionHandle+ConnectionFactory (pid/isAlive/waitForExit/terminate/stderrTail hooks bundled alongside the connection so LanguageServerConnection stays scoped to LSP requests only), and LspDaemon<Connection: LanguageServerConnection> actor with start()/healthCheck()/restartWithBackoff()/forceRestart()/shutdown() plus a processConnectionFactory() extension for production wiring to ProcessLanguageServerConnection. Backoff matches Rust's daemon.rs restart_with_backoff exactly (delay = backoffDuration(consecutiveFailures) at the CURRENT count, not off-by-one).
+    Implemented. New: Sources/FoundationModelsCodeContext/LSP/LspDaemon.swift — LspDaemonState enum (notStarted/notFound/starting/running(pid)/failed(reason,attempts)/shuttingDown), ConnectionHandle+ConnectionFactory (pid/isAlive/waitForExit/terminate/stderrTail hooks bundled alongside the connection so LanguageServerConnection stays scoped to LSP requests only), and LspDaemon<Connection: LanguageServerConnection> actor with start()/healthCheck()/restartWithBackoff()/forceRestart()/shutdown() plus a processConnectionFactory() extension for production wiring to ProcessLanguageServerConnection. Backoff matches Rust's daemon.rs restart_with_backoff exactly (delay = backoffDuration(consecutiveFailures) at the CURRENT count, not off-by-one).
 
-    New tests: Tests/CodeContextKitTests/LspDaemonTests.swift (12 tests, all against FakeLanguageServerConnection + ManualClock, no real process spawns) covering full lifecycle, backoff sequence, give-up-at-5, forceRestart reset, resetDocuments-on-crash, and handshake-timeout->kill (via a private HangingInitializeConnection).
+    New tests: Tests/FoundationModelsCodeContextTests/LspDaemonTests.swift (12 tests, all against FakeLanguageServerConnection + ManualClock, no real process spawns) covering full lifecycle, backoff sequence, give-up-at-5, forceRestart reset, resetDocuments-on-crash, and handshake-timeout->kill (via a private HangingInitializeConnection).
 
     Found and fixed two real bugs in ProcessLanguageServerConnection.swift while building this (pre-existing, exposed by the new tests):
     1. FileHandle.availableData raises an uncatchable NSException when closed concurrently with a blocked read on another thread — crashed the test process. Fixed by reading via a raw POSIX read(2) on a file descriptor captured once in init (never touching FileHandle from the detached background threads).
@@ -30,7 +30,7 @@ position_ordinal: 8f80
 title: 'LspDaemon actor: state machine, handshake, health, backoff auto-restart'
 ---
 ## What
-Create `Sources/CodeContextKit/LSP/LspDaemon.swift` — port of `crates/swissarmyhammer-lsp/src/daemon.rs` as an actor owning one child process + its connection + session. State machine `notStarted → starting → running(pid) → failed(reason, attempts) → shuttingDown`, observable via AsyncStream. Lifecycle per plan.md: PATH lookup (miss → .notFound + installHint logged once); spawn; initialize (rootUri, empty capabilities) + initialized bounded by spec.startupTimeout, capturing a stderr tail into handshake errors; health check = process-exit detection; on unexpected exit log .error with status, tear down connection, `session.resetDocuments()`, → .failed, restart with backoff 1,2,4,8,16,32,60s cap, give up after 5 consecutive failures; success resets counter; `forceRestart()` resets counter; graceful shutdown (shutdown req → exit notif → wait, 5s grace, then kill). Connection factory + clock injected so tests never spawn real servers.
+Create `Sources/FoundationModelsCodeContext/LSP/LspDaemon.swift` — port of `crates/swissarmyhammer-lsp/src/daemon.rs` as an actor owning one child process + its connection + session. State machine `notStarted → starting → running(pid) → failed(reason, attempts) → shuttingDown`, observable via AsyncStream. Lifecycle per plan.md: PATH lookup (miss → .notFound + installHint logged once); spawn; initialize (rootUri, empty capabilities) + initialized bounded by spec.startupTimeout, capturing a stderr tail into handshake errors; health check = process-exit detection; on unexpected exit log .error with status, tear down connection, `session.resetDocuments()`, → .failed, restart with backoff 1,2,4,8,16,32,60s cap, give up after 5 consecutive failures; success resets counter; `forceRestart()` resets counter; graceful shutdown (shutdown req → exit notif → wait, 5s grace, then kill). Connection factory + clock injected so tests never spawn real servers.
 
 ## Acceptance Criteria
 - [x] Induced crash (fake connection dies) triggers restart with correct backoff sequence and a resetDocuments call between attempts (manual test clock)
@@ -38,7 +38,7 @@ Create `Sources/CodeContextKit/LSP/LspDaemon.swift` — port of `crates/swissarm
 - [x] Graceful shutdown sends shutdown+exit and reaches .notStarted within the grace bound
 
 ## Tests
-- [x] `Tests/CodeContextKitTests/LspDaemonTests.swift` with injected fake connection factory + manual clock: full lifecycle, backoff sequence values, give-up-at-5, forceRestart reset, handshake-timeout → kill path
+- [x] `Tests/FoundationModelsCodeContextTests/LspDaemonTests.swift` with injected fake connection factory + manual clock: full lifecycle, backoff sequence values, give-up-at-5, forceRestart reset, handshake-timeout → kill path
 - [x] Run `swift test --filter LspDaemonTests` → all pass
 
 ## Workflow

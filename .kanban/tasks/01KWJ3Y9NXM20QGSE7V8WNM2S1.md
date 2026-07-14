@@ -5,7 +5,7 @@ comments:
   text: |-
     Implementation complete, TDD followed (RED confirmed via compile failure, then GREEN).
 
-    Created Sources/CodeContextKit/Ops/LiveOpsExtended.swift with the five remaining v1 live ops:
+    Created Sources/FoundationModelsCodeContext/Ops/LiveOpsExtended.swift with the five remaining v1 live ops:
     - codeActions(session:rootDirectory:filePath:startLine:startCharacter:endLine:endCharacter:diagnostics:only:) — live-only cascade (codeAction + resolve-every-action), sourceLayer .liveLSP/.none via LiveOpsCore.cascade with a constant-nil indexed layer (documented why: no persisted equivalent for ephemeral code actions).
     - renameEdits(session:rootDirectory:filePath:line:character:newName:) — prepareRename+rename executed atomically via a new LspSession.prepareRenameAndRename(uri:at:newName:) that holds a private FIFO async lock (acquireRenameLock/releaseRenameLock) across both calls, so two concurrent renameEdits callers never interleave their prepare/rename pairs on the connection. Degrades to canRename:false (never throws) for: no session, server says not-renameable (rename never even called in that case), or any connection failure. No sourceLayer (documented: rename has no "which layer" concept).
     - inboundCalls(store:session:rootDirectory:filePath:line:character:) — cascades live (prepareCallHierarchy+incomingCalls) -> lspIndex (reuses LayeredContext.lspCallersOf/lspSymbolRow, same query LiveOpsCore.references' own lspIndex layer already uses) -> none. No treeSitter layer (documented: would duplicate references' own text-search layer with no new value).
@@ -49,7 +49,7 @@ comments:
     4. `LiveOpsCore.swift:429` (duplicate pattern in `liveReferences` vs `liveImplementations` at 611-620) — dropped: this commit's only changes to `LiveOpsCore.swift` are access-level/doc-comment edits to `cascade`, `syncLiveDocument`, and `pointRange` (lines ~166-171, ~775-784, ~829-834); lines 429-440 and 611-620 are untouched pre-existing code.
     5. `LiveOpsCore.swift:520` (duplicate "find symbol row + fetch callers" pattern, cited as also appearing in `LiveOpsExtended.indexedInboundCalls`) — dropped: the anchor line (520) is untouched pre-existing code in `LiveOpsCore.swift`, and a full fix would require editing that untouched method, which is out of this round's scope. (Note for a future round: the new `indexedInboundCalls` in `LiveOpsExtended.swift`, actually at lines ~374-381 not 186-190 as cited, does structurally mirror `tryLspIndexReferences`'s row/callers lookup — worth a follow-up reuse pass if this pattern grows a third call site.)
 
-    All 5 candidates target lines this commit's diff did not touch, or fall under the established Lsp-casing convention exception. Nothing in the new files (`Sources/CodeContextKit/Ops/LiveOpsExtended.swift`, `Tests/CodeContextKitTests/LiveOpsExtendedTests.swift`) or in the actually-changed lines of `LSPDaemon.swift`, `Wire.swift`, `LiveOpsCore.swift`, `LspSession.swift`, `LspSupervisor.swift`, or `FakeLanguageServerConnection.swift` drew a confirmed finding.
+    All 5 candidates target lines this commit's diff did not touch, or fall under the established Lsp-casing convention exception. Nothing in the new files (`Sources/FoundationModelsCodeContext/Ops/LiveOpsExtended.swift`, `Tests/FoundationModelsCodeContextTests/LiveOpsExtendedTests.swift`) or in the actually-changed lines of `LSPDaemon.swift`, `Wire.swift`, `LiveOpsCore.swift`, `LspSession.swift`, `LspSupervisor.swift`, or `FakeLanguageServerConnection.swift` drew a confirmed finding.
 
     **Verdict: clean for this round.** Moved `doing` → `review` → `done`.
   timestamp: 2026-07-05T16:31:58.139806+00:00
@@ -60,7 +60,7 @@ position_ordinal: 9a80
 title: 'Remaining live ops: codeActions, renameEdits, inboundCalls, workspaceSymbols, lspStatus'
 ---
 ## What
-Create `Sources/CodeContextKit/Ops/LiveOpsExtended.swift` — the remaining five of the ten v1 live ops on the layered cascade: `codeActions(in:at:)` (codeAction + resolve), `renameEdits(in:at:newName:)` — prepareRename + rename executed **under one connection hold** so no other consumer interleaves (port of `lsp_multi_request_batch` semantics; degrade to `canRename: false` when no live layer), `inboundCalls(of:)` (prepareCallHierarchy + incomingCalls), `workspaceSymbols(query:)` via `anySession()` (document-less), and `lspStatus()` snapshot from the supervisor. All results `Codable & Sendable` with `sourceLayer` where the cascade applies.
+Create `Sources/FoundationModelsCodeContext/Ops/LiveOpsExtended.swift` — the remaining five of the ten v1 live ops on the layered cascade: `codeActions(in:at:)` (codeAction + resolve), `renameEdits(in:at:newName:)` — prepareRename + rename executed **under one connection hold** so no other consumer interleaves (port of `lsp_multi_request_batch` semantics; degrade to `canRename: false` when no live layer), `inboundCalls(of:)` (prepareCallHierarchy + incomingCalls), `workspaceSymbols(query:)` via `anySession()` (document-less), and `lspStatus()` snapshot from the supervisor. All results `Codable & Sendable` with `sourceLayer` where the cascade applies.
 
 ## Acceptance Criteria
 - [ ] renameEdits issues prepareRename and rename with no interleaved calls on the fake connection (call-order recording proves atomicity)
@@ -68,7 +68,7 @@ Create `Sources/CodeContextKit/Ops/LiveOpsExtended.swift` — the remaining five
 - [ ] workspaceSymbols works with any running session; lspStatus reflects supervisor daemon states
 
 ## Tests
-- [ ] `Tests/CodeContextKitTests/LiveOpsExtendedTests.swift` with fake session/supervisor: rename atomicity + degradation, codeAction resolve flow, inboundCalls mapping, workspaceSymbols routing, lspStatus snapshot
+- [ ] `Tests/FoundationModelsCodeContextTests/LiveOpsExtendedTests.swift` with fake session/supervisor: rename atomicity + degradation, codeAction resolve flow, inboundCalls mapping, workspaceSymbols routing, lspStatus snapshot
 - [ ] Run `swift test --filter LiveOpsExtendedTests` → all pass
 
 ## Workflow

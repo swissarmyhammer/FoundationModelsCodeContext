@@ -9,7 +9,7 @@ comments:
 
     Implemented all 5 modules (SQL, JSON, YAML, Markdown, Bash) with languageServer: nil, chunkKinds ported from Rust chunk.rs where present (SQL create_* statements, bash function_definition) or newly designed for JSON/YAML/Markdown (which chunk.rs doesn't cover at all — mapped pair/block_mapping_pair/flow_pair/section to .other since there's no function/type analogue in these formats). Registered in Languages.all. Added 4 new SPM grammar dependencies to Package.swift (json, yaml, markdown, bash) plus documentation of why sql was excluded.
 
-    Extended Tests/CodeContextKitTests/LanguageModuleTests.swift with 15 new/updated tests. Also had to update two pre-existing "every module" invariant tests (everyModuleHasATreeSitterLanguage, everyModuleDeclaresALanguageServer) since they no longer hold universally now that SQL/format modules exist — renamed and scoped them to exclude the documented exceptions, and added explicit tests for the exceptions.
+    Extended Tests/FoundationModelsCodeContextTests/LanguageModuleTests.swift with 15 new/updated tests. Also had to update two pre-existing "every module" invariant tests (everyModuleHasATreeSitterLanguage, everyModuleDeclaresALanguageServer) since they no longer hold universally now that SQL/format modules exist — renamed and scoped them to exclude the documented exceptions, and added explicit tests for the exceptions.
 
     swift build: clean, zero warnings. swift test --filter LanguageModuleTests: 50/50 passing.
   timestamp: 2026-07-05T18:38:26.926982+00:00
@@ -42,7 +42,7 @@ position_ordinal: 9c80
 title: Tree-sitter-only format modules (sql, json, yaml, markdown, bash)
 ---
 ## What
-Add the tree-sitter-only format modules, one file each under `Sources/CodeContextKit/Languages/`: SQL, JSON, YAML, Markdown, Bash — all with `languageServer: nil`. Register in `Languages.all`; add their grammar SPM dependencies to `Package.swift` (note any needing wrapper packages in doc comments, same convention as the LSP-backed module task). Chunk-kind tables from Rust `chunk.rs` (e.g. SQL `create_*` statements → .type/.function analogues per the Rust mapping, markdown sections, bash function definitions).
+Add the tree-sitter-only format modules, one file each under `Sources/FoundationModelsCodeContext/Languages/`: SQL, JSON, YAML, Markdown, Bash — all with `languageServer: nil`. Register in `Languages.all`; add their grammar SPM dependencies to `Package.swift` (note any needing wrapper packages in doc comments, same convention as the LSP-backed module task). Chunk-kind tables from Rust `chunk.rs` (e.g. SQL `create_*` statements → .type/.function analogues per the Rust mapping, markdown sections, bash function definitions).
 
 ## Acceptance Criteria
 - [ ] Extension lookup resolves .sql/.json/.yaml/.yml/.md/.sh
@@ -50,7 +50,7 @@ Add the tree-sitter-only format modules, one file each under `Sources/CodeContex
 - [ ] Each grammar parses a fixture snippet with a non-error root node
 
 ## Tests
-- [ ] Extend `Tests/CodeContextKitTests/LanguageModuleTests.swift`: chunkKinds spot checks per format (e.g. bash `function_definition` → .function), nil-server assertions, parse smoke tests
+- [ ] Extend `Tests/FoundationModelsCodeContextTests/LanguageModuleTests.swift`: chunkKinds spot checks per format (e.g. bash `function_definition` → .function), nil-server assertions, parse smoke tests
 - [ ] Run `swift test --filter LanguageModuleTests` → all pass
 
 ## Workflow
