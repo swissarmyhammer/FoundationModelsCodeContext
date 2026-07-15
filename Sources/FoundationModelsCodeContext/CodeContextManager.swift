@@ -25,6 +25,15 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// since a manager can have several independent opens in flight at once.
     private var inFlightOpens: [URL: Task<CodeContext<Connection>, Error>] = [:]
 
+    /// Every currently open context, keyed by its standardized root URL.
+    ///
+    /// Internal, not `private`: `Ops/ManagerQueries.swift`'s fan-out queries (`searchCode`,
+    /// `searchSymbol`, `grepCode`) live in a different file in this module and need to enumerate
+    /// every open context to fan a query out across all of them. `contexts` itself stays
+    /// `private` so nothing outside this file can mutate it; this computed property is the
+    /// read-only surface those queries iterate over.
+    var openContexts: [URL: CodeContext<Connection>] { contexts }
+
     /// The embedder handed to every `CodeContext` this manager creates.
     private let embedder: TextEmbedding
 

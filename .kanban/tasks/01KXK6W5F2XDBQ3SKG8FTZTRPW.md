@@ -28,8 +28,8 @@ comments:
   id: 01kxkk7yx4a3bjpzrsb3nxbsne
   text: Checked off all Acceptance Criteria / Tests checkboxes in the task description (all verified true — see prior comments) after a redundant background double-check run flagged them as still unchecked bookkeeping. First attempt at the update accidentally stored literal "\n" escape sequences instead of real newlines; caught and corrected in a follow-up update. Task stays in doing per implement's contract — /review will pull it forward.
   timestamp: 2026-07-15T19:14:47.844474+00:00
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: a980
 title: 'Add example program: standalone single-root CodeContext'
 ---
 ## What

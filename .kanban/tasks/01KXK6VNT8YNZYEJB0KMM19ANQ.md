@@ -1,37 +1,26 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01kxkmejq5n534fkw1ftgt59ex
+  text: |-
+    Implemented: Sources/FoundationModelsCodeContext/Ops/ManagerQueries.swift (new) adds Rooted<Value>, FanOutFailure, and an extension on CodeContextManager with searchCode(query:topK:weights:), searchSymbol(query:kind:maxResults:), grepCode(pattern:languages:filePattern:maxResults:) — each fans out via TaskGroup, catches per-root errors into FanOutFailure, merges via rank-major interleave (tie-broken by root path), capped at the requested limit. Added internal `openContexts` accessor on CodeContextManager (CodeContextManager.swift) so the new extension file can enumerate open contexts without widening the private `contexts` dict itself.
+
+    Added Tests/FoundationModelsCodeContextTests/ManagerQueriesTests.swift (7 tests): interleave order across 3 roots, union-cap-samples-every-root, root attribution on identical relative paths across 2 roots, single-root storage failure via in-place FileHandle corruption of kit.db* (partial failure captured, other root's results intact), zero-open-roots case for all three ops, plus searchCode/searchSymbol smoke tests.
+
+    swift build: exit 0. swift test: 485/485 passed (run twice for stability; one ConnectionTests flake seen once, reproduced as pre-existing subprocess-spawn flakiness per that suite's own doc comment, clean on reruns).
+
+    Adversarial double-check agent dispatched for sign-off before handoff.
+  timestamp: 2026-07-15T19:35:53.317508+00:00
+- actor: claude-code
+  id: 01kxkmmcawsg11g8frfem2zbjm
+  text: 'Adversarial double-check verdict: PASS. Reviewer independently re-ran swift build and swift test --filter ManagerQueriesTests (7/7), traced the interleave algorithm''s boundary cases (limit=0, exact-count limit, zero-result root), confirmed parameter defaults mirror CodeContext''s own signatures exactly, confirmed openContexts visibility widening is minimal/low-risk with no other inbound callers, confirmed Sendable/concurrency correctness, and confirmed the corrupted-store test technique is legitimate and matches the task''s own prescription. No findings requiring changes. All acceptance criteria checked off. Task left in doing for /review.'
+  timestamp: 2026-07-15T19:39:03.388370+00:00
 depends_on:
 - 01KXK6V0R16MGXA4QAD2FNFMDD
-position_column: todo
-position_ordinal: '8480'
+position_column: doing
+position_ordinal: '80'
 title: 'Add fan-out queries on CodeContextManager: searchCode/searchSymbol/grepCode across roots'
 ---
-## What
-Add workspace-wide query methods to `CodeContextManager` that fan out over every open context concurrently and merge results with root attribution. New file `Sources/FoundationModelsCodeContext/Ops/ManagerQueries.swift` (extension on `CodeContextManager`) plus result wrappers (same file or a small sibling):
-
-- `public struct Rooted<Value: Sendable>: Sendable { public let root: URL; public let value: Value }` — root-qualifies a per-context result (per-context result paths stay root-relative; the wrapper is what disambiguates them).
-- `public struct FanOutFailure: Sendable { public let root: URL; public let message: String }` — String payload, matching `CodeContextError`'s Sendable-primitives convention.
-- Each method returns results **plus** failures — partial failure must never sink the batch: run all contexts in a `TaskGroup`, catch per-root errors into `FanOutFailure`, return whatever succeeded.
-
-**Merge rule for ALL three ops: rank-major interleave.** Sort the union by (per-root rank ascending, root path ascending as tie-break), then cap. Rationale: `SearchCodeMatch` scores are NOT comparable across roots — `SearchCode.run` returns `RRF.fuse` output normalized to [0,1] **per corpus** (see `Ops/SearchCode.swift` `fuseRankings`), a rank-derived value relative to each root's own chunk population, so merge-by-score would systematically favor small repos. Rank-major interleave also guarantees a union cap samples every root instead of exhausting the alphabetically-first root before repo B contributes. Document the per-root-normalized score caveat on the `searchCode` method.
-
-Methods (thin over the existing per-context ops; mirror their parameter defaults from `CodeContext`):
-- `searchCode(query:topK:weights:)` — fan out `CodeContext.searchCode`, wrap each root's matches as `Rooted<...>` (preserving per-root order as rank), interleave, cut to `topK` across the union.
-- `searchSymbol(query:kind:maxResults:)` — same shape over `[SearchSymbolMatch]`, `maxResults` across the union.
-- `grepCode(pattern:languages:filePattern:maxResults:)` — same shape over `GrepCodeResult`'s matches.
-
-## Acceptance Criteria
-- [ ] Each method queries every open context concurrently (TaskGroup), not serially
-- [ ] Merged output is rank-major interleaved (every root's before any root's #2), tie-broken by root path, capped across the union
-- [ ] A union cap smaller than one root's result count still includes results from every root that had any
-- [ ] Every result carries its root; a match from repo A is distinguishable from an identically-pathed match in repo B
-- [ ] Single-root failure: corrupting one root's store after `start()` (delete or overwrite `<root>/.code-context/kit.db*` so its next query throws `CodeContextError.storage`) yields that root in `failures` while the other roots' results are returned intact
-- [ ] Zero open roots returns empty results and empty failures, no error
-
-## Tests
-- [ ] `Tests/FoundationModelsCodeContextTests/ManagerQueriesTests.swift`: two-or-three temp repo fixtures opened through a fake-connection manager with `FakeEmbedder`; assert interleaved merge order, union caps sampling all roots, root attribution on identical relative paths, the corrupted-store partial-failure scenario, and the zero-roots case
-- [ ] `swift test --filter ManagerQueriesTests` passes
-
-## Workflow
-- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\nAdd workspace-wide query methods to `CodeContextManager` that fan out over every open context concurrently and merge results with root attribution. New file `Sources/FoundationModelsCodeContext/Ops/ManagerQueries.swift` (extension on `CodeContextManager`) plus result wrappers (same file or a small sibling):\n\n- `public struct Rooted<Value: Sendable>: Sendable { public let root: URL; public let value: Value }` — root-qualifies a per-context result (per-context result paths stay root-relative; the wrapper is what disambiguates them).\n- `public struct FanOutFailure: Sendable { public let root: URL; public let message: String }` — String payload, matching `CodeContextError`'s Sendable-primitives convention.\n- Each method returns results **plus** failures — partial failure must never sink the batch: run all contexts in a `TaskGroup`, catch per-root errors into `FanOutFailure`, return whatever succeeded.\n\n**Merge rule for ALL three ops: rank-major interleave.** Sort the union by (per-root rank ascending, root path ascending as tie-break), then cap. Rationale: `SearchCodeMatch` scores are NOT comparable across roots — `SearchCode.run` returns `RRF.fuse` output normalized to [0,1] **per corpus** (see `Ops/SearchCode.swift` `fuseRankings`), a rank-derived value relative to each root's own chunk population, so merge-by-score would systematically favor small repos. Rank-major interleave also guarantees a union cap samples every root instead of exhausting the alphabetically-first root before repo B contributes. Document the per-root-normalized score caveat on the `searchCode` method.\n\nMethods (thin over the existing per-context ops; mirror their parameter defaults from `CodeContext`):\n- `searchCode(query:topK:weights:)` — fan out `CodeContext.searchCode`, wrap each root's matches as `Rooted<...>` (preserving per-root order as rank), interleave, cut to `topK` across the union.\n- `searchSymbol(query:kind:maxResults:)` — same shape over `[SearchSymbolMatch]`, `maxResults` across the union.\n- `grepCode(pattern:languages:filePattern:maxResults:)` — same shape over `GrepCodeResult`'s matches.\n\n## Acceptance Criteria\n- [x] Each method queries every open context concurrently (TaskGroup), not serially\n- [x] Merged output is rank-major interleaved (every root's before any root's #2), tie-broken by root path, capped across the union\n- [x] A union cap smaller than one root's result count still includes results from every root that had any\n- [x] Every result carries its root; a match from repo A is distinguishable from an identically-pathed match in repo B\n- [x] Single-root failure: corrupting one root's store after `start()` (delete or overwrite `<root>/.code-context/kit.db*` so its next query throws `CodeContextError.storage`) yields that root in `failures` while the other roots' results are returned intact\n- [x] Zero open roots returns empty results and empty failures, no error\n\n## Tests\n- [x] `Tests/FoundationModelsCodeContextTests/ManagerQueriesTests.swift`: two-or-three temp repo fixtures opened through a fake-connection manager with `FakeEmbedder`; assert interleaved merge order, union caps sampling all roots, root attribution on identical relative paths, the corrupted-store partial-failure scenario, and the zero-roots case\n- [x] `swift test --filter ManagerQueriesTests` passes\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.
