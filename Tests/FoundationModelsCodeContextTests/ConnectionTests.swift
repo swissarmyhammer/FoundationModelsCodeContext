@@ -115,6 +115,17 @@ struct ConnectionTests {
         }
     }
 
+    /// Reports whether a process with pid `pid` still exists, per `kill(pid, 0)`: sending signal
+    /// `0` delivers no actual signal, only validating that `pid` is a real, still-allocated
+    /// process id the caller has permission to signal.
+    /// - Parameter pid: The process id to check.
+    /// - Returns: `true` if `kill(pid, 0)` reports the pid as present (`0`, or `-1`/`EPERM` for a
+    ///   pid owned by another user); `false` once it reports `-1`/`ESRCH` (no such process).
+    private static func pidExists(_ pid: Int32) -> Bool {
+        errno = 0
+        return kill(pid, 0) == 0 || errno != ESRCH
+    }
+
     /// A minimal wire-shape `DocumentSymbol` JSON object named `name`.
     private static func documentSymbolJSON(name: String) -> [String: Any] {
         [
@@ -314,7 +325,24 @@ struct ConnectionTests {
         // `withConnection`'s catch branch must have run `close()` despite the closure throwing —
         // if it hadn't, `capturedPID` would still identify a live process. `kill(pid, 0)` sends no
         // signal; it only reports whether a process with that pid still exists.
-        #expect(kill(capturedPID, 0) == -1 && errno == ESRCH)
+        //
+        // `close()` sends `SIGKILL` and returns without itself blocking until the kernel has
+        // finished reaping the child: that reap is only observed asynchronously, once Foundation's
+        // own process-exit monitor notices it and calls `waitpid`. So checking `kill(pid, 0)`
+        // exactly once, immediately after `close()` returns, races that monitor and can
+        // intermittently still observe the pid as present (a zombie, reaped a few milliseconds
+        // later) even though the kill was fully effective — this was the source of this test's
+        // flakiness. Poll with a bounded budget instead of asserting once immediately, the same
+        // shape `waitUntilExitReturnsOnceTheScriptRunsOut()` below uses for the analogous
+        // `Process.isRunning`-lags-real-state race.
+        var pidStillExists = Self.pidExists(capturedPID)
+        var pollsRemaining = 100
+        while pidStillExists, pollsRemaining > 0 {
+            try await Task.sleep(for: .milliseconds(10))
+            pidStillExists = Self.pidExists(capturedPID)
+            pollsRemaining -= 1
+        }
+        #expect(!pidStillExists)
 
         // If the above had leaked its reader/stderr threads, they'd permanently occupy slots in
         // Swift's cooperative thread pool; spawning, running, and tearing down one more connection

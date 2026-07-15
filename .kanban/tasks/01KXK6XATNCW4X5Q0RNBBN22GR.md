@@ -14,12 +14,25 @@ comments:
 
     Leaving task in doing for /review.
   timestamp: 2026-07-15T20:56:21.304926+00:00
+- actor: claude-code
+  id: 01kxks9fy593nyappj5rvzhxvw
+  text: |-
+    ## Review Findings (2026-07-15 16:00)
+
+    Scope: `HEAD~1..HEAD` (ae24c52 "docs: document two entry points in README and plan.md")
+
+    Nothing in scope to review.
+
+    - [x] No findings — docs-only diff (README.md "Two ways in" section, plan.md "Manager (multi-root workspaces)" design section); no source changed.
+
+    Verdict: clean.
+  timestamp: 2026-07-15T21:00:29.509323+00:00
 depends_on:
 - 01KXK6VNT8YNZYEJB0KMM19ANQ
 - 01KXK6W5F2XDBQ3SKG8FTZTRPW
 - 01KXK6WVQ6584D77AK33NFTMJZ
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ac80
 title: 'Document the two entry points: README section and plan.md design addendum'
 ---
 ## What
