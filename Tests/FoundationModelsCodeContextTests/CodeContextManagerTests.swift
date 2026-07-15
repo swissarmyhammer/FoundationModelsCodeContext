@@ -17,6 +17,7 @@ struct CodeContextManagerTests {
     /// Builds a `CodeContextManager<FakeLanguageServerConnection>` wired to a fake filesystem-event
     /// source and a fake LSP connection factory (never actually invoked in these tests, since no
     /// fixture here has a detected project/server spec).
+    /// - Returns: A manager wired to fake filesystem-event and connection sources for testing.
     private static func makeManager() async -> CodeContextManager<FakeLanguageServerConnection> {
         await CodeContextManager<FakeLanguageServerConnection>(
             embedder: FakeEmbedder(dimension: 8),
@@ -26,12 +27,17 @@ struct CodeContextManagerTests {
     }
 
     /// Writes a minimal, deterministic Swift fixture file into `root`, with no project marker.
+    /// - Parameters:
+    ///   - root: The directory to write the fixture file into.
+    ///   - fileName: The fixture file's name, relative to `root`. Defaults to `"Fixture.swift"`.
     private static func writeFixture(in root: URL, fileName: String = "Fixture.swift") throws {
         try write("func fixtureSymbol() -> Int { 1 }\n", to: fileName, in: root)
     }
 
     /// Creates `url` as a directory containing a `.git` directory, mirroring a normal
     /// (non-worktree) git repository root — mirrors `RootDiscoveryTests`'s own helper.
+    /// - Parameter url: The URL at which to create a git repository.
+    /// - Throws: File system errors from directory creation.
     private static func makeGitDirRepo(at url: URL) throws {
         try FileManager.default.createDirectory(at: url.appendingPathComponent(".git"), withIntermediateDirectories: true)
     }
@@ -39,6 +45,11 @@ struct CodeContextManagerTests {
     /// Calls `manager.context(for: root)` and captures its outcome as a `Result` rather than
     /// throwing, so a caller can run two of these concurrently via `async let` and inspect both
     /// outcomes afterward without either one's thrown error unwinding past the other.
+    /// - Parameters:
+    ///   - manager: The manager to call `context(for:)` on.
+    ///   - root: The workspace root to open or fetch.
+    /// - Returns: A Result capturing either the outcome of the context open or the error that
+    ///   occurred.
     private static func attemptOpen(
         manager: CodeContextManager<FakeLanguageServerConnection>, root: URL
     ) async -> Result<CodeContext<FakeLanguageServerConnection>, Error> {
@@ -99,6 +110,9 @@ struct CodeContextManagerTests {
     /// to the *same* context (the child deduped onto its still-opening parent), or the ancestor
     /// open is rejected with `.overlappingRoot` naming the child that claimed the subtree first.
     /// Both calls failing, or both succeeding with two *different* contexts, are bugs.
+    /// - Throws: File system errors from creating the temporary workspace or writing the
+    ///   parent/child fixture files. Both concurrent opens' own errors are captured via
+    ///   `attemptOpen`'s `Result` rather than rethrown here.
     @Test
     func concurrentOpensOfNestedBrandNewRootsNeverProduceTwoLiveOverlappingContexts() async throws {
         try await withTemporaryWorkspace { root in
@@ -118,7 +132,14 @@ struct CodeContextManagerTests {
                 // (parent) context — never two distinct, independently-started contexts.
                 #expect(parentContext === childContext)
             case (.success, .failure(let error)), (.failure(let error), .success):
-                #expect(error is CodeContextError)
+                // Match the sequential overlap test's specificity: the rejected concurrent open
+                // must fail with `.overlappingRoot` specifically, not merely `any CodeContextError`.
+                if case .overlappingRoot = error as? CodeContextError {
+                    // Expected: the ancestor lost the race and was rejected because the child
+                    // already claimed the subtree.
+                } else {
+                    Issue.record("expected CodeContextError.overlappingRoot, got \(error)")
+                }
             case (.failure, .failure):
                 Issue.record("both concurrent opens failed: \(firstOutcome) / \(secondOutcome)")
             }

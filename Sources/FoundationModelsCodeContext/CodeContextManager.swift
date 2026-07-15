@@ -139,7 +139,8 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
         }
 
         let overlappingDescendants = Set(
-            openRoots(descendantsOf: standardizedRoot) + inFlightRoots(descendantsOf: standardizedRoot)
+            descendantRoots(of: standardizedRoot, in: contexts.keys)
+                + descendantRoots(of: standardizedRoot, in: inFlightOpens.keys)
         )
         guard overlappingDescendants.isEmpty else {
             throw CodeContextError.overlappingRoot(
@@ -218,6 +219,8 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// The overlap rule enforced by `context(for:)` guarantees at most one open root can ever be
     /// an ancestor of a given path, so the first match found is the only one there ever is.
     /// - Parameter standardizedPath: An already-standardized path to check.
+    /// - Returns: The already-open root's context that is an ancestor of `standardizedPath`, or
+    ///   `nil` if none exists.
     private func openContext(ancestorOf standardizedPath: URL) -> CodeContext<Connection>? {
         for (openRoot, context) in contexts where Self.isDescendant(standardizedPath, of: openRoot) {
             return context
@@ -229,6 +232,8 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// of, if any — the resolution `context(containing:)` needs, unlike `openContext(ancestorOf:)`
     /// which only ever tests for strict descendance.
     /// - Parameter standardizedPath: An already-standardized path to check.
+    /// - Returns: The already-open root's context that `standardizedPath` equals or is a
+    ///   descendant of, or `nil` if none exists.
     private func openContext(coveringOrAncestorOf standardizedPath: URL) -> CodeContext<Connection>? {
         if let exact = contexts[standardizedPath] {
             return exact
@@ -236,12 +241,18 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
         return openContext(ancestorOf: standardizedPath)
     }
 
-    /// Every already-open root that is a descendant of `standardizedPath` — the conflicting
-    /// children `context(for:)` names in `CodeContextError.overlappingRoot` when asked to open an
-    /// ancestor of roots already open.
-    /// - Parameter standardizedPath: An already-standardized path to check.
-    private func openRoots(descendantsOf standardizedPath: URL) -> [URL] {
-        contexts.keys.filter { Self.isDescendant($0, of: standardizedPath) }
+    /// Every URL in `roots` that is a descendant of `standardizedPath` — the shared filtering
+    /// logic behind both halves of `context(for:)`'s overlap-descendant check, which previously
+    /// existed as two near-identical functions (`openRoots(descendantsOf:)` and
+    /// `inFlightRoots(descendantsOf:)`) differing only in which key collection they filtered
+    /// (`contexts.keys` vs. `inFlightOpens.keys`).
+    /// - Parameters:
+    ///   - standardizedPath: An already-standardized path to check.
+    ///   - roots: The candidate root URLs to filter — typically `contexts.keys` or
+    ///     `inFlightOpens.keys`.
+    /// - Returns: The subset of `roots` that are descendants of `standardizedPath`.
+    private func descendantRoots(of standardizedPath: URL, in roots: some Sequence<URL>) -> [URL] {
+        roots.filter { Self.isDescendant($0, of: standardizedPath) }
     }
 
     /// The in-flight open task for a root currently being opened that `standardizedPath` is a
@@ -251,22 +262,13 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// subtree. See `context(for:)`'s documentation for why `inFlightOpens` must be checked here
     /// alongside `contexts`.
     /// - Parameter standardizedPath: An already-standardized path to check.
+    /// - Returns: The in-flight open task for a still-opening root that `standardizedPath` is a
+    ///   descendant of, or `nil` if none exists.
     private func inFlightOpen(ancestorOf standardizedPath: URL) -> Task<CodeContext<Connection>, Error>? {
         for (pendingRoot, task) in inFlightOpens where Self.isDescendant(standardizedPath, of: pendingRoot) {
             return task
         }
         return nil
-    }
-
-    /// Every root currently being opened (not yet registered in `contexts`) that is a descendant
-    /// of `standardizedPath` — the still-opening counterpart of `openRoots(descendantsOf:)`,
-    /// folded into the same `CodeContextError.overlappingRoot` rejection so a concurrent open of
-    /// a brand-new parent while a brand-new child is still being opened is caught too, not just
-    /// the fully-registered case. See `context(for:)`'s documentation for why `inFlightOpens`
-    /// must be checked here alongside `contexts`.
-    /// - Parameter standardizedPath: An already-standardized path to check.
-    private func inFlightRoots(descendantsOf standardizedPath: URL) -> [URL] {
-        inFlightOpens.keys.filter { Self.isDescendant($0, of: standardizedPath) }
     }
 
     /// Whether `path` is strictly inside `root` — i.e. `root` is a proper ancestor directory of
