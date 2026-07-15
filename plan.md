@@ -554,3 +554,97 @@ Ops surface (public methods on `CodeContext`, mirroring the Rust op set):
    nothing deferred. Alongside them, `blastRadius` and meta-type-aware
    `findDuplicates` (methods/functions/types compared only within their own
    meta-type) are explicitly first-class indexed ops.
+
+## Manager (multi-root workspaces)
+
+`CodeContext` is deliberately single-root (see "Observable state for
+SwiftUI": "One `CodeContext` per root directory; two workspaces = two
+contexts... Nothing shared."). `CodeContextManager` is the second, additive
+way in for a host that wants several repos in one process — it never wraps
+or replaces `CodeContext`; it owns a routed collection of them and stays out
+of the standalone entry point's way entirely. This section records the
+agreed design decisions the manager's doc comments reference.
+
+- **Git repo = the project unit.** `RootDiscovery` treats a directory
+  containing a direct `.git` entry (directory or file — worktrees and
+  submodules count) as one project, full stop — unlike `ProjectDetection`,
+  there is no marker-file fallback. `discoverRoots(under:)` walks a parent
+  directory gitignore-obliviously (it must see `.git` itself, so it cannot
+  reuse the indexing walker's hidden-entry skip) and prunes below every root
+  it finds, so a repo nested inside another repo's working tree is never
+  returned. `gitRoot(containing:)` walks upward from an arbitrary path to
+  the nearest such ancestor, for lazy routing.
+
+- **Three entry points, one open-or-get core.** A caller reaches a root's
+  `CodeContext` one of three ways: discover every root under a parent via
+  `RootDiscovery.discoverRoots(under:)` and open each explicitly; open one
+  known directory directly (git repo or not — explicit `context(for:)`
+  accepts any directory, discovery-driven or not); or resolve lazily by
+  file path via `context(containing:)`, which walks the already-open roots
+  first and only falls back to `RootDiscovery.gitRoot(containing:)` (opening
+  it on demand, gated by `openIfNeeded`) when nothing open already covers
+  it. All three funnel into the same private open-or-get core
+  (`createStartAndRegister`), so every path — explicit or lazy — passes
+  through one overlap check and one dedupe table, never a second one a
+  future entry point could accidentally skip.
+
+- **Overlap rule.** Roots are standardized (`URL.standardizedFileURL`) before
+  every comparison, then: an exact match against an already-open root
+  returns that root's own context; a root that is a **descendant** of an
+  already-open root also returns that ancestor's context — its walker
+  already covers the subtree, so no second context is ever created for
+  something nested inside one already open; a root that is an **ancestor**
+  of one or more already-open (or still-opening) roots throws
+  `CodeContextError.overlappingRoot`, naming the conflicting children — the
+  caller must `close(root:)` every already-open child first. The check
+  covers `inFlightOpens` (roots mid-open, not yet registered) as well as
+  `contexts`, not `contexts` alone: without that, two brand-new nested roots
+  opened concurrently could each pass the check before either is registered
+  and both end up started, violating the invariant the manager exists to
+  enforce. Concurrent calls for the same root (or a descendant of a
+  still-opening root) dedupe onto the one in-flight `Task` rather than
+  racing to build their own `CodeContext`, mirroring `LspSupervisor`'s own
+  `inFlightStart` coalescing.
+
+- **Keep-all-started lifecycle.** Every successful `context(for:)` call has
+  already run `start()` on the context it returns — there is no
+  "open but not started" state visible outside the manager. A `start()`
+  failure leaves the root unregistered rather than parked half-open. The
+  only ways down are `close(root:)` (stop one root, no-op if it isn't open)
+  and `shutdown()` (close every open root); nothing else removes a root from
+  `contexts`.
+
+- **Fan-out + merge with partial failure.** `Ops/ManagerQueries.swift`
+  extends `CodeContextManager` with workspace-wide
+  `searchCode(query:topK:weights:)`, `searchSymbol(query:kind:maxResults:)`,
+  and `grepCode(pattern:languages:filePattern:maxResults:)`. Each runs the
+  same per-root `CodeContext` op concurrently across every open context in a
+  `TaskGroup` (never serially) and catches a failing root's own error into a
+  `FanOutFailure { root, message }` instead of letting one bad root sink the
+  whole call. Every surviving result is wrapped `Rooted<Value> { root, value
+  }` — the per-context result's own paths stay root-relative, so `root` is
+  what disambiguates an identically-pathed match in one open repo from the
+  same path in another. **Merge rule: rank-major interleave, never
+  score.** `SearchCode.run`'s fused score is RRF-normalized to `[0, 1]`
+  *per corpus*, relative to each root's own chunk population, so sorting the
+  union by raw score would systematically favor a small repo's inflated
+  scores over a large repo's genuinely stronger but comparatively
+  scaled-down ones. Instead the union is walked rank `0, 1, 2, ...` across
+  every contributing root (sorted by root path as a tie-break) in turn, so
+  every root's rank-0 result precedes every root's rank-1 result and a
+  union cap smaller than any single root's own count still samples from
+  every contributing root rather than exhausting the alphabetically-first
+  root's quota first.
+
+- **`ManagerState` aggregation, vacuous-ready semantics.** `ManagerState` is
+  the manager's `CodeContextState` counterpart — a `@MainActor @Observable`
+  aggregate keyed by standardized root URL, published into via
+  `nonisolated` awaitable `publishOpened(root:state:)` /
+  `publishClosed(root:)` calls that hop to the main actor, mirroring
+  `CodeContextState`'s own publish/observe contract. `isReady` is computed,
+  not cached — `contexts.values.allSatisfy(\.isReady)` — so it tracks
+  through to every child `CodeContextState`'s own `@Observable` `isReady`
+  without the manager needing to republish anything itself, and is
+  **vacuously `true`** when no root is open, matching how
+  `CodeContextState.isReady` documents its own vacuous initial state: no
+  roots open means nothing outstanding to wait for.

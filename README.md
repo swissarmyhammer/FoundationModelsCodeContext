@@ -37,6 +37,48 @@ Beyond the indexed layer, `CodeContext` exposes live LSP ops — `definition`,
 publishes an `@Observable` `CodeContextState` (server status, index progress,
 diagnostics) that SwiftUI views can bind to directly.
 
+## Two ways in
+
+**One repo — `CodeContext`.** The snippet above opens a single workspace
+directly; see [`Examples/CodeContextExample`](Examples/CodeContextExample)
+for the full, compile-verified program (embedder resolution → init → start →
+queries → stop).
+
+**Several repos — `CodeContextManager`.** For a workspace holding multiple
+repositories, `CodeContextManager` owns one `CodeContext` per open root,
+enforces a non-overlapping-roots invariant, and adds workspace-wide fan-out
+queries whose results are tagged with the root that produced them.
+[`Examples/ManagerExample`](Examples/ManagerExample) is the compile-verified
+twin of this snippet:
+
+```swift
+import FoundationModelsCodeContext
+
+// `embedder` is the same `TextEmbedding` used above, shared by every repo
+// the manager opens.
+let manager = await CodeContextManager(embedder: embedder)
+
+let roots = try RootDiscovery.discoverRoots(under: URL(filePath: "/path/to/workspace"))
+for root in roots {
+    _ = try await manager.context(for: root)   // opens (and starts) each repo
+}
+
+// Lazy routing: resolve whichever open root covers an arbitrary file,
+// discovering and opening its enclosing git repo on demand if none is open
+// yet. Returns nil if no open root covers it and none can be discovered.
+let owner = try await manager.context(containing: someFile)
+
+// Fan out across every open root; each hit is root-qualified via `Rooted`.
+// Scores are normalized per root, so never compare `hit.value.hit.score`
+// across two different `hit.root`s.
+let (hits, failures) = await manager.searchCode(query: "retry with backoff")
+for hit in hits {
+    print(hit.root.path, hit.value.filePath, hit.value.hit.score)
+}
+
+await manager.shutdown()
+```
+
 ## Install
 
 Add to your `Package.swift` dependencies (requires macOS 27):
