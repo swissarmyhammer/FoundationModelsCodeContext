@@ -1,8 +1,20 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '8280'
+comments:
+- actor: claude-code
+  id: 01kxkc9px5c16ad7fp09dnendp
+  text: |-
+    Implemented ManagerState in Sources/FoundationModelsCodeContext/ManagerState.swift as a @MainActor @Observable public final class mirroring CodeContextState's conventions: `contexts: [URL: CodeContextState]` keyed by `standardizedFileURL`, computed `roots` (sorted by path) and `isReady` (`contexts.values.allSatisfy(\.isReady)`, vacuously true when empty), and nonisolated async `publishOpened(root:state:)`/`publishClosed(root:)` that hop to the main actor via `MainActor.run`.
+
+    Wrote Tests/FoundationModelsCodeContextTests/ManagerStateTests.swift (TDD, tests written before implementation) covering open/close bookkeeping, standardized-URL keying, sorted roots, SwiftUI observation firing on publish, and isReady aggregation across real CodeContextState children (undrained indexing, unsettled/settled servers, closing the last unsettled root). All 12 tests pass; `swift build` is warning-free.
+  timestamp: 2026-07-15T17:13:25.157571+00:00
+- actor: claude-code
+  id: 01kxkch71yb0basb4amc4t27yh
+  text: 'really-done verification: `swift build` clean (0 warnings), full `swift test` suite passed 464/464 tests across 39 suites (0 failures). Adversarial double-check agent returned PASS — confirmed acceptance criteria met, conventions faithfully mirror CodeContextState, no correctness bugs, tests substantive (not tautological). Leaving task in doing, green, ready for /review.'
+  timestamp: 2026-07-15T17:17:31.070401+00:00
+position_column: doing
+position_ordinal: '80'
 title: 'Add ManagerState: @Observable aggregate of per-root CodeContextState'
 ---
 ## What
