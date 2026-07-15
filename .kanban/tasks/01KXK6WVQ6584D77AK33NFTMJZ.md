@@ -1,10 +1,33 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01kxkpcf43w65hh7qa721d2fb9
+  text: |-
+    Implemented:
+    - Package.swift: added `.executableTarget(name: "ManagerExample", ...)` depending on the library target and FoundationModelsRouter (same rationale as CodeContextExample: no embedder factory shipped, host resolves the profile).
+    - Examples/ManagerExample/main.swift: thin script over public API only — resolves a RoutedEmbedder via FoundationModelsRouter, creates `CodeContextManager(embedder:)`, calls `RootDiscovery.discoverRoots(under:)` and prints each root, opens every discovered root via `manager.context(for:)`, prints each root's `isReady` from `manager.state.contexts`, demonstrates `manager.context(containing:)` against a sample file found under the first discovered root, fans out `manager.searchCode(query:)` and prints `Rooted<SearchCodeMatch>` results (root + relative filePath + score) plus any `FanOutFailure`s, then calls `manager.shutdown()` and `profile.release()`.
+
+    Verification (fresh, this session):
+    - `swift build` — exit 0, zero warnings from the new target/file (only pre-existing unrelated `mlx-swift_Cmlx` bundle-plugin warning remains; confirmed by touching the file, rebuilding, and grepping for warning:/error: before and after removing three initially-unnecessary `await`s that the compiler flagged as "no async operations occur within await expression" — top-level `main.swift` code runs on the main actor by default, so those hops were free).
+    - `swift test` — 485/485 tests pass across 41 suites (unchanged from baseline; this is a pure additive example, no library code touched).
+
+    Spawned double-check adversarial review before handoff; awaiting verdict.
+  timestamp: 2026-07-15T20:09:41.251447+00:00
+- actor: claude-code
+  id: 01kxkqgj6hbwb9zfbb51fad0xt
+  text: |-
+    Double-check adversarial review: PASS (cross-checked every API call against real signatures in CodeContextManager.swift/ManagerQueries.swift/RootDiscovery.swift/ManagerState.swift, empirically verified the main-actor-isolation claim about top-level main.swift code by reproducing the compiler warning, confirmed `Rooted.value.filePath` is genuinely root-relative by tracing Walker.relativePath, confirmed public-API-only imports, confirmed all acceptance criteria met). One non-blocking observation: the `context(containing:)` demo block silently no-ops if no discovered root has a regular file — added an `else` branch printing a skip message for parity with the `nil`-resolution branch. Re-verified build clean after that change.
+
+    Also discovered during final re-verification: `swift test` is intermittently flaky on this branch — `ConnectionTests.aRequestTimeoutThatPropagatesUncaughtStillClosesTheConnectionAndReapsTheProcess()` (Tests/FoundationModelsCodeContextTests/ConnectionTests.swift:317) occasionally fails with `kill(capturedPID, 0) == -1 && errno == ESRCH` — a process-reaping-timing assertion. Reproduced it failing once in 4 runs, unrelated to this task's diff (only Package.swift + new Examples/ManagerExample/ files touched; ConnectionTests.swift is untouched). Worth a follow-up task to de-flake that timing assertion, but out of scope here.
+
+    Final state: `swift build` — exit 0, zero warnings attributable to ManagerExample (only pre-existing unrelated mlx-swift_Cmlx bundle-plugin warning). `swift test` — 485/485 passing on the latest run. Leaving in doing for /review.
+  timestamp: 2026-07-15T20:29:24.049478+00:00
 depends_on:
 - 01KXK6VNT8YNZYEJB0KMM19ANQ
-position_column: todo
-position_ordinal: '8680'
+position_column: doing
+position_ordinal: '80'
 title: 'Add example program: multi-root CodeContextManager'
 ---
 ## What
@@ -22,12 +45,19 @@ Add the second "way in" example: an executable demonstrating `CodeContextManager
 Same constraints as the standalone example: public API of the two packages only (no `@testable`), thin script, exists to compile-verify and document the manager entry point.
 
 ## Acceptance Criteria
-- [ ] `swift build` builds the `ManagerExample` target with no warnings
-- [ ] The source demonstrates discovery, explicit open, lazy `context(containing:)`, fan-out search with root-qualified output, and shutdown — all via public API (no `@testable`)
+- [x] `swift build` builds the `ManagerExample` target with no warnings
+- [x] The source demonstrates discovery, explicit open, lazy `context(containing:)`, fan-out search with root-qualified output, and shutdown — all via public API (no `@testable`)
 
 ## Tests
-- [ ] `swift build` exits 0 with the new target included — the build is the automated verification (a live run needs Apple Intelligence + real LSP daemons, so it is a documented local smoke step in the example's header comment, NOT an acceptance gate)
-- [ ] `swift test` still passes
+- [x] `swift build` exits 0 with the new target included — the build is the automated verification (a live run needs Apple Intelligence + real LSP daemons, so it is a documented local smoke step in the example's header comment, NOT an acceptance gate)
+- [x] `swift test` still passes
 
 ## Workflow
 - Use `/tdd` where applicable; for this example the build itself is the failing-then-passing check.
+
+## Implementation notes
+- Added `.executableTarget(name: "ManagerExample", ...)` to `Package.swift`, mirroring `CodeContextExample`'s target shape.
+- `Examples/ManagerExample/main.swift` resolves a `RoutedEmbedder` via `FoundationModelsRouter`, creates `CodeContextManager(embedder:)`, discovers roots via `RootDiscovery.discoverRoots(under:)`, opens each explicitly via `manager.context(for:)`, prints each root's `isReady` from `manager.state.contexts`, demonstrates `manager.context(containing:)` against a sample file, fans out `manager.searchCode(query:)` printing root-qualified `Rooted<SearchCodeMatch>` results (root + relative `filePath` + `hit.score`) plus any `FanOutFailure`s, then calls `manager.shutdown()` / `profile.release()`.
+- Verified fresh: `swift build` exit 0 with zero warnings attributable to the new target (only a pre-existing, unrelated `mlx-swift_Cmlx` bundle-plugin warning remains). `swift test` 485/485 passing.
+- Adversarial double-check review: PASS.
+- Noted (and filed as a separate follow-up task, 01KXKQGX224NSJ0E59667528J0) an unrelated pre-existing intermittent flake in `ConnectionTests.aRequestTimeoutThatPropagatesUncaughtStillClosesTheConnectionAndReapsTheProcess()` discovered during verification — out of scope for this task (this diff touches only `Package.swift` and the new `Examples/ManagerExample/` files).

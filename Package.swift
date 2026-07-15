@@ -196,5 +196,17 @@ let package = Package(
             ],
             path: "Examples/CodeContextExample"
         ),
+        // Second "way in" example, over `CodeContextManager` instead of a single `CodeContext`:
+        // same rationale as `CodeContextExample` above for depending on the Router product
+        // directly (this package ships no embedder factory), just fanned out across every
+        // repo root discovered beneath a parent directory instead of one fixed root.
+        .executableTarget(
+            name: "ManagerExample",
+            dependencies: [
+                .target(name: packageName),
+                .product(name: "FoundationModelsRouter", package: "FoundationModelsRouter"),
+            ],
+            path: "Examples/ManagerExample"
+        ),
     ]
 )
