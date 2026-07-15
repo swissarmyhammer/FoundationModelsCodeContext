@@ -13,6 +13,11 @@ import Foundation
 /// `gitRoot(containing:)` and avoids a marker directory shadowing a git
 /// repo nested beneath it.
 public enum RootDiscovery {
+    /// Resource keys needed to distinguish directories, symbolic links, and
+    /// regular files while traversing — shared by both the directory listing
+    /// and the per-child resource-value lookup so the two stay in sync.
+    private static let traversalResourceKeys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey]
+
     /// Finds every git-repository root under `parent`.
     ///
     /// Uses its own `FileManager` traversal rather than
@@ -84,11 +89,11 @@ public enum RootDiscovery {
 
         let children = try FileManager.default.contentsOfDirectory(
             at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            includingPropertiesForKeys: Array(traversalResourceKeys),
             options: []
         )
         for child in children where !child.lastPathComponent.hasPrefix(".") {
-            let resourceValues = try child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            let resourceValues = try child.resourceValues(forKeys: traversalResourceKeys)
             guard resourceValues.isSymbolicLink != true, resourceValues.isDirectory == true else {
                 continue
             }

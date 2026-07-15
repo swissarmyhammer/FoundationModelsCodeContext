@@ -20,6 +20,33 @@ comments:
 
     Leaving task in doing, green and ready for /review.
   timestamp: 2026-07-15T16:54:31.056918+00:00
+- actor: claude-code
+  id: 01kxkbgkwqhdnhkxke3axvbq5m
+  text: |-
+    ## Review Findings (2026-07-15 11:56)
+
+    - [ ] `Sources/FoundationModelsCodeContext/Projects/RootDiscovery.swift:87` — The resource keys array [.isDirectoryKey, .isSymbolicLinkKey] is repeated and should be extracted as a named constant to reduce duplication and ensure consistency if the keys need to change in the future. Extract [.isDirectoryKey, .isSymbolicLinkKey] as a private static let constant within the RootDiscovery enum, then reference it in both locations.
+  timestamp: 2026-07-15T16:59:42.871143+00:00
+- actor: claude-code
+  id: 01kxkbpxwpn58r9kjx4mf63ye7
+  text: |-
+    Pulled back from review into doing to address the open review finding. Extracted the duplicated `[.isDirectoryKey, .isSymbolicLinkKey]` resource-key array in RootDiscovery.swift into a private static constant `traversalResourceKeys` (typed `Set<URLResourceKey>`), referenced at both call sites: `Array(traversalResourceKeys)` for `contentsOfDirectory(includingPropertiesForKeys:)` and directly for `resourceValues(forKeys:)`.
+
+    Note: the original duplicated array literals both compiled because Swift's ExpressibleByArrayLiteral implicitly converted the literal to Set at the resourceValues call site. Once named as a constant, that implicit dual-typing broke, so the constant needed an explicit type — chose Set<URLResourceKey> (matching resourceValues' native type) and converted to Array only where contentsOfDirectory required it.
+
+    Verification: `swift build` clean (exit 0). `swift test` -> "Test run with 452 tests in 38 suites passed" (fresh run, all green, including all 11 RootDiscoveryTests). One earlier run showed a flaky failure in WatcherTests.realFSEventsDetectsFileWriteAndMarksItDirty (real-FSEvents timing test, unrelated to this change) — reran WatcherTests alone and the full suite again, both green.
+
+    Spawning double-check for adversarial review of the refactor before leaving in doing for re-review.
+  timestamp: 2026-07-15T17:03:09.718981+00:00
+- actor: claude-code
+  id: 01kxkbsrpp7snzm36jc85b94p7
+  text: |-
+    Adversarial double-check verdict: PASS. Reviewer confirmed the duplicate array is gone (only one `[.isDirectoryKey, .isSymbolicLinkKey]` literal exists, at the new `traversalResourceKeys` declaration), both call sites reference it, no behavior change (order-independent key sets, `Array(Set)` conversion is safe for `URLResourceKey`), and discoverRoots/gitRoot/pruning/hidden-symlink-skip logic is otherwise untouched. Confirmed via git diff that only RootDiscovery.swift changed (plus kanban task bookkeeping files).
+
+    Final verification (fresh run): `swift build` -> "Build complete!" exit 0. `swift test` -> "Test run with 452 tests in 38 suites passed", zero failures, including all 11 RootDiscoveryTests.
+
+    Review finding checked off. Leaving task in doing, green and ready for /review.
+  timestamp: 2026-07-15T17:04:42.710207+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'Add RootDiscovery: find git-repo roots under a parent and resolve the repo root containing a path'
