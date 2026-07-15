@@ -181,5 +181,20 @@ let package = Package(
             // ConnectionTests — not a source file of this test module.
             exclude: ["Support/scripted-lsp-server.swift"]
         ),
+        // Standalone, single-root "way in" example (see plan.md's Goal and the
+        // package README): a thin script over the public API of this package
+        // and FoundationModelsRouter, not part of the library product. This
+        // package deliberately ships no embedder factory (see
+        // `RoutedEmbedderAdapter`'s doc comment) — the host app resolves the
+        // Router profile and injects the embedder — so the Router product is
+        // a required dependency here, not merely a test-only one.
+        .executableTarget(
+            name: "CodeContextExample",
+            dependencies: [
+                .target(name: packageName),
+                .product(name: "FoundationModelsRouter", package: "FoundationModelsRouter"),
+            ],
+            path: "Examples/CodeContextExample"
+        ),
     ]
 )
