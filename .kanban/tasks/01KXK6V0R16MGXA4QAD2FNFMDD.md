@@ -1,11 +1,40 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01kxke5h8tm5exvjnz1c2kx6x3
+  text: |-
+    Implemented CodeContextManager actor per spec:
+    - Sources/FoundationModelsCodeContext/CodeContextManager.swift (new): public actor CodeContextManager<Connection>, internal init(embedder:clock:eventSource:connectionFactory:), public convenience init(embedder:) where Connection == ProcessLanguageServerConnection. contexts/inFlightOpens dicts keyed by standardized root URL. context(for:) implements exact-match / descendant-returns-ancestor / ancestor-throws-overlappingRoot / create-start-register, with per-root Task dedup mirroring LspSupervisor.inFlightStart. context(containing:openIfNeeded:) does longest-prefix-match against open roots first, else RootDiscovery.gitRoot + optional lazy open. close(root:) and shutdown().
+    - Sources/FoundationModelsCodeContext/CodeContextError.swift: added case overlappingRoot(String) + errorDescription.
+    - Tests/FoundationModelsCodeContextTests/CodeContextManagerTests.swift (new): 13 tests covering every acceptance criterion (same-root identity, concurrent dedupe, descendant/ancestor overlap rule, sibling-prefix confusion guard, context(containing:) resolution order incl. openIfNeeded=false and outside-any-repo, failed-start non-registration + retry, close/shutdown bookkeeping).
+
+    Verification: `swift build` exit 0. `swift test --filter CodeContextManagerTests` 13/13 passed. Full `swift test` 477/477 passed, 0 failures, exit 0. Adversarial double-check agent dispatched for sign-off.
+  timestamp: 2026-07-15T17:46:05.466191+00:00
+- actor: claude-code
+  id: 01kxkf3fqbzarqktrtaw161jcz
+  text: |-
+    Adversarial double-check (round 1) found a genuine cross-root race: `context(for:)`'s overlap checks only scanned `contexts` (fully-registered roots), not `inFlightOpens` (roots mid-open, not yet registered). Two concurrent opens of a brand-new parent + a brand-new nested child could both pass the check and each build+start its own CodeContext, producing two live overlapping contexts — a real violation of the "strict non-overlapping-roots invariant" the class documents.
+
+    Fix: added `inFlightOpen(ancestorOf:)` and `inFlightRoots(descendantsOf:)` helpers mirroring the existing `contexts`-based ones, and wired them into `context(for:)`'s exact-match / ancestor / descendant-conflict checks (all still synchronous, no `await` between the checks and staking the `inFlightOpens` claim, so the check-then-claim sequence stays atomic within one actor turn). Added regression test `concurrentOpensOfNestedBrandNewRootsNeverProduceTwoLiveOverlappingContexts` (opens brand-new parent+child concurrently, accepts either "both resolve to the same context" or "one throws overlappingRoot", rejects both-fail or two-distinct-contexts). Ran the regression test 5x back-to-back plus in the full suite — deterministic pass every time (the pre-fix code would have failed this test reliably, not flakily, since the old bug triggers on the first suspension point).
+
+    Adversarial double-check round 2 (bounded, final per really-done): PASS. Traced both possible actor-scheduling orderings by hand, confirmed no deadlock (createStartAndRegister never calls back into context(for:)), confirmed no stale-entry false-negative (contexts is always checked before inFlightOpens, and the descendant-conflict check unions both dictionaries), confirmed the regression test would have deterministically caught the old bug. One noted non-blocking observation: the test's both-failure branch assumes start() can't legitimately fail for unrelated reasons, which holds today since fixtures use deterministic fakes.
+
+    Final verification: `swift build` exit 0. Full `swift test`: 478/478 passed, exit 0 (477 pre-existing + 1 new regression test; the 13 CodeContextManagerTests grew to 14).
+
+    Files:
+    - Sources/FoundationModelsCodeContext/CodeContextManager.swift (new)
+    - Sources/FoundationModelsCodeContext/CodeContextError.swift (added .overlappingRoot case)
+    - Tests/FoundationModelsCodeContextTests/CodeContextManagerTests.swift (new, 14 tests)
+
+    Leaving task in doing, green, ready for /review.
+  timestamp: 2026-07-15T18:02:26.923794+00:00
 depends_on:
 - 01KXK6SY8JZME3N2WJM7CKSAE4
 - 01KXK6T61DT9BJR17ZF798KKE4
-position_column: todo
-position_ordinal: '8380'
+position_column: doing
+position_ordinal: '80'
 title: 'Add CodeContextManager actor: open-or-get lifecycle, routing, overlap rule'
 ---
 ## What

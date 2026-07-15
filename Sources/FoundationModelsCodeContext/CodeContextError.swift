@@ -49,6 +49,13 @@ public enum CodeContextError: Error, Sendable {
     /// `BlastRadiusOps.blastRadius(store:file:symbol:maxHops:)`'s
     /// named-symbol-not-in-file miss.
     case notFound(String)
+
+    /// `CodeContextManager.context(for:)` was asked to open a root that is an ancestor of one or
+    /// more already-open roots.
+    ///
+    /// The associated string names the conflicting already-open descendant root(s); the caller
+    /// must `close(root:)` them first before opening the ancestor.
+    case overlappingRoot(String)
 }
 
 extension CodeContextError: LocalizedError {
@@ -75,6 +82,8 @@ extension CodeContextError: LocalizedError {
             "pattern error: \(reason)"
         case let .notFound(reason):
             "not found: \(reason)"
+        case let .overlappingRoot(reason):
+            "overlapping root: \(reason)"
         }
     }
 }
