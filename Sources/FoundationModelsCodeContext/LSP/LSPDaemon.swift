@@ -434,7 +434,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// - Returns: `spec` unchanged for `.onPath`; otherwise a full-memberwise-init copy with
     ///   `command` replaced by the resolved absolute path.
     private static func spawnSpec(for spec: ServerSpec, location: BinaryLookup.Location) -> ServerSpec {
-        guard case let .extraSearchDirectory(absolutePath) = location else { return spec }
+        guard case .extraSearchDirectory(let absolutePath) = location else { return spec }
         return ServerSpec(
             command: absolutePath,
             arguments: spec.arguments,

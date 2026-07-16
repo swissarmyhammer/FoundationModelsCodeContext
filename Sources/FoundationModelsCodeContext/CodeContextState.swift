@@ -194,7 +194,7 @@ public final class CodeContextState {
         switch state {
         case .running, .notFound:
             true
-        case let .failed(_, attempts):
+        case .failed(_, let attempts):
             attempts >= maxConsecutiveFailures
         case .notStarted, .starting, .installing, .shuttingDown:
             false
