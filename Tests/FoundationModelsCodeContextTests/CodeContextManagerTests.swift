@@ -382,25 +382,36 @@ struct CodeContextManagerTests {
         BinaryLookup.isOnPath("npm") && !BinaryLookup.isOnPath("intelephense")
     }
 
-    /// The `installRunner` injected into a `CodeContextManager` reaches the supervisor of every
+    /// The `installRunner` injected into a `CodeContextManager` reaches the supervisor of *every*
     /// per-root `CodeContext` the manager builds — the seam that lets an auto-install integration
     /// test drive a manager (not just a bare `CodeContext`) against a scripted `FakeInstallRunner`.
     ///
-    /// Opens a PHP workspace through the manager with a fake runner scripted to fail, gated shut so
-    /// the daemon parks observably at `.installing` the moment `context(for:)` returns (matching
-    /// `CodeContextE2ETests`'s no-flicker pattern), then releases the gate and asserts the failed
-    /// install re-settles `.notFound` having invoked the injected runner exactly once. A manager
-    /// that dropped `installRunner` instead of forwarding it would build the context with the
-    /// default `ProcessInstallRunner`, leaving `invocations` empty (and potentially spawning a real
-    /// `npm` install) — so a nonzero, single invocation is what proves the forwarding seam.
+    /// Opens *two* sibling PHP workspaces through the one manager. Each root is its own workspace,
+    /// so the manager builds a separate `CodeContext` — and therefore a separate supervisor and
+    /// `ServerInstaller` — per root, all sharing the single injected runner. Per root the fake
+    /// runner (scripted to fail) is gated shut so the daemon parks observably at `.installing` the
+    /// moment `context(for:)` returns (matching `CodeContextE2ETests`'s no-flicker pattern), then
+    /// released so the failed install re-settles `.notFound`. The runner is asserted to have been
+    /// invoked exactly once *per root* (twice total): each per-root context's own `ServerInstaller`
+    /// drives the shared runner once (each installer's at-most-once guard is independent), so a
+    /// count of two is precisely what proves the manager forwarded the injected runner to *every*
+    /// per-root supervisor, not just the first. A manager that dropped `installRunner` instead of
+    /// forwarding it would build the contexts with the default `ProcessInstallRunner`, leaving
+    /// `invocations` empty (and potentially spawning a real `npm` install) for every root.
+    ///
+    /// The two roots are opened sequentially, not concurrently: `FakeInstallRunner`'s single shared
+    /// gate preconditions against two concurrent gated calls (its at-most-once regression guard),
+    /// so each root's gated install is fully driven back to `.notFound` before the next root opens.
     @Test(.enabled(if: CodeContextManagerTests.canExercisePHPAutoInstall, "gated on npm present and intelephense absent from $PATH"))
     func injectedInstallRunnerReachesEachPerRootContextSupervisor() async throws {
         try await withTemporaryWorkspace { root in
-            try write("{\"name\": \"fixture/fixture\"}", to: "composer.json", in: root)
+            let firstRoot = root.appendingPathComponent("alpha")
+            let secondRoot = root.appendingPathComponent("beta")
+            try write("{\"name\": \"fixture/alpha\"}", to: "alpha/composer.json", in: root)
+            try write("{\"name\": \"fixture/beta\"}", to: "beta/composer.json", in: root)
 
             let runner = FakeInstallRunner()
             await runner.updateResult(.success(InstallRunResult(exitCode: 1, output: "boom")))
-            await runner.closeGate()
 
             let manager = await CodeContextManager<FakeLanguageServerConnection>(
                 embedder: FakeEmbedder(dimension: 8),
@@ -409,29 +420,40 @@ struct CodeContextManagerTests {
                 connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
             )
 
-            let context = try await manager.context(for: root)
+            // Open each sibling root in turn, driving its gated (scripted-to-fail) install from the
+            // observable `.installing` park-point back to a re-settled `.notFound` before the next
+            // root opens — see the docstring for why this must not run concurrently.
+            for perRoot in [firstRoot, secondRoot] {
+                await runner.closeGate()
+                let context = try await manager.context(for: perRoot)
 
-            // The manager forwarded the injected runner: the intelephense daemon is already
-            // `.installing` (gated shut so it cannot yet resolve) the moment the open returns.
-            let statusesWhileInstalling = await context.lspStatus()
-            #expect(statusesWhileInstalling.first { $0.command == "intelephense" }?.state == .installing)
+                // The manager forwarded the injected runner to *this* root's supervisor: its
+                // intelephense daemon is already `.installing` (gated shut so it cannot yet resolve)
+                // the moment the open returns.
+                let statusesWhileInstalling = await context.lspStatus()
+                #expect(statusesWhileInstalling.first { $0.command == "intelephense" }?.state == .installing)
 
-            await runner.openGate()
+                await runner.openGate()
 
-            // Poll (real time, bounded) until the failed install's forced restart re-lands
-            // `.notFound`.
-            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-            while ContinuousClock.now < deadline {
-                if await context.state.isReady { break }
-                try await Task.sleep(for: .milliseconds(5))
+                // Poll (real time, bounded) until the failed install's forced restart re-lands
+                // `.notFound`.
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                while ContinuousClock.now < deadline {
+                    if await context.state.isReady { break }
+                    try await Task.sleep(for: .milliseconds(5))
+                }
+                #expect(await context.state.isReady)
+                #expect(await context.lspStatus().first { $0.command == "intelephense" }?.state == .notFound)
             }
-            #expect(await context.state.isReady)
 
-            let finalState = await context.lspStatus().first { $0.command == "intelephense" }?.state
-            #expect(finalState == .notFound)
-
+            // The injected runner was invoked once per opened root (twice total): each per-root
+            // context's own `ServerInstaller` drove the shared runner exactly once, proving the
+            // manager forwarded the runner to *every* per-root supervisor, not only the first.
             let invocations = await runner.invocations
-            #expect(invocations.count == 1, "the injected runner must be invoked exactly once, proving the manager forwarded it")
+            #expect(
+                invocations.count == 2,
+                "the injected runner must be invoked once per opened root, proving the manager forwarded it to each per-root supervisor"
+            )
 
             await manager.shutdown()
         }
