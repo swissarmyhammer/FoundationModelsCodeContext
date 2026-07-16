@@ -196,7 +196,7 @@ public final class CodeContextState {
             true
         case let .failed(_, attempts):
             attempts >= maxConsecutiveFailures
-        case .notStarted, .starting, .shuttingDown:
+        case .notStarted, .starting, .installing, .shuttingDown:
             false
         }
     }

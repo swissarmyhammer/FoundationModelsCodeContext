@@ -146,6 +146,78 @@ struct ServerInstallerTests {
     }
 }
 
+/// Tests for `BinaryLookup.resolve(command:extraSearchDirectories:)`, extended by this task to
+/// search `ServerSpec.InstallSpec.extraSearchDirectories` (with `~` expansion) after `$PATH`
+/// comes up empty for `command` — so a native global install landing in e.g. `~/go/bin` or
+/// `~/.cargo/bin` is still found even when that directory isn't on `$PATH`.
+struct BinaryLookupTests {
+    @Test
+    func resolveFindsCommandOnPath() {
+        let location = BinaryLookup.resolve(command: "true")
+
+        #expect(location == .onPath)
+    }
+
+    @Test
+    func resolveReturnsNilWhenNotFoundAnywhere() {
+        let location = BinaryLookup.resolve(
+            command: "definitely-not-a-real-binary-xyz123",
+            extraSearchDirectories: ["/tmp/definitely-nonexistent-dir-xyz123"]
+        )
+
+        #expect(location == nil)
+    }
+
+    @Test
+    func resolveFindsCommandInExtraSearchDirectory() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let binaryPath = tempDirectory.appendingPathComponent("fake-binary-in-extra-dir")
+        FileManager.default.createFile(atPath: binaryPath.path, contents: nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binaryPath.path)
+
+        let location = BinaryLookup.resolve(
+            command: "fake-binary-in-extra-dir",
+            extraSearchDirectories: [tempDirectory.path]
+        )
+
+        #expect(location == .extraSearchDirectory(absolutePath: binaryPath.path))
+    }
+
+    @Test
+    func resolvePrefersPathOverExtraSearchDirectories() throws {
+        // "true" is on $PATH, so it must win even when an extra search directory is also
+        // supplied — $PATH is searched first, matching the documented order.
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let location = BinaryLookup.resolve(command: "true", extraSearchDirectories: [tempDirectory.path])
+
+        #expect(location == .onPath)
+    }
+
+    @Test
+    func resolveExpandsTildeInExtraSearchDirectories() throws {
+        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        let relativeDirectoryName = ".foundation-models-code-context-binarylookup-test-\(UUID().uuidString)"
+        let tempDirectory = homeDirectory.appendingPathComponent(relativeDirectoryName)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let binaryPath = tempDirectory.appendingPathComponent("fake-tilde-binary")
+        FileManager.default.createFile(atPath: binaryPath.path, contents: nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binaryPath.path)
+
+        let location = BinaryLookup.resolve(
+            command: "fake-tilde-binary",
+            extraSearchDirectories: ["~/\(relativeDirectoryName)"]
+        )
+
+        #expect(location == .extraSearchDirectory(absolutePath: binaryPath.path))
+    }
+}
+
 /// Integration tests for `ProcessInstallRunner` against harmless real executables (`true`,
 /// `false`, `sh`, `sleep`) — no network access, so these stay CI-safe.
 struct ProcessInstallRunnerTests {

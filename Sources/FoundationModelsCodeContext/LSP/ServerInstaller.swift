@@ -11,6 +11,17 @@ import Foundation
 /// `$PATH` lookup (through `/usr/bin/env`), but that lookup surfaces as a generic spawn failure
 /// rather than the distinct up-front check both callers of this helper need.
 enum BinaryLookup {
+    /// Where `resolve(command:extraSearchDirectories:)` found a binary.
+    enum Location: Sendable, Equatable {
+        /// Found on `$PATH` — the daemon may keep spawning `command` by its bare name.
+        case onPath
+
+        /// Found only in one of the caller-supplied extra search directories, at this absolute
+        /// path — the daemon must spawn this absolute path directly, since it isn't resolvable
+        /// via the plain `$PATH`-relative name.
+        case extraSearchDirectory(absolutePath: String)
+    }
+
     /// Reports whether `command` resolves to an executable file somewhere on `$PATH`.
     /// - Parameter command: The executable name to search for (no path separators).
     /// - Returns: `true` if `command` resolves to an executable file on `$PATH`; `false` otherwise.
@@ -24,6 +35,34 @@ enum BinaryLookup {
             }
         }
         return false
+    }
+
+    /// Resolves `command`, searching `$PATH` first and then `extraSearchDirectories` (in order)
+    /// once `$PATH` comes up empty.
+    ///
+    /// `extraSearchDirectories` exists for `LSPDaemon.start()` to also honor
+    /// `ServerSpec.installer?.extraSearchDirectories`: native global installers (`go install`,
+    /// `rustup component add`) land their binary in a well-known directory (e.g. `~/go/bin`,
+    /// `~/.cargo/bin`) that is frequently not on the user's `$PATH`. Each directory may use `~`
+    /// for the home directory; expanded here via `NSString.expandingTildeInPath`, matching the
+    /// `ServerSpec.InstallSpec.extraSearchDirectories` doc comment's stated contract.
+    /// - Parameters:
+    ///   - command: The executable name to search for (no path separators).
+    ///   - extraSearchDirectories: Additional directories to search, in order, once `$PATH` comes
+    ///     up empty for `command`. Defaults to none.
+    /// - Returns: `.onPath` if `command` resolves on `$PATH`; `.extraSearchDirectory(absolutePath:)`
+    ///   with the resolved absolute path if found in one of `extraSearchDirectories`; `nil` if
+    ///   found in neither.
+    static func resolve(command: String, extraSearchDirectories: [String] = []) -> Location? {
+        if isOnPath(command) { return .onPath }
+        for directory in extraSearchDirectories {
+            let expandedDirectory = (directory as NSString).expandingTildeInPath
+            let candidatePath = (expandedDirectory as NSString).appendingPathComponent(command)
+            if FileManager.default.isExecutableFile(atPath: candidatePath) {
+                return .extraSearchDirectory(absolutePath: candidatePath)
+            }
+        }
+        return nil
     }
 }
 

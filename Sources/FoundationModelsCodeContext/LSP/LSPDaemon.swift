@@ -6,12 +6,28 @@ import Foundation
 /// `LSPDaemon.stateUpdates`. Every state below can transition into `.failed` (an unexpected
 /// exit, a spawn failure, or a handshake failure/timeout), and every state but `.notStarted`
 /// can be reached again via a restart.
+///
+/// `LSPDaemonState` (and `ServerStatus`, which embeds it) is `public Codable`. Adding, removing,
+/// or renaming a case changes the type's encoded schema — Swift's synthesized enum-with-payload
+/// `Codable` conformance encodes the case name itself as a keyed-container key. No decode site
+/// for either type exists inside this repo (both are only ever encoded, for `ServerStatus`'s
+/// SwiftUI/CLI consumers), but any external consumer that decodes a persisted `ServerStatus`
+/// value must be rebuilt against the version of this package that produced it.
 public enum LSPDaemonState: Sendable, Equatable, Codable {
     /// The daemon has never been started, or has completed a graceful `shutdown()`.
     case notStarted
 
-    /// `spec.command` was not found on `$PATH`; the daemon will not spawn until `forceRestart()`.
+    /// `spec.command` was not found on `$PATH` (or, once resolved, `spec.installer`'s
+    /// `extraSearchDirectories`); the daemon will not spawn until `forceRestart()`.
     case notFound
+
+    /// The server binary is missing and an auto-install attempt is in flight, entered via
+    /// `noteInstalling()`. Not settled — see `CodeContextState.isSettled` — a workspace mid-install
+    /// is not ready, matching how `.starting` is treated. There is no dedicated "install failed"
+    /// case: the daemon leaves `.installing` on both outcomes via `forceRestart()`, whose re-run of
+    /// `start()`'s binary lookup naturally lands `.running` (the binary is now present) or
+    /// `.notFound` (still missing) — see `noteInstalling()`'s documentation.
+    case installing
 
     /// The child process has been spawned and the `initialize`/`initialized` handshake is in flight.
     case starting
@@ -219,19 +235,50 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
 
     // MARK: - Lifecycle
 
-    /// Starts the LSP server: locates the binary on `$PATH`, spawns a connection via the injected
-    /// factory, and completes the `initialize`/`initialized` handshake bounded by
-    /// `spec.startupTimeout`.
+    /// Transitions the daemon into `.installing`: "the server binary is missing and an
+    /// auto-install attempt is in flight." The supervisor calls this right before invoking
+    /// `ServerInstaller`, so the state is observable via `stateUpdates`/`ServerStatus` for the
+    /// whole duration of the install — and, per `CodeContextState.isSettled`, `.installing` is not
+    /// settled, so a workspace mid-install correctly reports `isReady == false`.
+    ///
+    /// Valid only from `.notFound` or `.notStarted` — the two states in which the binary is known
+    /// (or presumed) not yet spawnable. Any other current state is a programmer error (e.g. the
+    /// supervisor racing an install trigger against a daemon that has already started, or against
+    /// one mid-shutdown) and this call is a no-op, logged via `Log.lsp.fault` rather than silently
+    /// swallowed.
+    ///
+    /// No `noteInstallFailed()` counterpart exists: the daemon leaves `.installing` on *both*
+    /// outcomes the same way, via `forceRestart()` — whose re-run of `start()`'s binary lookup
+    /// naturally lands `.running` (the binary is now present) or `.notFound` (still missing).
+    func noteInstalling() {
+        guard currentState == .notFound || currentState == .notStarted else {
+            Log.lsp.fault(
+                "noteInstalling() called from unexpected state for \(self.spec.command, privacy: .public); expected .notFound or .notStarted, ignoring"
+            )
+            return
+        }
+        currentState = .installing
+    }
+
+    /// Starts the LSP server: locates the binary on `$PATH` (falling back to
+    /// `spec.installer?.extraSearchDirectories` for a native-installer binary that landed
+    /// somewhere not on `$PATH`), spawns a connection via the injected factory, and completes the
+    /// `initialize`/`initialized` handshake bounded by `spec.startupTimeout`.
     ///
     /// On success the state becomes `.running(pid:)` and `consecutiveFailures` resets to zero. On
-    /// failure the state becomes `.notFound` (binary missing — `consecutiveFailures` is left
-    /// untouched, matching `swissarmyhammer-lsp`'s `start`) or `.failed(reason:attempts:)` (spawn
-    /// failure, handshake failure, or handshake timeout — each increments `consecutiveFailures`).
-    /// - Throws: `CodeContextError.binaryNotFound` if `spec.command` isn't on `$PATH`;
-    ///   `CodeContextError.handshakeFailed` if the handshake fails or times out; whatever the
-    ///   connection factory throws if spawning the connection fails.
+    /// failure the state becomes `.notFound` (binary missing everywhere — `consecutiveFailures` is
+    /// left untouched, matching `swissarmyhammer-lsp`'s `start`) or `.failed(reason:attempts:)`
+    /// (spawn failure, handshake failure, or handshake timeout — each increments
+    /// `consecutiveFailures`).
+    /// - Throws: `CodeContextError.binaryNotFound` if `spec.command` isn't found on `$PATH` or in
+    ///   any of `spec.installer?.extraSearchDirectories`; `CodeContextError.handshakeFailed` if the
+    ///   handshake fails or times out; whatever the connection factory throws if spawning the
+    ///   connection fails.
     func start() async throws {
-        guard BinaryLookup.isOnPath(spec.command) else {
+        guard let location = BinaryLookup.resolve(
+            command: spec.command,
+            extraSearchDirectories: spec.installer?.extraSearchDirectories ?? []
+        ) else {
             if !hasWarnedNotFound {
                 Log.lsp.warning(
                     "LSP binary not found on PATH: \(self.spec.command, privacy: .public) (\(self.spec.installHint, privacy: .public))"
@@ -246,7 +293,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
 
         let spawnedHandle: ConnectionHandle<Connection>
         do {
-            spawnedHandle = try await connectionFactory(spec, workspaceRoot)
+            spawnedHandle = try await connectionFactory(Self.spawnSpec(for: spec, location: location), workspaceRoot)
         } catch {
             recordFailure(reason: "spawn failed: \(error.localizedDescription)")
             throw error
@@ -366,6 +413,38 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     }
 
     // MARK: - Internal helpers
+
+    /// Builds the `ServerSpec` to hand the connection factory for a binary resolved at `location`.
+    ///
+    /// `ConnectionFactory` is `(ServerSpec, URL) -> ConnectionHandle` — there is no separate
+    /// "resolved command path" parameter, and the production factory
+    /// (`processConnectionFactory()`) always spawns `spec.command` directly. So when
+    /// `BinaryLookup.resolve` found the binary only via one of
+    /// `spec.installer?.extraSearchDirectories` rather than on `$PATH`, the factory needs a
+    /// *different* `command` value than this daemon's own `spec.command` in order to spawn the
+    /// right binary. `location == .onPath` returns `spec` unchanged — the common case, and the
+    /// only case for a `spec` without an `installer`.
+    ///
+    /// This daemon's own stored `spec` (and therefore `command()`/`ServerStatus.command`) is never
+    /// touched by this: it stays the bare name, which is the supervisor's dedupe and
+    /// session-routing key.
+    /// - Parameters:
+    ///   - spec: The daemon's own spec, used as the base for the returned copy.
+    ///   - location: Where `BinaryLookup.resolve` found `spec.command`.
+    /// - Returns: `spec` unchanged for `.onPath`; otherwise a full-memberwise-init copy with
+    ///   `command` replaced by the resolved absolute path.
+    private static func spawnSpec(for spec: ServerSpec, location: BinaryLookup.Location) -> ServerSpec {
+        guard case let .extraSearchDirectory(absolutePath) = location else { return spec }
+        return ServerSpec(
+            command: absolutePath,
+            arguments: spec.arguments,
+            languageIDs: spec.languageIDs,
+            startupTimeout: spec.startupTimeout,
+            healthCheckInterval: spec.healthCheckInterval,
+            installHint: spec.installHint,
+            installer: spec.installer
+        )
+    }
 
     /// Runs the `initialize`/`initialized` handshake over `handle.connection`, bounded by
     /// `spec.startupTimeout` via the injected clock.

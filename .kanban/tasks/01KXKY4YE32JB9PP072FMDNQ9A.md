@@ -1,11 +1,27 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01kxnx5n06ecdv5kwd578tsgah
+  text: |-
+    Implemented both parts of the task:
+
+    1. Added `LSPDaemonState.installing` case (Sources/FoundationModelsCodeContext/LSP/LSPDaemon.swift) with a doc comment on the enum noting the Codable-schema implication of adding a case. Added `LSPDaemon.noteInstalling()`: guarded to only transition from `.notFound`/`.notStarted`; any other current state is a no-op logged via `Log.lsp.fault` (chose the no-op+log guard over a hard `assert`/`assertionFailure`, specifically so tests can exercise the rejection path without crashing the test process). Updated `CodeContextState.isSettled`'s exhaustive switch (CodeContextState.swift) to treat `.installing` as not settled, alongside `.starting`/`.notStarted`/`.shuttingDown`. Confirmed via grep that `LSPDaemon.swift`, `LspSupervisor.swift`, and `CodeContextState.swift` are the only three production files that switch/pattern-match over `LSPDaemonState`; `LspSupervisor.swift`'s only match is a non-exhaustive `guard case .failed = ...`, so it needed no change.
+
+    2. Extended `BinaryLookup` (Sources/FoundationModelsCodeContext/LSP/ServerInstaller.swift) with a new `Location` enum (`.onPath` / `.extraSearchDirectory(absolutePath:)`) and `resolve(command:extraSearchDirectories:)`, which searches `$PATH` first (via the existing `isOnPath`) then each extra directory in order, expanding `~` via `NSString.expandingTildeInPath`. `LSPDaemon.start()` now calls `resolve` with `spec.installer?.extraSearchDirectories ?? []`, and when the binary is found only via an extra directory, builds a full-memberwise-init `ServerSpec` copy (new private static `spawnSpec(for:location:)` helper) whose `command` is the resolved absolute path, handing that copy to the connection factory. The daemon's own stored `spec` and `command()`/`ServerStatus.command` are untouched in every path (confirmed by a dedicated test asserting `daemon.command()` still returns the bare name after a successful extra-dir-resolved start).
+
+    Explicitly left out of scope (confirmed against the kanban board): wiring `LspSupervisor`'s health loop to actually call `noteInstalling()`/invoke `ServerInstaller` is task 01KXKY5MDHKKE49ZX9BA2H6BDJ ("Wire auto-install into LspSupervisor..."), which depends on this task and is still blocked/not started.
+
+    Tests added (TDD, written first): 8 new cases in LSPDaemonTests.swift (extra-search-directory resolution incl. absolute-path spec copy + bare-name command(), still-.notFound when missing everywhere, noteInstalling() transitions from .notStarted/.notFound, rejection from .running/.shuttingDown, forceRestart() recovery from .installing to both .running and .notFound outcomes), 1 new case in CodeContextStateTests.swift (`isReadyFalseWhenServerInstalling`), and a new `BinaryLookupTests` suite (5 cases: on-PATH, not-found-anywhere, found-in-extra-dir, PATH-takes-precedence, tilde-expansion) in ServerInstallerTests.swift.
+
+    Verification: `swift build` exit 0; `swift test` full suite 525/525 passing in 45 suites (up from the 511-test pre-task baseline, +14 new tests, zero failures). Adversarial double-check agent launched to review before handoff.
+  timestamp: 2026-07-16T16:46:46.790884+00:00
 depends_on:
 - 01KXKY3XWKM1TRR9X0F4SQ0SF0
 - 01KXKY4J6DZ6M7ETN54TZ81EAW
-position_column: todo
-position_ordinal: '8280'
+position_column: doing
+position_ordinal: '80'
 title: Add .installing daemon state and extend binary lookup with installer search directories
 ---
 ## What

@@ -136,6 +136,208 @@ struct LSPDaemonTests {
         #expect(terminations == 1)
     }
 
+    @Test
+    func startResolvesBinaryFromExtraSearchDirectoryAndSpawnsWithAbsolutePath() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let binaryPath = tempDirectory.appendingPathComponent("fake-lsp-binary-in-extra-dir")
+        FileManager.default.createFile(atPath: binaryPath.path, contents: nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binaryPath.path)
+
+        let installer = ServerSpec.InstallSpec(tool: "true", extraSearchDirectories: [tempDirectory.path])
+        let spec = ServerSpec(
+            command: "fake-lsp-binary-in-extra-dir",
+            languageIDs: ["fake"],
+            installHint: "install it",
+            installer: installer
+        )
+        let receivedSpec = Box<ServerSpec?>(nil)
+        let processState = ProcessState()
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: spec,
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: { spawnedSpec, _ in
+                await receivedSpec.set(spawnedSpec)
+                let connection = FakeLanguageServerConnection()
+                return ConnectionHandle(
+                    connection: connection,
+                    pid: 55,
+                    isAlive: { await processState.isAlive },
+                    waitForExit: { await processState.waitForExit() },
+                    terminate: { await processState.markTerminated() }
+                )
+            }
+        )
+
+        try await daemon.start()
+
+        let state = await daemon.state()
+        #expect(state == .running(pid: 55))
+        let command = await daemon.command()
+        #expect(command == "fake-lsp-binary-in-extra-dir", "the daemon's own command() must remain the bare name")
+
+        let spawnedSpec = try #require(await receivedSpec.value)
+        #expect(
+            spawnedSpec.command == binaryPath.path,
+            "the connection factory must receive a spec copy with the resolved absolute path"
+        )
+        #expect(spawnedSpec.arguments == spec.arguments)
+        #expect(spawnedSpec.languageIDs == spec.languageIDs)
+        #expect(spawnedSpec.installer == spec.installer)
+    }
+
+    @Test
+    func startFailsWithNotFoundWhenBinaryMissingFromPathAndExtraSearchDirectories() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let installer = ServerSpec.InstallSpec(tool: "true", extraSearchDirectories: [tempDirectory.path])
+        let spec = ServerSpec(
+            command: "nonexistent-lsp-binary-abc123xyz",
+            languageIDs: ["fake"],
+            installHint: "install it",
+            installer: installer
+        )
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: spec,
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: { _, _ in
+                Issue.record("the connection factory must not run when the binary isn't found anywhere")
+                throw SimulatedHandshakeFailure()
+            }
+        )
+
+        await #expect(throws: CodeContextError.self) {
+            try await daemon.start()
+        }
+        let state = await daemon.state()
+        #expect(state == .notFound)
+    }
+
+    // MARK: - noteInstalling()
+
+    @Test
+    func noteInstallingTransitionsFromNotStartedToInstalling() async {
+        let processState = ProcessState()
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState)
+        )
+        #expect(await daemon.state() == .notStarted)
+
+        await daemon.noteInstalling()
+
+        #expect(await daemon.state() == .installing)
+    }
+
+    @Test
+    func noteInstallingTransitionsFromNotFoundToInstalling() async {
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(command: "nonexistent-lsp-binary-abc123xyz"),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: { _, _ in
+                Issue.record("the connection factory must not run when the binary isn't on PATH")
+                throw SimulatedHandshakeFailure()
+            }
+        )
+        await #expect(throws: CodeContextError.self) { try await daemon.start() }
+        #expect(await daemon.state() == .notFound)
+
+        await daemon.noteInstalling()
+
+        #expect(await daemon.state() == .installing)
+    }
+
+    @Test
+    func noteInstallingIsRejectedFromRunning() async throws {
+        let processState = ProcessState()
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: fakeConnectionFactory(pid: 9, processState: processState)
+        )
+        try await daemon.start()
+        #expect(await daemon.state() == .running(pid: 9))
+
+        await daemon.noteInstalling()
+
+        #expect(await daemon.state() == .running(pid: 9), "noteInstalling() must be rejected from .running")
+    }
+
+    @Test
+    func noteInstallingIsRejectedFromShuttingDown() async throws {
+        let clock = ManualClock()
+        let processState = ProcessState()
+        await processState.setHangsOnWaitForExit(true)
+
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(),
+            workspaceRoot: Self.workspaceRoot,
+            clock: clock,
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState)
+        )
+        try await daemon.start()
+        let grace = Duration.seconds(5)
+        await daemon.setShutdownGrace(grace)
+
+        let shutdownTask = Task { await daemon.shutdown() }
+        await clock.waitForWaiter()
+        #expect(await daemon.state() == .shuttingDown)
+
+        await daemon.noteInstalling()
+        #expect(await daemon.state() == .shuttingDown, "noteInstalling() must be rejected from .shuttingDown")
+
+        clock.advance(by: grace)
+        await shutdownTask.value
+    }
+
+    @Test
+    func forceRestartFromInstallingLandsRunningWhenBinaryIsOnPath() async throws {
+        let processState = ProcessState()
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: fakeConnectionFactory(pid: 3, processState: processState)
+        )
+
+        await daemon.noteInstalling()
+        #expect(await daemon.state() == .installing)
+
+        try await daemon.forceRestart()
+
+        #expect(await daemon.state() == .running(pid: 3))
+    }
+
+    @Test
+    func forceRestartFromInstallingLandsNotFoundWhenBinaryStillMissing() async {
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(command: "nonexistent-lsp-binary-abc123xyz"),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: { _, _ in
+                Issue.record("the connection factory must not run when the binary isn't on PATH")
+                throw SimulatedHandshakeFailure()
+            }
+        )
+
+        await daemon.noteInstalling()
+        #expect(await daemon.state() == .installing)
+
+        await #expect(throws: CodeContextError.self) {
+            try await daemon.forceRestart()
+        }
+        #expect(await daemon.state() == .notFound)
+    }
+
     // MARK: - healthCheck()
 
     @Test

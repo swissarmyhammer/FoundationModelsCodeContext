@@ -130,6 +130,17 @@ struct CodeContextStateTests {
     }
 
     @Test
+    func isReadyFalseWhenServerInstalling() async {
+        let state = await CodeContextState(rootDirectory: Self.workspaceRoot)
+
+        await state.publishIndexing(Self.drainedIndexing)
+        await state.publishServers([ServerStatus(command: "gopls", state: .installing)])
+
+        let isReady = await state.isReady
+        #expect(!isReady)
+    }
+
+    @Test
     func isReadyFalseWhenServerStillRetrying() async {
         let state = await CodeContextState(rootDirectory: Self.workspaceRoot)
 
