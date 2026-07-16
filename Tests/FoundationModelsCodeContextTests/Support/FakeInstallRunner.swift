@@ -49,6 +49,21 @@ actor FakeInstallRunner: InstallRunner {
         gateContinuation = nil
     }
 
+    /// A closure invoked once per `run(tool:arguments:timeout:)` call, right before `result` is
+    /// returned (or thrown) — lets a test simulate a real installer's on-disk side effect (e.g.
+    /// materializing a fake binary in a spec's `extraSearchDirectories`, chmod'd executable) at
+    /// exactly the moment a scripted install "completes", without ever spawning a real process.
+    /// `nil` (the default) means "no side effect", matching every `ServerInstallerTests` case that
+    /// doesn't need one.
+    private var onRun: (@Sendable (String, [String]) async -> Void)?
+
+    /// Installs (or clears) the closure invoked on every subsequent `run` call.
+    /// - Parameter closure: Called with `(tool, arguments)` on every `run` call. Pass `nil` to
+    ///   remove a previously installed closure.
+    func setOnRun(_ closure: (@Sendable (String, [String]) async -> Void)?) {
+        onRun = closure
+    }
+
     func run(tool: String, arguments: [String], timeout: Duration) async throws -> InstallRunResult {
         invocations.append(Invocation(tool: tool, arguments: arguments, timeout: timeout))
         if isGated {
@@ -64,6 +79,7 @@ actor FakeInstallRunner: InstallRunner {
                 gateContinuation = continuation
             }
         }
+        await onRun?(tool, arguments)
         return try result.get()
     }
 }

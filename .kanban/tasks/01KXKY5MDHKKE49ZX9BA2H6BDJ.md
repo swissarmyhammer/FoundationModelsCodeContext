@@ -1,37 +1,38 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01kxp4p4pcnqczd1p8nes5pzrk
+  text: |-
+    Implementation complete, build + full test suite green.
+
+    Production changes:
+    - Sources/FoundationModelsCodeContext/LSP/LspSupervisor.swift: added `autoInstall: LspAutoInstall` + `installer: ServerInstaller` properties, an `installRunner` init parameter (test seam), `triggerAutoInstallIfNeeded(spec:daemon:)` (calls `daemon.noteInstalling()` synchronously before `performStart()`/`start()` returns, then spawns a background install task), `startInstallTask(spec:daemon:)` (awaits `installer.install(spec:)`, then on both success/failure guards `!Task.isCancelled` before `daemon.forceRestart()`), refactored `performStart()` into a shared `spawnAndRegister(specs:)` also used by a new test-only `startForTesting(specs:)` seam (bypasses real `ProjectDetection` for deterministic tests), and extended `shutdown()`/`insertDaemonForTesting` to cancel+await install tasks alongside health-loop tasks.
+    - Sources/FoundationModelsCodeContext/CodeContext.swift: both initializers gain `autoInstall: LspAutoInstall = LspAutoInstall()`; the internal general initializer also gains a test-only `installRunner` parameter, forwarded to `LspSupervisor`.
+    - Sources/FoundationModelsCodeContext/CodeContextManager.swift: both initializers gain `autoInstall`, forwarded to every `CodeContext` it creates.
+    - Tests/.../Support/FakeInstallRunner.swift: added `setOnRun(_:)` hook so a scripted "install success" can materialize a fake binary on disk exactly when the fake install completes.
+
+    Tests added (all green, verified non-flaky across 3 consecutive full-suite runs under load):
+    - LspSupervisorTests.swift: success path (.notFound -> .installing -> .running, materializing a fake binary via extraSearchDirectories), failure path (.installing -> .notFound, runner invoked once), disabled-policy path, nil-installer path, non-blocking start() (state already .installing when start() returns, gated runner), and shutdown-during-in-flight-install (raced against the gate, mirroring the existing handshake-race test's pattern).
+    - CodeContextE2ETests.swift: `isReadyIsFalseWhileAnAutoInstallIsPendingAndTrueOnceItResolves`, driven through a real PHP/composer.json project detection (intelephense/npm), gated via `.enabled(if:)` on `npm` present + `intelephense` absent from `$PATH` (mirrors `LiveSourceKitTests`' skip-don't-flake pattern) so it never depends on, or mutates, real machine state.
+
+    Notable dead end avoided: an early version of the CodeContextE2ETests test used Cargo.toml/rust-analyzer/rustup and asserted `.installing` immediately after `start()` returns without gating the runner — this flaked under full-suite parallel load because the fake install (which resolves near-instantly) could complete and force-restart the daemon back to `.notFound` before the test's next statement was scheduled. Fixed by gating the FakeInstallRunner shut until after the pending-install assertions, matching the existing `shutdownRacingAnInFlightRestartHandshakeAlwaysWinsAndLeavesTheDaemonNotStarted` test's race pattern. Also discovered mid-implementation that this dev machine already has rust-analyzer, typescript-language-server, and pylsp genuinely installed (so those languages can't exercise the .notFound path here) — switched to PHP/intelephense which is absent while npm (its installer tool) is present.
+
+    `swift build` and `swift test` (532 tests, 45 suites) both green, full suite re-run 3x consecutively with zero failures. really-done adversarial double-check dispatched; will report final status once it returns.
+  timestamp: 2026-07-16T18:58:07.180149+00:00
+- actor: claude-code
+  id: 01kxp5kk3gzy7qdw3q4w7va0ye
+  text: |-
+    Adversarial double-check (really-done's advisory gate) was attempted 3 times and failed all 3 times with "API Error: 529 Overloaded" — a transient Anthropic-side outage, not a finding about this code. Proceeding without it per really-done's own contract: the hard requirement (fresh, repeated `swift build` + `swift test` runs, including 3 consecutive full-suite runs under load) is green, and the double-check step is explicitly advisory ("the caller may proceed"). Logging this as the required justification for proceeding past an unavailable advisory gate rather than silently skipping it.
+
+    Final status: all acceptance criteria met, all Tests section items done, `swift test` passes (532 tests / 45 suites, verified 3x consecutively including under load to rule out the timing flake found and fixed during implementation). Leaving task in doing for /review.
+  timestamp: 2026-07-16T19:14:12.208277+00:00
 depends_on:
 - 01KXKY4J6DZ6M7ETN54TZ81EAW
 - 01KXKY4YE32JB9PP072FMDNQ9A
-position_column: todo
-position_ordinal: '8380'
+position_column: doing
+position_ordinal: '80'
 title: Wire auto-install into LspSupervisor and plumb LspAutoInstall through CodeContext and CodeContextManager
 ---
-## What
-The detection → install → retry flow, in `Sources/FoundationModelsCodeContext/LSP/LspSupervisor.swift`, `CodeContext.swift`, and `CodeContextManager.swift`:
-
-- `LspSupervisor` gains an `autoInstall: LspAutoInstall` init parameter (default `.init()`) and one owned `ServerInstaller`. After a spawn round (`spawnDaemons(for:)` / `performStart()`), for each daemon that landed in `.notFound` with `spec.installer != nil` and the policy enabled:
-  1. call `daemon.noteInstalling()` **synchronously in the spawn round, BEFORE spawning the background task** — `CodeContext.start()` publishes server status immediately after `supervisor.start()` returns, and a daemon still reading `.notFound` in that window is classified settled, so `isReady` would flicker true→false. Marking installing first means `start()` returns with the state already unsettled.
-  2. spawn an **owned background install task** (like the per-daemon health-check tasks — installs can take minutes and must NOT block `start()`): `await installer.install(spec:)`
-  3. then, on **BOTH success and failure**, guard `!Task.isCancelled` (mirroring the documented guard in `startHealthLoop`) and `try? await daemon.forceRestart()` — this is the single mechanism that exits `.installing`: the restarted lookup (which now covers `extraSearchDirectories`) lands `.running` when the install delivered the binary, or re-lands `.notFound` when it didn't. `ServerInstaller`'s at-most-once guard is what prevents a re-`.notFound` daemon from ever triggering a second install. Without this both-paths restart, a failed install would strand the daemon in `.installing` and `isReady` would never become true.
-  - Install tasks are tracked alongside health tasks and cancelled+awaited in `shutdown()`; prompt shutdown is guaranteed by `ProcessInstallRunner`'s cancellation handler (see the ServerInstaller task) plus the `Task.isCancelled` guard before `forceRestart()`.
-- `CodeContext`: both initializers gain `autoInstall: LspAutoInstall = LspAutoInstall()` and pass it to the supervisor. Existing callers compile unchanged (defaulted parameter).
-- `CodeContextManager`: both initializers gain the same defaulted parameter and forward it to every `CodeContext` they create.
-- `CodeContextState.isReady` needs no new logic — `.installing` is already not-settled from the prior task.
-
-## Acceptance Criteria
-- [ ] A `.notFound` daemon with an installer and enabled policy transitions `.notFound → .installing → .running` when the (fake) install succeeds and the binary then resolves
-- [ ] Install failure transitions `.installing → .notFound` via the same both-paths `forceRestart()`; no retry loop (installer invoked at most once per command)
-- [ ] `supervisor.start()` returns with affected daemons already reporting `.installing` (no settled-`.notFound` flicker window), and without waiting for installs
-- [ ] Policy disabled or `installer == nil` → no install task, daemon stays `.notFound` (today's behavior, verified by absence of runner invocations)
-- [ ] `shutdown()` during an in-flight install cancels cleanly and promptly (no leaked task, no post-shutdown state transitions, bounded wall-clock)
-- [ ] `autoInstall` reaches the supervisor from both `CodeContext` and `CodeContextManager` inits; all existing call sites compile unchanged
-
-## Tests
-- [ ] Extend `Tests/FoundationModelsCodeContextTests` supervisor tests using `FakeInstallRunner` + `FakeLanguageServerConnection`: full success path (assert the observable state sequence via `stateUpdates`/`status()`; the fake runner's success closure must materialize a chmod+x fake executable in the spec's temp `extraSearchDirectories` dir so the post-install lookup genuinely resolves — same technique as the daemon lookup tests), failure path (`.installing → .notFound`, runner called once), disabled-policy path, nil-installer path, non-blocking `start()` returning while install is pending with state already `.installing`, and shutdown-during-install
-- [ ] A `CodeContext`-level test asserting `state.isReady` is false from the moment `start()` returns through a pending fake install and becomes true after it resolves
-- [ ] `swift test` passes
-
-## Workflow
-- Use `/tdd` — write failing tests first, then implement to make them pass.
+## What\nThe detection → install → retry flow, in `Sources/FoundationModelsCodeContext/LSP/LspSupervisor.swift`, `CodeContext.swift`, and `CodeContextManager.swift`:\n\n- `LspSupervisor` gains an `autoInstall: LspAutoInstall` init parameter (default `.init()`) and one owned `ServerInstaller`. After a spawn round (`spawnDaemons(for:)` / `performStart()`), for each daemon that landed in `.notFound` with `spec.installer != nil` and the policy enabled:\n  1. call `daemon.noteInstalling()` **synchronously in the spawn round, BEFORE spawning the background task** — `CodeContext.start()` publishes server status immediately after `supervisor.start()` returns, and a daemon still reading `.notFound` in that window is classified settled, so `isReady` would flicker true→false. Marking installing first means `start()` returns with the state already unsettled.\n  2. spawn an **owned background install task** (like the per-daemon health-check tasks — installs can take minutes and must NOT block `start()`): `await installer.install(spec:)`\n  3. then, on **BOTH success and failure**, guard `!Task.isCancelled` (mirroring the documented guard in `startHealthLoop`) and `try? await daemon.forceRestart()` — this is the single mechanism that exits `.installing`: the restarted lookup (which now covers `extraSearchDirectories`) lands `.running` when the install delivered the binary, or re-lands `.notFound` when it didn't. `ServerInstaller`'s at-most-once guard is what prevents a re-`.notFound` daemon from ever triggering a second install. Without this both-paths restart, a failed install would strand the daemon in `.installing` and `isReady` would never become true.\n  - Install tasks are tracked alongside health tasks and cancelled+awaited in `shutdown()`; prompt shutdown is guaranteed by `ProcessInstallRunner`'s cancellation handler (see the ServerInstaller task) plus the `Task.isCancelled` guard before `forceRestart()`.\n- `CodeContext`: both initializers gain `autoInstall: LspAutoInstall = LspAutoInstall()` and pass it to the supervisor. Existing callers compile unchanged (defaulted parameter).\n- `CodeContextManager`: both initializers gain the same defaulted parameter and forward it to every `CodeContext` they create.\n- `CodeContextState.isReady` needs no new logic — `.installing` is already not-settled from the prior task.\n\n## Acceptance Criteria\n- [x] A `.notFound` daemon with an installer and enabled policy transitions `.notFound → .installing → .running` when the (fake) install succeeds and the binary then resolves\n- [x] Install failure transitions `.installing → .notFound` via the same both-paths `forceRestart()`; no retry loop (installer invoked at most once per command)\n- [x] `supervisor.start()` returns with affected daemons already reporting `.installing` (no settled-`.notFound` flicker window), and without waiting for installs\n- [x] Policy disabled or `installer == nil` → no install task, daemon stays `.notFound` (today's behavior, verified by absence of runner invocations)\n- [x] `shutdown()` during an in-flight install cancels cleanly and promptly (no leaked task, no post-shutdown state transitions, bounded wall-clock)\n- [x] `autoInstall` reaches the supervisor from both `CodeContext` and `CodeContextManager` inits; all existing call sites compile unchanged\n\n## Tests\n- [x] Extend `Tests/FoundationModelsCodeContextTests` supervisor tests using `FakeInstallRunner` + `FakeLanguageServerConnection`: full success path (assert the observable state sequence via `stateUpdates`/`status()`; the fake runner's success closure must materialize a chmod+x fake executable in the spec's temp `extraSearchDirectories` dir so the post-install lookup genuinely resolves — same technique as the daemon lookup tests), failure path (`.installing → .notFound`, runner called once), disabled-policy path, nil-installer path, non-blocking `start()` returning while install is pending with state already `.installing`, and shutdown-during-install\n- [x] A `CodeContext`-level test asserting `state.isReady` is false from the moment `start()` returns through a pending fake install and becomes true after it resolves\n- [x] `swift test` passes\n\n## Workflow\n- Use `/tdd` — write failing tests first, then implement to make them pass.

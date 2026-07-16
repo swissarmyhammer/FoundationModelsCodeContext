@@ -42,8 +42,8 @@ public struct ServerStatus: Sendable, Equatable, Codable, Identifiable {
 /// `swissarmyhammer-lsp`'s `should_attempt_restart` — attempts `restartWithBackoff()` only when the
 /// daemon lands in `.failed` afterward (never `.notFound`, `.notStarted`, or `.shuttingDown`).
 actor LspSupervisor<Connection: LanguageServerConnection> {
-    /// One daemon this supervisor owns, alongside the spec it was built from and its running
-    /// health-check task.
+    /// One daemon this supervisor owns, alongside the spec it was built from, its running
+    /// health-check task, and its in-flight auto-install task (if any).
     private struct ManagedDaemon {
         /// The daemon this entry manages.
         let daemon: LSPDaemon<Connection>
@@ -53,6 +53,11 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
 
         /// The daemon's repeating health-check task, cancelled by `shutdown()`.
         var healthLoopTask: Task<Void, Never>?
+
+        /// The one-shot auto-install task started by `triggerAutoInstallIfNeeded(spec:daemon:)`
+        /// for a daemon that landed in `.notFound` on its initial spawn, if any. Cancelled and
+        /// awaited by `shutdown()`, mirroring `healthLoopTask`.
+        var installTask: Task<Void, Never>?
     }
 
     /// The workspace root passed to project detection and every daemon's `rootUri`.
@@ -63,6 +68,15 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
 
     /// Spawns a fresh connection for every daemon this supervisor creates.
     private let connectionFactory: ConnectionFactory<Connection>
+
+    /// The opt-out policy gating whether a `.notFound` daemon's binary is ever auto-installed —
+    /// see `triggerAutoInstallIfNeeded(spec:daemon:)`.
+    private let autoInstall: LspAutoInstall
+
+    /// Runs a spec's machine-actionable installer on this supervisor's behalf, subject to
+    /// `autoInstall`. Owned (not injected as a whole object) so every managed daemon's install
+    /// attempts share one instance's at-most-once-per-command dedupe.
+    private let installer: ServerInstaller
 
     /// Every daemon this supervisor manages, keyed by `ServerSpec.command`.
     private var managedDaemons: [String: ManagedDaemon] = [:]
@@ -93,14 +107,22 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     ///   - workspaceRoot: The workspace root passed to project detection and every daemon's `rootUri`.
     ///   - clock: The clock every managed daemon and this supervisor's health loops sleep against.
     ///     Defaults to `ContinuousClock()`; tests inject a `ManualClock`.
+    ///   - autoInstall: The opt-out policy gating whether a `.notFound` daemon's binary is ever
+    ///     auto-installed. Defaults to `LspAutoInstall()` (enabled, 300-second timeout).
+    ///   - installRunner: The process-running seam `installer` drives. Defaults to
+    ///     `ProcessInstallRunner()`; tests inject a scripted `FakeInstallRunner`.
     ///   - connectionFactory: Spawns a fresh connection for every daemon this supervisor creates.
     init(
         workspaceRoot: URL,
         clock: any Clock<Duration> = ContinuousClock(),
+        autoInstall: LspAutoInstall = LspAutoInstall(),
+        installRunner: any InstallRunner = ProcessInstallRunner(),
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) {
         self.workspaceRoot = workspaceRoot
         self.clock = clock
+        self.autoInstall = autoInstall
+        self.installer = ServerInstaller(policy: autoInstall, runner: installRunner)
         self.connectionFactory = connectionFactory
     }
 
@@ -159,11 +181,67 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     private func performStart() async throws {
         let detectedProjects = try ProjectDetection.detectProjects(rootDirectory: workspaceRoot)
         let specs = ProjectDetection.serverSpecs(for: detectedProjects)
+        await spawnAndRegister(specs: specs)
+    }
+
+    /// Spawns and registers a daemon for every spec in `specs` not already managed, triggering an
+    /// auto-install attempt for any that land in `.notFound`. Shared by `performStart` (specs from
+    /// real project detection) and `startForTesting(specs:)` (specs supplied directly by a test).
+    /// - Parameter specs: The candidate specs; any already managed by `spec.command` are skipped.
+    private func spawnAndRegister(specs: [ServerSpec]) async {
         let newSpecs = specs.filter { managedDaemons[$0.command] == nil }
         guard !newSpecs.isEmpty else { return }
 
         for (spec, daemon) in await spawnDaemons(for: newSpecs) {
             registerManagedDaemon(spec: spec, daemon: daemon)
+            await triggerAutoInstallIfNeeded(spec: spec, daemon: daemon)
+        }
+    }
+
+    /// Starts an auto-install attempt for `daemon` if its initial spawn attempt landed it in
+    /// `.notFound`, `spec` carries a machine-actionable installer, and `autoInstall` is enabled —
+    /// a no-op otherwise (including today's behavior for a disabled policy or a `nil` installer:
+    /// the daemon is simply left `.notFound`, and no install task is ever created).
+    ///
+    /// Calls `daemon.noteInstalling()` synchronously — before this method (and therefore
+    /// `performStart()`/`start()`) returns — so a caller reading `supervisor.status()` right after
+    /// `start()` returns can never observe a still-settled `.notFound` daemon that is actually
+    /// about to start installing (see `LSPDaemon.noteInstalling()`'s documentation). The install
+    /// attempt itself then runs on an owned, unstructured background task — installs can take
+    /// minutes, so this must not block `start()` — tracked as `installTask` on that daemon's
+    /// managed entry and cancelled+awaited by `shutdown()`, mirroring the per-daemon health-check
+    /// tasks.
+    /// - Parameters:
+    ///   - spec: The spec the daemon was spawned from.
+    ///   - daemon: The freshly spawned (and already-registered) daemon to check.
+    private func triggerAutoInstallIfNeeded(spec: ServerSpec, daemon: LSPDaemon<Connection>) async {
+        guard autoInstall.isEnabled, spec.installer != nil else { return }
+        guard await daemon.state() == .notFound else { return }
+
+        await daemon.noteInstalling()
+        managedDaemons[spec.command]?.installTask = startInstallTask(spec: spec, daemon: daemon)
+    }
+
+    /// Spawns the background task that runs one auto-install attempt for `spec` and then, on
+    /// *both* success and failure, force-restarts `daemon` — the single mechanism that exits
+    /// `.installing`: the restarted lookup (which also covers `spec.installer?.extraSearchDirectories`)
+    /// lands `.running` if the install delivered the binary, or re-lands `.notFound` if it didn't.
+    /// `ServerInstaller`'s own at-most-once-per-command guard is what prevents a re-`.notFound`
+    /// daemon from ever triggering a second install for the same command.
+    ///
+    /// Guards `!Task.isCancelled` before calling `forceRestart()`, mirroring `startHealthLoop`'s
+    /// own pre-restart cancellation check: a `shutdown()` that cancels and awaits this task before
+    /// it reaches that point can never be undone by a subsequent restart.
+    /// - Parameters:
+    ///   - spec: The spec identifying the command to install and, on completion, to restart.
+    ///   - daemon: The `.installing` daemon to restart once the install attempt completes.
+    /// - Returns: The spawned task, cancelled and awaited by `shutdown()`.
+    private func startInstallTask(spec: ServerSpec, daemon: LSPDaemon<Connection>) -> Task<Void, Never> {
+        let installer = self.installer
+        return Task {
+            _ = await installer.install(spec: spec)
+            guard !Task.isCancelled else { return }
+            try? await daemon.forceRestart()
         }
     }
 
@@ -257,24 +335,34 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
 
     /// Gracefully shuts down every managed daemon concurrently.
     ///
-    /// Cancels every daemon's health-check task, then *awaits* each one's actual completion before
-    /// calling any daemon's own `shutdown()`. Cancelling alone isn't enough: a health-loop task
-    /// already past its pre-restart cancellation check (see `startHealthLoop`) is mid-flight inside
-    /// `daemon.restartWithBackoff()`, an actor call that doesn't itself observe cancellation, so it
-    /// could otherwise still be running — and could still resurrect the daemon to `.running` —
-    /// concurrently with, or even after, this method calls `daemon.shutdown()`. Waiting for every
-    /// health-loop task to finish first guarantees no in-flight restart is still racing
-    /// `daemon.shutdown()` by the time it's called, so shutdown is always the last word. Managed
-    /// daemon entries are preserved — `status()` still reports them, now `.notStarted` — matching
+    /// Cancels every daemon's health-check *and* install task, then *awaits* each one's actual
+    /// completion before calling any daemon's own `shutdown()`. Cancelling alone isn't enough: a
+    /// health-loop task already past its pre-restart cancellation check (see `startHealthLoop`),
+    /// or an install task already past its own pre-restart cancellation check (see
+    /// `startInstallTask`), is mid-flight inside `daemon.restartWithBackoff()`/`forceRestart()` —
+    /// an actor call that doesn't itself observe cancellation — so it could otherwise still be
+    /// running — and could still resurrect the daemon to `.running` — concurrently with, or even
+    /// after, this method calls `daemon.shutdown()`. Waiting for every health-loop and install
+    /// task to finish first guarantees no in-flight restart is still racing `daemon.shutdown()` by
+    /// the time it's called, so shutdown is always the last word, and it stays prompt: an
+    /// in-flight install itself is cancelled and (per `ProcessInstallRunner`'s own cancellation
+    /// handling) torn down quickly rather than run to completion. Managed daemon entries are
+    /// preserved — `status()` still reports them, now `.notStarted` — matching
     /// `swissarmyhammer-lsp`'s `shutdown` (a fleet shutdown never removes daemon entries).
     func shutdown() async {
         let healthLoopTasks = managedDaemons.values.compactMap(\.healthLoopTask)
+        let installTasks = managedDaemons.values.compactMap(\.installTask)
         for command in managedDaemons.keys {
             managedDaemons[command]?.healthLoopTask?.cancel()
             managedDaemons[command]?.healthLoopTask = nil
+            managedDaemons[command]?.installTask?.cancel()
+            managedDaemons[command]?.installTask = nil
         }
         for healthLoopTask in healthLoopTasks {
             await healthLoopTask.value
+        }
+        for installTask in installTasks {
+            await installTask.value
         }
 
         let daemons = managedDaemons.values.map(\.daemon)
@@ -374,11 +462,27 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     ///     interval.
     ///   - daemon: The daemon to manage.
     func insertDaemonForTesting(spec: ServerSpec, daemon: LSPDaemon<Connection>) {
-        // Cancel any prior entry's health-loop task under this command first, mirroring `start()`'s
-        // own dedupe-by-command guard: overwriting a managed entry must never leak the health-loop
-        // task it displaces.
+        // Cancel any prior entry's health-loop and install tasks under this command first,
+        // mirroring `start()`'s own dedupe-by-command guard: overwriting a managed entry must
+        // never leak either task it displaces.
         managedDaemons[spec.command]?.healthLoopTask?.cancel()
+        managedDaemons[spec.command]?.installTask?.cancel()
         registerManagedDaemon(spec: spec, daemon: daemon)
+    }
+
+    /// Runs `performStart()`'s real spawn-then-register-then-maybe-auto-install pipeline against
+    /// `specs` supplied directly by a test, bypassing real project detection entirely.
+    ///
+    /// Test-only seam: `insertDaemonForTesting(spec:daemon:)` registers an already-built,
+    /// already-started daemon and therefore never exercises `triggerAutoInstallIfNeeded(spec:daemon:)`
+    /// — the auto-install tests need a spec's `LSPDaemon` to be freshly constructed and started by
+    /// this supervisor itself (so its `.notFound` transition and the ensuing auto-install trigger
+    /// happen for real), without depending on `ProjectDetection` finding a real project marker or a
+    /// real language-server binary.
+    /// - Parameter specs: The specs to spawn and register, exactly as `performStart()` would with
+    ///   specs from real project detection.
+    func startForTesting(specs: [ServerSpec]) async {
+        await spawnAndRegister(specs: specs)
     }
 }
 
@@ -388,15 +492,19 @@ extension LspSupervisor where Connection == ProcessLanguageServerConnection {
     ///   - workspaceRoot: The workspace root passed to project detection and every daemon's `rootUri`.
     ///   - clock: The clock every managed daemon and this supervisor's health loops sleep against.
     ///     Defaults to `ContinuousClock()`.
+    ///   - autoInstall: The opt-out policy gating whether a `.notFound` daemon's binary is ever
+    ///     auto-installed. Defaults to `LspAutoInstall()` (enabled, 300-second timeout).
     /// - Returns: A supervisor whose `connectionFactory` spawns real child processes via
     ///   `LSPDaemon.processConnectionFactory(clock:)`.
     static func production(
         workspaceRoot: URL,
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        autoInstall: LspAutoInstall = LspAutoInstall()
     ) -> LspSupervisor {
         LspSupervisor(
             workspaceRoot: workspaceRoot,
             clock: clock,
+            autoInstall: autoInstall,
             connectionFactory: LSPDaemon<ProcessLanguageServerConnection>.processConnectionFactory(clock: clock)
         )
     }

@@ -484,6 +484,271 @@ struct LspSupervisorTests {
             "a shutdown racing an in-flight restart handshake must win: the daemon must not be left running or failed instead of torn down"
         )
     }
+
+    // MARK: - Auto-install
+
+    /// Builds a `ServerSpec` whose `command` is not resolvable anywhere so `LSPDaemon.start()`
+    /// lands `.notFound` on the initial spawn, carrying an `InstallSpec` for `installerTool`
+    /// (`"true"` by default — a real, near-instant, always-present Unix utility, so
+    /// `BinaryLookup.isOnPath(installer.tool)`'s real filesystem check inside
+    /// `ServerInstaller.install(spec:)` always passes) with `extraSearchDirectories` pointing at
+    /// `installDirectory` — the directory a scripted `FakeInstallRunner.setOnRun` closure
+    /// materializes the fake binary into on a simulated "successful" install.
+    private static func autoInstallSpec(
+        command: String,
+        installDirectory: URL,
+        installerTool: String = "true"
+    ) -> ServerSpec {
+        ServerSpec(
+            command: command,
+            languageIDs: ["fake"],
+            healthCheckInterval: .seconds(60),
+            installHint: "install \(command) via \(installerTool)",
+            installer: ServerSpec.InstallSpec(tool: installerTool, extraSearchDirectories: [installDirectory.path])
+        )
+    }
+
+    /// Creates a chmod +x, zero-byte fake executable named `command` inside `directory`, mirroring
+    /// `LSPDaemonTests`' own extra-search-directory fixtures — the technique a `FakeInstallRunner`
+    /// success closure uses to simulate a real installer's on-disk side effect.
+    private static func materializeFakeBinary(named command: String, in directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let binaryPath = directory.appendingPathComponent(command)
+        FileManager.default.createFile(atPath: binaryPath.path, contents: nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binaryPath.path)
+    }
+
+    @Test
+    func autoInstallSuccessTransitionsNotFoundToInstallingToRunning() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let command = "fake-auto-install-success-\(UUID().uuidString)"
+        let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)
+
+        let runner = FakeInstallRunner()
+        await runner.setOnRun { _, _ in
+            try? Self.materializeFakeBinary(named: command, in: tempDirectory)
+        }
+
+        let supervisor = LspSupervisor<FakeLanguageServerConnection>(
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            installRunner: runner,
+            connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
+        )
+
+        await supervisor.startForTesting(specs: [spec])
+
+        // Assert the observable state sequence via status(): the daemon must have actually passed
+        // through `.installing` (not merely landed `.running` some other way) before settling.
+        await Self.waitUntil {
+            let statuses = await supervisor.status()
+            return statuses.first { $0.command == command }?.state != .notFound
+        }
+        let installingStatuses = await supervisor.status()
+        #expect(
+            installingStatuses.first { $0.command == command }?.state == .installing,
+            "expected the daemon to be observably .installing while the fake install is in flight"
+        )
+
+        await Self.waitUntil {
+            let statuses = await supervisor.status()
+            if case .running = statuses.first(where: { $0.command == command })?.state { return true }
+            return false
+        }
+
+        let finalStatuses = await supervisor.status()
+        guard case .running = finalStatuses.first(where: { $0.command == command })?.state else {
+            Issue.record("expected .running after a successful auto-install, got \(finalStatuses)")
+            return
+        }
+
+        let invocations = await runner.invocations
+        #expect(invocations.count == 1, "the installer must run at most once")
+    }
+
+    @Test
+    func autoInstallFailureTransitionsInstallingBackToNotFoundWithoutRetry() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let command = "fake-auto-install-failure-\(UUID().uuidString)"
+        let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)
+
+        let runner = FakeInstallRunner()
+        await runner.updateResult(.success(InstallRunResult(exitCode: 1, output: "boom")))
+
+        let supervisor = LspSupervisor<FakeLanguageServerConnection>(
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            installRunner: runner,
+            connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
+        )
+
+        await supervisor.startForTesting(specs: [spec])
+
+        await Self.waitUntil {
+            let statuses = await supervisor.status()
+            return statuses.first { $0.command == command }?.state == .installing
+        }
+
+        // The restart re-runs the binary lookup, which still finds nothing (the fake install never
+        // materialized a binary), so the daemon must re-land .notFound rather than staying stuck
+        // in .installing or ending up .failed.
+        await Self.waitUntil {
+            let statuses = await supervisor.status()
+            return statuses.first { $0.command == command }?.state == .notFound
+        }
+
+        let finalState = await supervisor.status().first { $0.command == command }?.state
+        #expect(finalState == .notFound)
+
+        let invocations = await runner.invocations
+        #expect(invocations.count == 1, "a failed install must never be retried")
+    }
+
+    @Test
+    func autoInstallDisabledPolicyLeavesDaemonNotFoundWithoutInvokingRunner() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let command = "fake-auto-install-disabled-\(UUID().uuidString)"
+        let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)
+
+        let runner = FakeInstallRunner()
+        let supervisor = LspSupervisor<FakeLanguageServerConnection>(
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            autoInstall: LspAutoInstall(isEnabled: false),
+            installRunner: runner,
+            connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
+        )
+
+        await supervisor.startForTesting(specs: [spec])
+
+        // A fixed settle window rather than a "wait until" poll: there is nothing to wait *for*
+        // here (no install task is ever created), so this asserts the daemon never leaves
+        // .notFound within a window that would easily have caught a regression.
+        try await Task.sleep(for: .milliseconds(100))
+
+        let state = await supervisor.status().first { $0.command == command }?.state
+        #expect(state == .notFound, "a disabled auto-install policy must leave the daemon .notFound, exactly today's behavior")
+
+        let invocations = await runner.invocations
+        #expect(invocations.isEmpty, "a disabled policy must never invoke the runner")
+    }
+
+    @Test
+    func autoInstallNilInstallerLeavesDaemonNotFoundWithoutInvokingRunner() async throws {
+        let command = "fake-auto-install-nil-installer-\(UUID().uuidString)"
+        let spec = ServerSpec(command: command, languageIDs: ["fake"], installHint: "install it by hand")
+
+        let runner = FakeInstallRunner()
+        let supervisor = LspSupervisor<FakeLanguageServerConnection>(
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            installRunner: runner,
+            connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
+        )
+
+        await supervisor.startForTesting(specs: [spec])
+        try await Task.sleep(for: .milliseconds(100))
+
+        let state = await supervisor.status().first { $0.command == command }?.state
+        #expect(state == .notFound, "a spec with no installer must leave the daemon .notFound, exactly today's behavior")
+
+        let invocations = await runner.invocations
+        #expect(invocations.isEmpty, "a nil installer must never invoke the runner")
+    }
+
+    @Test
+    func startForTestingReturnsWithDaemonAlreadyObservablyInstalling() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let command = "fake-auto-install-nonblocking-\(UUID().uuidString)"
+        let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)
+
+        // Gate the runner so the install never completes during this test — proving
+        // `startForTesting`/`start()` returns without waiting for the install to finish.
+        let runner = FakeInstallRunner()
+        await runner.closeGate()
+
+        let supervisor = LspSupervisor<FakeLanguageServerConnection>(
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            installRunner: runner,
+            connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
+        )
+
+        await supervisor.startForTesting(specs: [spec])
+
+        // No settling/polling here on purpose: the assertion is about the state immediately after
+        // `startForTesting` returns, not eventually.
+        let state = await supervisor.status().first { $0.command == command }?.state
+        #expect(
+            state == .installing,
+            "start() must return with an affected daemon already reporting .installing, with no settled .notFound flicker window"
+        )
+
+        await runner.openGate()
+        await supervisor.shutdown()
+    }
+
+    @Test
+    func shutdownDuringInFlightInstallCancelsCleanlyAndPromptly() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let command = "fake-auto-install-shutdown-\(UUID().uuidString)"
+        let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)
+
+        // Gates the runner so the install stays in flight until this test explicitly releases it.
+        // `ServerInstaller.install(spec:)`'s in-flight `Task` is intentionally unstructured and
+        // keeps running to completion regardless of a caller's own cancellation (see its own doc
+        // comment) — so `shutdown()`'s cancel-then-await of the install task can only resolve once
+        // this gate opens, mirroring exactly how `shutdownRacingAnInFlightRestartHandshakeAlwaysWinsAndLeavesTheDaemonNotStarted`
+        // above races `shutdown()` against a gated handshake. What this test actually proves is
+        // that once the gate opens, `shutdown()` still resolves promptly (bounded wall-clock, no
+        // leaked task) and the guarded `forceRestart()` never fires afterward — the daemon is torn
+        // down, not resurrected by the install that "completed" concurrently with/after shutdown.
+        let runner = FakeInstallRunner()
+        await runner.closeGate()
+
+        let supervisor = LspSupervisor<FakeLanguageServerConnection>(
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            installRunner: runner,
+            connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
+        )
+
+        await supervisor.startForTesting(specs: [spec])
+        await Self.waitUntil {
+            let statuses = await supervisor.status()
+            return statuses.first { $0.command == command }?.state == .installing
+        }
+
+        // Race shutdown() against the still-gated install.
+        let start = ContinuousClock.now
+        let shutdownTask = Task { await supervisor.shutdown() }
+
+        // Let shutdown()'s cancellation actually propagate before releasing the gate, so the race
+        // is genuine rather than trivially sequential.
+        try await Task.sleep(for: .milliseconds(20))
+        await runner.openGate()
+
+        await shutdownTask.value
+        let elapsed = ContinuousClock.now - start
+        #expect(elapsed < .seconds(5), "shutdown() must resolve promptly once the gated install completes, took \(elapsed)")
+
+        // A fixed real-time settle window (mirroring the handshake-race test above), not a
+        // "wait until notStarted" poll: this catches a buggy `shutdown()` that returned before the
+        // install task's guarded `forceRestart()` could ever fire, which would otherwise let a
+        // delayed resurrection land after this assertion instead of before it.
+        try await Task.sleep(for: .milliseconds(100))
+
+        let stateAfterSettling = await supervisor.status().first { $0.command == command }?.state
+        #expect(
+            stateAfterSettling == .notStarted,
+            "no post-shutdown state transition must occur once the gated install finally resolves, got \(String(describing: stateAfterSettling))"
+        )
+    }
 }
 
 /// A one-shot gate an async caller can wait on and a test can later release, using a bare

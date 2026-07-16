@@ -118,6 +118,13 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///     `ContinuousClock()`; tests inject a faster or manually-driven clock.
     ///   - eventSource: The raw filesystem-change event source the watcher subscribes to. Defaults
     ///     to `FSEventsFileEventSource()`; tests inject `FakeFileEventSource`.
+    ///   - autoInstall: The opt-out policy gating whether the supervisor may auto-install a
+    ///     `.notFound` server's binary via its `ServerSpec.installer`. Defaults to
+    ///     `LspAutoInstall()` (enabled, 300-second timeout); existing callers compile unchanged.
+    ///   - installRunner: The process-running seam the supervisor's `ServerInstaller` drives.
+    ///     Defaults to `ProcessInstallRunner()`; tests inject a scripted `FakeInstallRunner` so an
+    ///     auto-install integration test never spawns (or has any real side effect from) a real
+    ///     installer command.
     ///   - connectionFactory: Spawns a fresh connection for every LSP daemon the supervisor
     ///     creates. Production code passes `LSPDaemon.processConnectionFactory()`; tests pass one
     ///     backed by `FakeLanguageServerConnection`.
@@ -127,6 +134,8 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         embedder: TextEmbedding,
         clock: any Clock<Duration> = ContinuousClock(),
         eventSource: any FileEventSource = FSEventsFileEventSource(),
+        autoInstall: LspAutoInstall = LspAutoInstall(),
+        installRunner: any InstallRunner = ProcessInstallRunner(),
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) async throws {
         self.rootDirectory = rootDirectory
@@ -138,7 +147,13 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         self.store = store
         corpus = SearchCorpus(store: store)
         state = await CodeContextState(rootDirectory: rootDirectory)
-        supervisor = LspSupervisor(workspaceRoot: rootDirectory, clock: clock, connectionFactory: connectionFactory)
+        supervisor = LspSupervisor(
+            workspaceRoot: rootDirectory,
+            clock: clock,
+            autoInstall: autoInstall,
+            installRunner: installRunner,
+            connectionFactory: connectionFactory
+        )
     }
 
     /// Ensures every spawned task, the watcher, and every managed LSP daemon are torn down even if
@@ -614,11 +629,15 @@ extension CodeContext where Connection == ProcessLanguageServerConnection {
     ///   - rootDirectory: The workspace root to open. Enters exactly once, here.
     ///   - embedder: The embedder used for the tree-sitter worker's embedding step and for
     ///     `searchCode(...)`.
+    ///   - autoInstall: The opt-out policy gating whether the supervisor may auto-install a
+    ///     `.notFound` server's binary via its `ServerSpec.installer`. Defaults to
+    ///     `LspAutoInstall()` (enabled, 300-second timeout); existing callers compile unchanged.
     /// - Throws: `CodeContextError.storage` if the index store can't be opened or migrated.
-    public init(rootDirectory: URL, embedder: TextEmbedding) async throws {
+    public init(rootDirectory: URL, embedder: TextEmbedding, autoInstall: LspAutoInstall = LspAutoInstall()) async throws {
         try await self.init(
             rootDirectory: rootDirectory,
             embedder: embedder,
+            autoInstall: autoInstall,
             connectionFactory: LSPDaemon<ProcessLanguageServerConnection>.processConnectionFactory()
         )
     }

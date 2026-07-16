@@ -223,4 +223,78 @@ struct CodeContextE2ETests {
             }
         }
     }
+
+    // MARK: - Auto-install / isReady integration
+
+    /// Whether this test's PHP fixture can genuinely exercise the auto-install path: `npm` (the
+    /// `intelephense` installer's `tool`) must be resolvable on `$PATH` so `ServerInstaller`'s own
+    /// early `BinaryLookup.isOnPath(installer.tool)` gate passes and actually reaches (and can
+    /// therefore be gated by) the injected `FakeInstallRunner`; and `intelephense` itself must be
+    /// *absent* so the daemon genuinely lands `.notFound` rather than starting `.running`
+    /// immediately because the machine running this test happens to already have it installed.
+    /// Checked via the same shared `BinaryLookup` helper `LSPDaemon`/`ServerInstaller` use for
+    /// their own real `$PATH` lookups. Mirrors `LiveSourceKitTests`' own `.enabled(if:)` gating
+    /// pattern: a genuine *skip* (not a vacuous pass) when the environment doesn't support the
+    /// scenario, in either direction.
+    private static var canExercisePHPAutoInstall: Bool {
+        BinaryLookup.isOnPath("npm") && !BinaryLookup.isOnPath("intelephense")
+    }
+
+    @Test(.enabled(if: CodeContextE2ETests.canExercisePHPAutoInstall, "gated on npm present and intelephense absent from $PATH"))
+    func isReadyIsFalseWhileAnAutoInstallIsPendingAndTrueOnceItResolves() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("{\"name\": \"fixture/fixture\"}", to: "composer.json", in: root)
+
+            // Scripted to fail (never actually installs anything) and gated shut up front: a fake
+            // install that resolved before this test's own very next statement got scheduled
+            // (especially under load) could otherwise flicker straight past the `.installing`
+            // assertion below into an already-`.notFound` re-settle. Closing the gate guarantees
+            // the install cannot resolve until this test explicitly opens it — reachable here only
+            // because `canExercisePHPAutoInstall` above confirmed `npm` (`intelephense`'s
+            // installer tool) really is on `$PATH`, so `ServerInstaller.install(spec:)` actually
+            // proceeds to (and suspends on) this runner rather than short-circuiting before ever
+            // reaching it.
+            let runner = FakeInstallRunner()
+            await runner.updateResult(.success(InstallRunResult(exitCode: 1, output: "boom")))
+            await runner.closeGate()
+
+            let context = try await CodeContext<FakeLanguageServerConnection>(
+                rootDirectory: root,
+                embedder: FakeEmbedder(dimension: 8),
+                eventSource: FakeFileEventSource(),
+                installRunner: runner,
+                connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
+            )
+
+            try await context.start()
+
+            // Immediately after start() returns, the intelephense daemon must already be
+            // observably `.installing` (per `LspSupervisor`'s no-flicker guarantee), so `isReady`
+            // must already be `false` — not merely "eventually" once some background loop catches
+            // up.
+            #expect(!(await context.state.isReady), "isReady must be false the moment start() returns while the auto-install is pending")
+            let statusesWhileInstalling = await context.lspStatus()
+            #expect(statusesWhileInstalling.first { $0.command == "intelephense" }?.state == .installing)
+
+            // Release the gated install now that the pending-install assertions above are made.
+            await runner.openGate()
+
+            // Poll (real time, bounded) until the failed install's forced restart has re-landed
+            // `.notFound`, at which point isReady must become true again.
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            while ContinuousClock.now < deadline {
+                if await context.state.isReady { break }
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            #expect(await context.state.isReady, "isReady must become true again once the failed auto-install resolves and the daemon re-settles")
+
+            let finalState = await context.lspStatus().first { $0.command == "intelephense" }?.state
+            #expect(finalState == .notFound, "the daemon must re-settle at .notFound, not .running or .failed")
+
+            let invocations = await runner.invocations
+            #expect(invocations.count == 1, "the installer must run exactly once")
+
+            await context.stop()
+        }
+    }
 }
