@@ -285,11 +285,13 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
 
     // MARK: - LanguageServerConnection
 
+    /// Sends the LSP `initialize` request that starts the handshake.
     public func initialize(rootURI: DocumentURI?) async throws {
         let params = InitializeParams(processID: Int(ProcessInfo.processInfo.processIdentifier), rootURI: rootURI)
         _ = try await request(method: "initialize", params: params, resultType: InitializeResult.self)
     }
 
+    /// Sends the `initialized` notification that completes the handshake.
     public func initialized() async throws {
         try await notifyEmpty(method: "initialized")
     }
@@ -298,15 +300,18 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         _ = try await request(method: "shutdown", params: EmptyPayload(), resultType: EmptyPayload?.self)
     }
 
+    /// Sends the `exit` notification that tells the server to terminate.
     public func exit() async throws {
         try await notifyEmpty(method: "exit")
     }
 
+    /// Notifies the server that a document was opened, sending its full content.
     public func didOpen(uri: DocumentURI, languageID: String, version: Int, text: String) async throws {
         let item = TextDocumentItem(uri: uri, languageID: languageID, version: version, text: text)
         try await notify(method: "textDocument/didOpen", params: DidOpenTextDocumentParams(textDocument: item))
     }
 
+    /// Notifies the server of a full-document content replacement.
     public func didChange(uri: DocumentURI, version: Int, text: String) async throws {
         let params = DidChangeTextDocumentParams(
             textDocument: VersionedTextDocumentIdentifier(uri: uri, version: version),
@@ -315,32 +320,39 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         try await notify(method: "textDocument/didChange", params: params)
     }
 
+    /// Notifies the server that a document was saved.
     public func didSave(uri: DocumentURI) async throws {
         try await notifyTextDocument(method: "textDocument/didSave", uri: uri, makeParams: DidSaveTextDocumentParams.init)
     }
 
+    /// Notifies the server that a document was closed.
     public func didClose(uri: DocumentURI) async throws {
         try await notifyTextDocument(method: "textDocument/didClose", uri: uri, makeParams: DidCloseTextDocumentParams.init)
     }
 
+    /// Requests the symbols declared in a document.
     public func documentSymbols(in uri: DocumentURI) async throws -> [DocumentSymbol] {
         let params = DocumentSymbolParams(textDocument: TextDocumentIdentifier(uri: uri))
         let result = try await request(method: "textDocument/documentSymbol", params: params, resultType: DocumentSymbolResult.self)
         return result.symbols
     }
 
+    /// Requests the definition site of the symbol at a position.
     public func definition(in uri: DocumentURI, at position: Position) async throws -> [Location] {
         try await positionRequest(method: "textDocument/definition", uri: uri, position: position)
     }
 
+    /// Requests the type-definition site of the symbol at a position.
     public func typeDefinition(in uri: DocumentURI, at position: Position) async throws -> [Location] {
         try await positionRequest(method: "textDocument/typeDefinition", uri: uri, position: position)
     }
 
+    /// Requests hover information for the symbol at a position.
     public func hover(in uri: DocumentURI, at position: Position) async throws -> Hover? {
         try await requestAtPosition(method: "textDocument/hover", uri: uri, position: position, resultType: Hover?.self)
     }
 
+    /// Requests every reference to the symbol at a position.
     public func references(in uri: DocumentURI, at position: Position, includeDeclaration: Bool) async throws -> [Location] {
         let params = ReferenceParams(
             textDocument: TextDocumentIdentifier(uri: uri),
@@ -350,31 +362,38 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         return try await locationsRequest(method: "textDocument/references", params: params)
     }
 
+    /// Requests every implementation of the symbol at a position.
     public func implementations(in uri: DocumentURI, at position: Position) async throws -> [Location] {
         try await positionRequest(method: "textDocument/implementation", uri: uri, position: position)
     }
 
+    /// Requests the call-hierarchy item(s) rooted at a position.
     public func prepareCallHierarchy(in uri: DocumentURI, at position: Position) async throws -> [CallHierarchyItem] {
         try await arrayRequest(method: "textDocument/prepareCallHierarchy", params: positionParams(uri: uri, position: position), resultType: CallHierarchyItem.self)
     }
 
+    /// Requests every call made from a call-hierarchy item.
     public func outgoingCalls(of item: CallHierarchyItem) async throws -> [CallHierarchyOutgoingCall] {
         try await arrayRequest(method: "callHierarchy/outgoingCalls", params: CallHierarchyCallsParams(item: item), resultType: CallHierarchyOutgoingCall.self)
     }
 
+    /// Requests every call made into a call-hierarchy item.
     public func incomingCalls(of item: CallHierarchyItem) async throws -> [CallHierarchyIncomingCall] {
         try await arrayRequest(method: "callHierarchy/incomingCalls", params: CallHierarchyCallsParams(item: item), resultType: CallHierarchyIncomingCall.self)
     }
 
+    /// Checks whether the symbol at a position can be renamed.
     public func prepareRename(in uri: DocumentURI, at position: Position) async throws -> PrepareRenameResult {
         try await requestAtPosition(method: "textDocument/prepareRename", uri: uri, position: position, resultType: PrepareRenameResult.self)
     }
 
+    /// Requests the workspace edit that renames the symbol at a position.
     public func rename(in uri: DocumentURI, at position: Position, newName: String) async throws -> WorkspaceEdit {
         let params = RenameParams(textDocument: TextDocumentIdentifier(uri: uri), position: position, newName: newName)
         return try await request(method: "textDocument/rename", params: params, resultType: WorkspaceEdit.self)
     }
 
+    /// Requests the code actions available for a range.
     public func codeActions(in uri: DocumentURI, range: LSPRange, diagnostics: [Diagnostic], only: [String]?) async throws -> [CodeActionItem] {
         let params = CodeActionParams(
             textDocument: TextDocumentIdentifier(uri: uri),
@@ -384,14 +403,17 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         return try await arrayRequest(method: "textDocument/codeAction", params: params, resultType: CodeActionItem.self)
     }
 
+    /// Resolves a code action's deferred fields.
     public func resolveCodeAction(item: CodeActionItem) async throws -> CodeActionItem {
         try await request(method: "codeAction/resolve", params: item, resultType: CodeActionItem.self)
     }
 
+    /// Searches the workspace for symbols matching a query string.
     public func workspaceSymbols(query: String) async throws -> [SymbolInformation] {
         try await arrayRequest(method: "workspace/symbol", params: WorkspaceSymbolParams(query: query), resultType: SymbolInformation.self)
     }
 
+    /// Pulls the current diagnostics for a document via `textDocument/diagnostic`.
     public func pullDiagnostics(for uri: DocumentURI) async throws -> [Diagnostic] {
         let params = DocumentDiagnosticParams(textDocument: TextDocumentIdentifier(uri: uri))
         let (id, data) = try await performRequest(method: "textDocument/diagnostic", params: params)
@@ -534,7 +556,11 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///
     /// Both branches run outside actor isolation (they only touch the `Sendable`
     /// `pendingRequests` table and `clock`), so registering the continuation and racing the
-    /// timeout never need to hop back onto this actor.
+    /// timeout never need to hop back onto this actor. Extracted into `awaitRegisteredResponse`
+    /// and `failAfterTimeout` — mirroring how `ProcessInstallRunner.awaitCompletion` extracts
+    /// `scheduleTimeout`/`installTerminationHandler` out of its own race — so each `group.addTask`
+    /// closure here is a single call rather than an inline `withCheckedThrowingContinuation` or
+    /// sleep-then-resolve body.
     /// - Parameter id: The JSON-RPC id to wait for.
     /// - Returns: The raw response message bytes.
     /// - Throws: `CodeContextError.timeout` if `requestTimeout` elapses first.
@@ -545,16 +571,10 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
 
         return try await withThrowingTaskGroup(of: Data.self) { group in
             group.addTask {
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-                    pendingRequests.register(id: id, continuation: continuation)
-                }
+                try await Self.awaitRegisteredResponse(id: id, pendingRequests: pendingRequests)
             }
             group.addTask {
-                try await clock.sleep(for: timeout)
-                if pendingRequests.resolve(id: id, with: .failure(CodeContextError.timeout(timeout))) {
-                    throw CodeContextError.timeout(timeout)
-                }
-                throw CancellationError()
+                try await Self.failAfterTimeout(id: id, timeout: timeout, clock: clock, pendingRequests: pendingRequests)
             }
             defer { group.cancelAll() }
             guard let result = try await group.next() else {
@@ -562,6 +582,43 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
             }
             return result
         }
+    }
+
+    /// Registers a continuation for `id` and suspends until `pendingRequests` resolves it — the
+    /// "wait for the real response" side of `awaitResponse(id:)`'s race.
+    /// - Parameters:
+    ///   - id: The JSON-RPC id to await.
+    ///   - pendingRequests: The table to register the continuation with.
+    /// - Returns: The raw response message bytes once resolved.
+    /// - Throws: Whatever error `pendingRequests` resolves `id` with (e.g. the timeout race's
+    ///   `CodeContextError.timeout`, or `CodeContextError.notRunning` if the connection closes).
+    private static func awaitRegisteredResponse(id: Int, pendingRequests: PendingRequestTable) async throws -> Data {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            pendingRequests.register(id: id, continuation: continuation)
+        }
+    }
+
+    /// Sleeps for `timeout`, then resolves `id` with a timeout failure and throws — the "give up
+    /// waiting" side of `awaitResponse(id:)`'s race. Never actually returns a value: if the real
+    /// response already resolved `id` through `awaitRegisteredResponse` by the time this fires,
+    /// `pendingRequests.resolve(id:with:)` returns `false` and this throws `CancellationError()`
+    /// instead, so `awaitResponse(id:)`'s `group.next()` sees the real response's task win rather
+    /// than mistaking this branch's own wakeup for a timeout that didn't happen.
+    /// - Parameters:
+    ///   - id: The JSON-RPC id to fail if it is still pending once `timeout` elapses.
+    ///   - timeout: How long to wait before firing.
+    ///   - clock: The clock to sleep against.
+    ///   - pendingRequests: The table to resolve `id` against.
+    /// - Throws: `CodeContextError.timeout(timeout)` if `id` was still pending; `CancellationError`
+    ///   if the real response already resolved it first.
+    private static func failAfterTimeout(
+        id: Int, timeout: Duration, clock: any Clock<Duration>, pendingRequests: PendingRequestTable
+    ) async throws -> Data {
+        try await clock.sleep(for: timeout)
+        if pendingRequests.resolve(id: id, with: .failure(CodeContextError.timeout(timeout))) {
+            throw CodeContextError.timeout(timeout)
+        }
+        throw CancellationError()
     }
 
     /// Extracts a request's raw `result` field as re-encoded JSON, for callers that need the
