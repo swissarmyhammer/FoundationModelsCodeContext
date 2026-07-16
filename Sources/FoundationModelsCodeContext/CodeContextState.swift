@@ -121,10 +121,7 @@ public final class CodeContextState {
     /// See `publishProjects(_:)`'s documentation for this method's `nonisolated`/awaitable shape.
     /// - Parameter servers: The newly observed server statuses, one per managed daemon.
     public nonisolated func publishServers(_ servers: [ServerStatus]) async {
-        await MainActor.run {
-            self.servers = servers
-            self.isReady = Self.computeIsReady(indexing: self.indexing, servers: servers)
-        }
+        await publishAndRecomputeIsReady { self.servers = servers }
     }
 
     /// Publishes a fresh indexing-progress snapshot, replacing `indexing` wholesale, and
@@ -133,9 +130,22 @@ public final class CodeContextState {
     /// See `publishProjects(_:)`'s documentation for this method's `nonisolated`/awaitable shape.
     /// - Parameter indexing: The newly observed per-layer indexing progress.
     public nonisolated func publishIndexing(_ indexing: IndexProgress) async {
+        await publishAndRecomputeIsReady { self.indexing = indexing }
+    }
+
+    /// Applies a main-actor mutation, then recomputes and republishes `isReady` from the
+    /// (now-updated) `indexing`/`servers` state.
+    ///
+    /// Shared tail shape behind `publishServers(_:)` and `publishIndexing(_:)`: both hop to the
+    /// main actor, mutate exactly one property, and recompute `isReady` from current state — they
+    /// differ only in which property `update` mutates. Factored here so that shape exists once.
+    ///
+    /// See `publishProjects(_:)`'s documentation for this method's `nonisolated`/awaitable shape.
+    /// - Parameter update: A main-actor closure that mutates the property being published.
+    private nonisolated func publishAndRecomputeIsReady(_ update: @MainActor @Sendable () -> Void) async {
         await MainActor.run {
-            self.indexing = indexing
-            self.isReady = Self.computeIsReady(indexing: indexing, servers: self.servers)
+            update()
+            self.isReady = Self.computeIsReady(indexing: self.indexing, servers: self.servers)
         }
     }
 
