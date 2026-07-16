@@ -41,7 +41,11 @@ import FoundationModelsRouter
 ///     `Examples/MultiModelGeneration` for the fully-wired version of this
 ///     same resolve-then-drive call pattern.
 ///   - Live LSP-backed ops and full indexing need the workspace's language
-///     servers actually installed and on `PATH`.
+///     servers actually installed and on `PATH`. By default `CodeContext`
+///     auto-installs a missing server for a detected language (opt out with
+///     `CodeContext(..., autoInstall: LspAutoInstall(isEnabled: false))`; see
+///     the package README's "Language servers" section) — so this example
+///     needs no extra code to benefit, and passes no `autoInstall:` argument.
 ///
 /// Run with `swift run CodeContextExample [root] [query]` as a local smoke
 /// step once those pieces are wired up; it is not part of this package's

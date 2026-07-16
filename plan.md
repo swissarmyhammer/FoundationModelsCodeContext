@@ -388,6 +388,77 @@ state becomes actors.
   daemons + the 60s health loop, expose `status()`, `forceRestart(command:)`,
   `shutdown()`, and `session(forFileExtension:)`.
 
+### LSP auto-install (design record)
+
+A later addition over the original port: when a detected language's server
+binary is missing, the supervisor may install it automatically before falling
+back to the hint. Design decisions, matching the seams the code documents:
+
+- **`InstallSpec` on `ServerSpec`.** The Rust YAML specs' hint string stays
+  (`installHint`), but each server that has a scriptable native installer also
+  carries an optional `ServerSpec.InstallSpec { tool, arguments,
+  extraSearchDirectories }` — declared inline by the owning `LanguageModule`,
+  same as the spec itself, no separate registry. `installer == nil` means
+  hint-only: exactly the pre-existing behavior, and the permanent behavior for
+  `sourcekit-lsp` (ships with the toolchain), `clangd`, and `omnisharp`
+  (toolchain-dependent / unreliable installs). The scriptable ones are
+  `rust-analyzer` (`rustup`), `gopls` (`go`), `pylsp` (`pipx`),
+  `typescript-language-server` + `intelephense` (`npm`), and `jdtls` (`brew`)
+  — each the ecosystem's *native global* installer, i.e. the exact command a
+  user would type themselves, with the same global side effect.
+
+- **`ServerInstaller` engine + `InstallRunner` seam.** The auto-install
+  counterpart to `LSPDaemon`: where the daemon spawns and monitors the server,
+  `ServerInstaller` spawns the *installer* that puts the binary on `$PATH`
+  first. It is an `actor` recording every attempted command keyed by
+  `spec.command`, giving an **at-most-once-per-command** guarantee — the
+  backstop against install loops (an install that "succeeds" per its exit code
+  but doesn't leave the binary discoverable would otherwise retry every time
+  the daemon re-checks `$PATH`). Concurrent callers for one command all await
+  the same in-flight `Task`, so the installer runs exactly once. The process
+  spawn sits behind an `InstallRunner` protocol, mirroring how
+  `ConnectionFactory` decouples `LSPDaemon` from real processes: production
+  uses `ProcessInstallRunner` (real `Process`, bounded by a timeout, killed on
+  timeout or caller cancellation); tests inject a scripted `FakeInstallRunner`
+  and never spawn anything.
+
+- **`.notFound → .installing → forceRestart → .running / .notFound`.** The
+  supervisor gates on the daemon's initial spawn landing `.notFound`, the spec
+  carrying an installer, and the policy being enabled; if so it flips the
+  daemon to a new `.installing` state (`noteInstalling()`, called
+  synchronously before `start()` returns so a status read can never miss it)
+  and runs the install on an **owned, unstructured background task** — installs
+  take minutes and must not block `start()` — tracked per daemon and
+  cancelled+awaited by `shutdown()`, mirroring the health-check tasks. On
+  *both* success and failure the single exit from `.installing` is
+  `forceRestart()`, whose re-run of the binary lookup lands `.running` (binary
+  now present) or `.notFound` (still missing) — so there is deliberately no
+  dedicated "install failed" state. `.installing` is **not settled** (like
+  `.starting`): a workspace mid-install is not ready.
+
+- **`extraSearchDirectories`.** `go install` and `rustup component add` drop
+  their binary in a well-known directory (`~/go/bin`, `~/.cargo/bin`,
+  `~/.local/bin` for `pipx`) that is frequently **not** on the user's `$PATH`.
+  So `BinaryLookup.resolve(command:extraSearchDirectories:)` searches `$PATH`
+  first and then those directories (with `~` expansion), and both the
+  daemon's own lookup and the post-install re-check honor
+  `installer.extraSearchDirectories`. Without this, a successful `go
+  install`/`rustup` would still re-land `.notFound`. `npm -g` and `brew`
+  install onto `$PATH` directly, so their specs leave it empty.
+
+- **On by default, opt-out policy.** `LspAutoInstall { isEnabled = true,
+  timeout = .seconds(300) }` is threaded as `autoInstall: LspAutoInstall =
+  LspAutoInstall()` through `CodeContext`, `CodeContextManager` (handed to
+  every context it opens), and `LspSupervisor` (which owns the
+  `ServerInstaller`). **On by default** was the deliberate call: an agent
+  harness wants working code intelligence without the user hand-installing a
+  server per language, and running a native installer the user could have run
+  themselves is a bounded, legible side effect. But it *is* a real global side
+  effect, so it is a first-class opt-out: `LspAutoInstall(isEnabled: false)`
+  restores hint-only behavior for every server (identical to the pre-feature
+  world and to any `nil`-installer spec), and `timeout` bounds a slow install.
+  The default keeps every existing caller source-compatible.
+
 ### Observable state for SwiftUI (in-memory)
 
 The kit unifies everything it knows — detected projects, LSP daemon health,

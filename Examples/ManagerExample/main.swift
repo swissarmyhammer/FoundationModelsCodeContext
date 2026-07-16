@@ -27,7 +27,10 @@ import FoundationModelsRouter
 /// `swift build` / `swift test` are this package's automated verification; a real, weight-
 /// downloading `swift run ManagerExample [parent] [query]` needs the pieces `CodeContextExample`'s
 /// header documents (a configured `LiveModelLoader`, installed language servers on `PATH`), and is
-/// a local smoke step only, not part of automated verification.
+/// a local smoke step only, not part of automated verification. Like `CodeContext`,
+/// `CodeContextManager` auto-installs a detected language's missing server by default and hands the
+/// same policy to every root it opens — pass `autoInstall: LspAutoInstall(isEnabled: false)` to opt
+/// out (see the package README's "Language servers" section); this example relies on the default.
 
 let arguments = CommandLine.arguments
 let parentPath = arguments.count > 1 ? arguments[1] : FileManager.default.currentDirectoryPath

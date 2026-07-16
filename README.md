@@ -79,6 +79,59 @@ for hit in hits {
 await manager.shutdown()
 ```
 
+## Language servers
+
+`start()` detects which languages live under the root, maps each to its
+language server, and spawns one daemon per server binary. When a server's
+binary is missing from `$PATH`, `CodeContext` **auto-installs it by default**
+— it runs the ecosystem's own native global installer (`rustup`, `go`,
+`pipx`, `npm`, or `brew`), each gated on that installer tool itself being
+present, then re-checks and starts the server. A server whose binary is
+mid-install reports as `.installing` in `CodeContextState.servers` until the
+install finishes, at which point it lands `.running` (installed) or
+`.notFound` (still missing) — and each command is attempted at most once, so
+a failed install never loops.
+
+| Language(s) | Server | Auto-install command | Installer tool |
+|---|---|---|---|
+| Rust | `rust-analyzer` | `rustup component add rust-analyzer` | `rustup` |
+| Go | `gopls` | `go install golang.org/x/tools/gopls@latest` | `go` |
+| Python | `pylsp` | `pipx install python-lsp-server` | `pipx` |
+| TypeScript / JavaScript / TSX | `typescript-language-server` | `npm install -g typescript-language-server typescript` | `npm` |
+| PHP | `intelephense` | `npm install -g intelephense` | `npm` |
+| Java | `jdtls` | `brew install jdtls` | `brew` |
+| Swift | `sourcekit-lsp` | hint only — install Xcode or a Swift toolchain | — |
+| C / C++ | `clangd` | hint only — install via your package manager | — |
+| C# | `omnisharp` | hint only — install OmniSharp | — |
+
+The last three are **hint-only**: no automatic installer ships for them (they
+depend on a full toolchain or have unreliable installs), so a missing binary
+stays `.notFound` with its install hint, exactly as every server behaved
+before auto-install existed.
+
+**Opting out.** Pass an `LspAutoInstall` when constructing a `CodeContext` or
+`CodeContextManager` to disable auto-install or change how long an install may
+run before it is treated as failed:
+
+```swift
+// Never auto-install; fall back to install-hint-only guidance for every server.
+let context = try await CodeContext(
+    rootDirectory: repoURL,
+    embedder: embedder,
+    autoInstall: LspAutoInstall(isEnabled: false)
+)
+
+// Keep auto-install on, but bound each install command at 120 seconds
+// (the default is 300).
+let manager = await CodeContextManager(
+    embedder: embedder,
+    autoInstall: LspAutoInstall(timeout: .seconds(120))
+)
+```
+
+The default `LspAutoInstall()` is enabled with a 300-second per-install
+timeout, so existing callers get auto-install without changing any code.
+
 ## Install
 
 Add to your `Package.swift` dependencies (requires macOS 27):
