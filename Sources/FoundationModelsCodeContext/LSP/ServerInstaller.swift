@@ -125,19 +125,6 @@ struct ProcessInstallRunner: InstallRunner {
             throw CodeContextError.spawnFailed("\(tool): \(error.localizedDescription)")
         }
 
-        // Captured as a raw pid rather than closing over `process` itself in the concurrent
-        // closures below: `Process` is not `Sendable`, so every closure that can run concurrently
-        // with `run`'s own execution (the timeout task, the cancellation handler) only ever
-        // touches this `Int32` and never the process object, mirroring how
-        // `ProcessLanguageServerConnection`'s background loops capture a raw file descriptor
-        // rather than the `FileHandle`/`Process` itself. This does leave an accepted, narrow
-        // residual risk: `timeoutTask` and `onCancel` below both call `kill(pid, SIGKILL)`
-        // unconditionally, so if the process has already exited and the OS has recycled `pid` for
-        // an unrelated process in the brief window before either call runs, that unrelated process
-        // could be signaled instead. `ProcessLanguageServerConnection.close()` accepts the same
-        // unconditional-`kill`-by-pid risk already; both call sites judge the window (a handful of
-        // scheduler ticks between exit and the next `kill` call) an acceptable tradeoff against the
-        // complexity of a synchronized "already exited" flag.
         let pid = process.processIdentifier
 
         let tailBuffer = BoundedTailBuffer(maxChunks: 40)
@@ -146,15 +133,59 @@ struct ProcessInstallRunner: InstallRunner {
             Self.drainOutput(fileDescriptor: outputFileDescriptor, into: tailBuffer)
         }
 
-        let installClock = clock
+        return try await Self.awaitCompletion(
+            process: process, pid: pid, timeout: timeout, clock: clock, drainTask: drainTask, tailBuffer: tailBuffer
+        )
+    }
 
-        return try await withTaskCancellationHandler {
+    /// Races a spawned installer process's natural exit against `timeout` and against the calling
+    /// task's own cancellation, resolving to exactly one `InstallRunResult` (or throwing).
+    ///
+    /// Extracted out of `run(tool:arguments:timeout:)` so that method reads as a linear
+    /// spawn-then-await sequence: this is the one place the three independent completion paths —
+    /// `process.terminationHandler` firing on natural exit, `timeoutTask` firing first, and
+    /// `withTaskCancellationHandler`'s `onCancel` firing on cancellation — are coordinated, all
+    /// synchronized through a single `ResumeOnce` so whichever path resolves first wins and the
+    /// other two become no-ops.
+    ///
+    /// Captures `pid` as a raw `Int32` rather than closing over `process` itself: `Process` is not
+    /// `Sendable`, so every closure below that can run concurrently with this function's own
+    /// execution (the timeout task, the cancellation handler) only ever touches `pid`, mirroring
+    /// how `ProcessLanguageServerConnection`'s background loops capture a raw file descriptor
+    /// rather than the `FileHandle`/`Process` itself. This does leave an accepted, narrow residual
+    /// risk: `timeoutTask` and `onCancel` below both call `kill(pid, SIGKILL)` unconditionally, so
+    /// if the process has already exited and the OS has recycled `pid` for an unrelated process in
+    /// the brief window before either call runs, that unrelated process could be signaled instead.
+    /// `ProcessLanguageServerConnection.close()` accepts the same unconditional-`kill`-by-pid risk
+    /// already; both call sites judge the window (a handful of scheduler ticks between exit and
+    /// the next `kill` call) an acceptable tradeoff against the complexity of a synchronized
+    /// "already exited" flag.
+    /// - Parameters:
+    ///   - process: The already-spawned installer process, needed only to install
+    ///     `terminationHandler`.
+    ///   - pid: `process`'s id, captured separately since `Process` is not `Sendable`.
+    ///   - timeout: How long to wait before killing `pid` and throwing `CodeContextError.timeout`.
+    ///   - clock: The clock the timeout sleeps against.
+    ///   - drainTask: The detached task draining `process`'s combined stdout+stderr into
+    ///     `tailBuffer`; awaited before resolving so the returned result's `output` is complete.
+    ///   - tailBuffer: The bounded tail buffer `drainTask` appends to.
+    /// - Returns: The completed run's exit code and output tail.
+    /// - Throws: `CodeContextError.timeout` if `timeout` elapses before the process exits.
+    private static func awaitCompletion(
+        process: Process,
+        pid: Int32,
+        timeout: Duration,
+        clock: any Clock<Duration>,
+        drainTask: Task<Void, Never>,
+        tailBuffer: BoundedTailBuffer
+    ) async throws -> InstallRunResult {
+        try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<InstallRunResult, Error>) in
                 let resumeGuard = ResumeOnce(continuation: continuation)
 
                 let timeoutTask = Task {
                     do {
-                        try await installClock.sleep(for: timeout)
+                        try await clock.sleep(for: timeout)
                     } catch {
                         // Cancelled below once the process exits on its own first.
                         return
@@ -184,32 +215,17 @@ struct ProcessInstallRunner: InstallRunner {
     /// Reads `fileDescriptor` until EOF, appending every chunk read to `tailBuffer`.
     ///
     /// Runs detached, outside any actor isolation, mirroring
-    /// `ProcessLanguageServerConnection.runStderrDrainLoop`: a single raw `read(2)` call per
-    /// iteration returns as soon as any data is available, and an `EINTR` (a read interrupted by
-    /// a signal — frequent when other child processes are also being spawned/reaped concurrently)
-    /// is retried rather than treated as EOF.
+    /// `ProcessLanguageServerConnection.runStderrDrainLoop`: both loop on the shared
+    /// `ProcessUtilities.readChunk(from:bufferSize:)` (see its doc comment for why a single raw
+    /// `read(2)` call is used, and why `EINTR` is retried rather than treated as EOF).
     /// - Parameters:
     ///   - fileDescriptor: The pipe read end's raw file descriptor.
     ///   - tailBuffer: The bounded tail buffer to append every read chunk to.
     private static func drainOutput(fileDescriptor: Int32, into tailBuffer: BoundedTailBuffer) {
-        let chunkSize = 65536
-        var buffer = [UInt8](repeating: 0, count: chunkSize)
-        while true {
-            errno = 0
-            let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
-                guard let baseAddress = rawBuffer.baseAddress else { return -1 }
-                return read(fileDescriptor, baseAddress, chunkSize)
+        while let chunk = ProcessUtilities.readChunk(from: fileDescriptor, bufferSize: 65536) {
+            if let text = String(data: chunk, encoding: .utf8) {
+                tailBuffer.append(chunk: text)
             }
-            if bytesRead > 0 {
-                if let text = String(data: Data(buffer[0..<bytesRead]), encoding: .utf8) {
-                    tailBuffer.append(chunk: text)
-                }
-                continue
-            }
-            if bytesRead < 0, errno == EINTR {
-                continue
-            }
-            return
         }
     }
 }
