@@ -19,8 +19,12 @@ comments:
   id: 01kxrzt4rdybyat219bapfeccp
   text: 'Iteration 1 — /implement landed green in `doing`. SearchCorpus rewritten for per-file incremental re-index (cache keyed by ts_chunks.file_path; generation short-circuit; signature diff carries embedding byte-length to catch dimension changes). Added SearchCorpusIncrementalTests. Full suite green (541 tests, 0 failures). NOTE: implementer adopted Ranker''s additive streaming *pattern* + RankedDocument primitive rather than wrapping FoundationModelsRanker.SearchCorpus directly (its add() hardcodes item id as BM25 primary field; this corpus needs the symbol path there). User has flagged a follow-up to actually use Ranker''s streaming/updateable index APIs — capturing as a separate task.'
   timestamp: 2026-07-17T21:30:38.733046+00:00
-position_column: todo
-position_ordinal: '80'
+- actor: claude-code
+  id: 01kxs06na240e0ktz2dw488bqt
+  text: 'Iteration 1 complete → DONE. /test green (541 tests), checkpoint committed locally (78c9fe4), /review clean (0 findings, 14 checks) and moved task doing→review→done. Verified-good commit is 78c9fe4. Total: 1 iteration.'
+  timestamp: 2026-07-17T21:37:28.898690+00:00
+position_column: done
+position_ordinal: b480
 title: Adopt Ranker streaming corpus APIs for incremental file re-index
 ---
 ## What

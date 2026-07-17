@@ -2,6 +2,11 @@ import Foundation
 import GRDB
 import FoundationModelsRanker
 
+/// `FoundationModelsRanker`'s updateable, additive retrieval index — the
+/// container this workspace's `SearchCorpus` splices per-file, aliased here so
+/// its bare name never collides with this module's own `SearchCorpus`.
+private typealias RankerIndex = FoundationModelsRanker.SearchCorpus
+
 /// A cached, contiguous snapshot of one workspace's `ts_chunks` table, ready
 /// for BM25/trigram keyword scoring and `vDSP_mmul` cosine scoring — the
 /// data `SearchCode.run(corpus:embedder:query:topK:weights:)` ranks against.
@@ -106,50 +111,64 @@ public struct SearchCorpusSnapshot: Sendable {
 /// invalidation call, no process restart — because `snapshot()` reacts to
 /// `store.generation` advancing.
 ///
-/// **Incremental lifecycle.** The corpus keeps a per-file cache of already
-/// tokenized/trigrammed `RankedDocument`s and decoded embedding vectors,
-/// keyed by `ts_chunks.file_path` — the same additive, group-keyed streaming
-/// shape FoundationModelsRanker's `SearchCorpus` uses for session transcripts
-/// (its group key is a session id; ours is a file path). When `generation`
-/// advances, `snapshot()` runs one cheap scan of `ts_chunks` (ids and
-/// embedding byte lengths only — no text, no embedding blobs) to find which
-/// files' chunks actually changed, then re-tokenizes and re-decodes **only
-/// those files**, reusing every untouched file's precompute verbatim. A file
-/// whose rows are gone is dropped; the packed cosine matrix is repacked from
-/// the cached vectors (a `memcpy` of already-persisted embeddings — no
-/// re-embedding). The BM25 corpus globals (`idf`/`avgdl`) aren't cached here
-/// at all: `SearchCode` rebuilds them per query from the live snapshot, so
-/// they are always correct after any incremental splice, exactly as after a
-/// from-scratch load.
+/// **The retrieval index is `FoundationModelsRanker.SearchCorpus`.** Each
+/// chunk becomes one row of that additive, updateable index — the chunk's
+/// integer `ts_chunks.id` (as a `String`) is its id, its qualified symbol
+/// path is the primaryText field (BM25/trigram-weighted `BM25.primaryFieldWeight`,
+/// via `Searchable.primaryText`), its source text is the body field, and its
+/// **file path is the eviction group**. The Ranker index owns each row's
+/// tokenized/trigrammed `RankedDocument` (built once, at add time, by
+/// `RankerIndex.add(items:)`) and its decoded embedding vector
+/// (`RankerIndex.setEmbedding(_:forID:ifTextMatches:)` /
+/// `embedding(forID:)`), so this type stores neither redundantly.
+///
+/// **Incremental lifecycle.** Editing a file is `remove(group:) + add(items:)`
+/// on the Ranker index — exactly the group-keyed additive streaming shape
+/// `FoundationModelsRanker.SearchCorpus` is built for (its motivating group
+/// key is a session id; ours is a file path). When `generation` advances,
+/// `snapshot()` runs one cheap scan of `ts_chunks` (ids and embedding byte
+/// lengths only — no text, no embedding blobs) to find which files' chunks
+/// actually changed, evicts each changed or deleted file's rows from the
+/// index by group, and re-adds only the changed files' rows — reusing every
+/// untouched row's precompute and stored embedding verbatim, since the
+/// Ranker index never re-tokenizes or re-embeds a surviving row. The packed
+/// cosine matrix is repacked from the index's per-row embeddings (a `memcpy`
+/// of already-decoded vectors — no re-embedding). The BM25 corpus globals
+/// (`idf`/`avgdl`) aren't cached at all: `SearchCode` rebuilds them per query
+/// from the live snapshot, so they are always correct after any incremental
+/// splice, exactly as after a from-scratch load.
 ///
 /// **Full reload stays the cold-start path and the fallback.** The very first
-/// `snapshot()` (empty cache) loads every row in one query — identical to the
-/// pre-incremental behavior — and any state the incremental path can't reason
-/// about locally (a file whose signature changed) resolves to re-loading that
-/// file's rows from `store`, the durable source of truth.
+/// `snapshot()` (empty cache) loads every row in one query and adds them all
+/// to a fresh index — identical to the pre-incremental behavior — and any
+/// state the incremental path can't reason about locally (a file whose
+/// signature changed) resolves to re-loading that file's rows from `store`,
+/// the durable source of truth.
 ///
-/// Why this doesn't wrap `FoundationModelsRanker.SearchCorpus` directly: that
-/// value type builds each row's `RankedDocument` from the item's *id* as the
-/// BM25/trigram primary field, whereas this corpus needs the chunk's
-/// *symbol path* as the primary field (heavily weighted, `BM25.primaryFieldWeight`)
-/// with the chunk's integer id kept separately for identity and result
-/// mapping — plus per-chunk file path, kind, line range, and a packed cosine
-/// matrix the Ranker's type doesn't carry. So this adopts the Ranker's
-/// additive streaming *pattern* and its `RankedDocument` precompute primitive,
-/// rather than its corpus container.
+/// **What the Ranker index can't carry, and this type keeps beside it.**
+/// `FoundationModelsRanker.SearchCorpus`'s row holds only text, summary,
+/// group, and embedding, and exposes embeddings per-row rather than as a
+/// packed matrix. So two things stay local: (1) a per-file `FileEntry` of the
+/// change **signature** (for the cheap diff) plus each chunk's result
+/// **metadata** — file path, symbol path as a plain string, kind, and line
+/// range — none of which the index can round-trip; and (2) the contiguous
+/// `vDSP_mmul` cosine **matrix**, repacked at assembly from the index's
+/// per-row vectors, which `SearchCorpusSnapshot.cosineScores(queryVector:)`
+/// and its matvec tests depend on.
 public actor SearchCorpus {
     private let store: Store
 
     /// The current cache: the generation it was built at, the per-file
-    /// entries it was assembled from (for the next incremental diff), and the
-    /// assembled snapshot itself. `nil` until the first `snapshot()`.
+    /// entries it was assembled from (for the next incremental diff), the
+    /// Ranker retrieval index those entries index into, and the assembled
+    /// snapshot itself. `nil` until the first `snapshot()`.
     private var cache: Cache?
 
-    /// The number of chunks re-tokenized (a fresh `RankedDocument` built)
-    /// during the most recent `snapshot()` that rebuilt the cache — the whole
-    /// corpus on a cold start, only the changed files' chunks on an
-    /// incremental update, and `0` when a generation bump changed no
-    /// `ts_chunks` row. Internal, for the perf-guard tests.
+    /// The number of chunks re-tokenized (a fresh `RankedDocument` built by
+    /// `RankerIndex.add(items:)`) during the most recent `snapshot()` that
+    /// rebuilt the cache — the whole corpus on a cold start, only the changed
+    /// files' chunks on an incremental update, and `0` when a generation bump
+    /// changed no `ts_chunks` row. Internal, for the perf-guard tests.
     private(set) var lastBuildReTokenizedChunkCount = 0
 
     /// The number of embedding blobs decoded during the most recent
@@ -189,15 +208,22 @@ public actor SearchCorpus {
         var generation: Int
 
         /// The per-file entries the snapshot was assembled from, keyed by
-        /// file path — the input to the next incremental diff.
+        /// file path — the input to the next incremental diff, and the
+        /// per-chunk result metadata the Ranker index can't carry.
         var files: [String: FileEntry]
+
+        /// The Ranker retrieval index `files`' chunks index into: one row per
+        /// chunk (id = `ts_chunks.id` as a `String`, primaryText = symbol
+        /// path, body = text, group = file path), plus each row's decoded
+        /// embedding. Spliced per file by `remove(group:) + add(items:)`.
+        var index: RankerIndex
 
         /// The assembled snapshot handed to callers.
         var snapshot: SearchCorpusSnapshot
     }
 
     /// One file's cached precompute: the change signature that decides
-    /// whether it must be reloaded, and its already-processed chunks.
+    /// whether it must be reloaded, and its chunks' result metadata.
     private struct FileEntry: Sendable {
         /// This file's chunks' `(id, embeddingByteCount)` pairs in id order —
         /// the cheap fingerprint compared against a fresh scan to detect a
@@ -205,8 +231,11 @@ public actor SearchCorpus {
         /// change (byte count moves) (see `SignatureEntry`).
         let signature: [SignatureEntry]
 
-        /// This file's fully-processed chunks, in id order.
-        let chunks: [CachedChunk]
+        /// This file's chunks' result metadata, in id order — the fields the
+        /// Ranker index doesn't round-trip (file path, symbol path as a plain
+        /// string, kind, line range), joined back to the index's per-row
+        /// retrieval state at assembly by id.
+        let chunks: [ChunkMetadata]
     }
 
     /// One chunk's contribution to a file's change signature: its id and its
@@ -236,29 +265,21 @@ public actor SearchCorpus {
         let embeddingByteCount: Int
     }
 
-    /// One `ts_chunks` row after its expensive per-chunk precompute — the
-    /// tokenized/trigrammed `RankedDocument` and the decoded embedding — so a
-    /// snapshot rebuild that reuses this chunk pays neither cost again.
-    private struct CachedChunk: Sendable {
+    /// One `ts_chunks` row's result metadata — the fields
+    /// `FoundationModelsRanker.SearchCorpus`'s row doesn't carry (its row is
+    /// only text/summary/group/embedding), kept beside the Ranker index and
+    /// joined back to it by id at assembly.
+    private struct ChunkMetadata: Sendable {
         let id: Int64
         let filePath: String
         let symbolPath: String
-        let text: String
         let kind: SymbolMetaType
         let startLine: Int
         let endLine: Int
-
-        /// The decoded embedding, or `nil` if the row had none. Repacked into
-        /// the snapshot's contiguous matrix by `assemble(files:)` with no
-        /// re-decode.
-        let vector: [Float]?
-
-        /// The precomputed BM25/trigram statistics — symbol path as the
-        /// primary field, body text as the body field.
-        let rankedDocument: RankedDocument
     }
 
-    /// One `ts_chunks` row as loaded from disk, before its precompute.
+    /// One `ts_chunks` row as loaded from disk, before it is spliced into the
+    /// Ranker index.
     private struct ChunkRow: Sendable {
         let id: Int64
         let filePath: String
@@ -277,12 +298,25 @@ public actor SearchCorpus {
     /// changed.
     private func rebuild(currentGeneration: Int) async throws -> SearchCorpusSnapshot {
         guard let existing = cache else {
-            // Cold start: load every file in one query, exactly as before the
-            // incremental path existed.
-            let files = try await loadAllFiles()
-            recordWork(in: files.values)
-            let snapshot = assemble(files: files)
-            cache = Cache(generation: currentGeneration, files: files, snapshot: snapshot)
+            // Cold start: load every file in one query and add every row to a
+            // fresh index, exactly as before the incremental path existed.
+            let rowsByFile = try await loadAllRows()
+
+            var index = RankerIndex()
+            var files: [String: FileEntry] = [:]
+            var reTokenized = 0
+            var reDecoded = 0
+            for (path, rows) in rowsByFile {
+                let spliced = splice(path: path, rows: rows, into: &index)
+                files[path] = spliced.entry
+                reTokenized += spliced.addedCount
+                reDecoded += spliced.decodedCount
+            }
+            lastBuildReTokenizedChunkCount = reTokenized
+            lastBuildReDecodedChunkCount = reDecoded
+
+            let snapshot = assemble(files: files, index: index)
+            cache = Cache(generation: currentGeneration, files: files, index: index, snapshot: snapshot)
             return snapshot
         }
 
@@ -300,40 +334,89 @@ public actor SearchCorpus {
             // Generation advanced without touching any `ts_chunks` row (e.g. a
             // dirty-flag flip): reuse the snapshot untouched, just revalidate
             // it for this generation so the next call short-circuits.
-            recordWork(in: EmptyCollection())
-            cache = Cache(generation: currentGeneration, files: existing.files, snapshot: existing.snapshot)
+            lastBuildReTokenizedChunkCount = 0
+            lastBuildReDecodedChunkCount = 0
+            cache = Cache(
+                generation: currentGeneration, files: existing.files, index: existing.index, snapshot: existing.snapshot
+            )
             return existing.snapshot
         }
 
-        let reloaded = try await loadFiles(paths: changedPaths)
+        let reloadedRows = try await loadRows(paths: changedPaths)
 
+        // The whole splice is synchronous, after the last `await` — never
+        // mutating the index or the counters across a suspension point, where
+        // actor reentrancy could interleave another `snapshot()`.
+        var index = existing.index
         var files = existing.files
         for path in removedPaths {
+            index.remove(group: path)
             files[path] = nil
         }
-        for (path, entry) in reloaded {
-            files[path] = entry
+        var reTokenized = 0
+        var reDecoded = 0
+        for path in changedPaths {
+            // Evict the file's old rows by group, then re-add its new ones —
+            // the group-keyed additive splice. The chunk ids are fresh
+            // autoincrement values (a re-chunk `DELETE`+`INSERT`s), so the
+            // re-add never collides with the just-evicted rows.
+            index.remove(group: path)
+            let spliced = splice(path: path, rows: reloadedRows[path] ?? [], into: &index)
+            files[path] = spliced.entry
+            reTokenized += spliced.addedCount
+            reDecoded += spliced.decodedCount
         }
+        lastBuildReTokenizedChunkCount = reTokenized
+        lastBuildReDecodedChunkCount = reDecoded
 
-        // Record the reload cost once, synchronously, after the last `await`
-        // — never incrementing shared counters across a suspension point,
-        // where actor reentrancy could interleave another `snapshot()`.
-        recordWork(in: reloaded.values)
-
-        let snapshot = assemble(files: files)
-        cache = Cache(generation: currentGeneration, files: files, snapshot: snapshot)
+        let snapshot = assemble(files: files, index: index)
+        cache = Cache(generation: currentGeneration, files: files, index: index, snapshot: snapshot)
         return snapshot
     }
 
-    /// Records this rebuild's re-tokenize/re-decode cost into the
-    /// instrumentation seams from the entries it actually (re)built — the
-    /// whole corpus on a cold start, only the reloaded files on an incremental
-    /// update, and nothing (`0`) when no file changed.
+    /// Adds one file's `rows` to `index` (id = `ts_chunks.id` as a `String`,
+    /// primaryText = symbol path, body = text, group = `path`), decodes and
+    /// stores each row's embedding on its index row, and returns the file's
+    /// `FileEntry` (change signature + result metadata) alongside the
+    /// re-tokenize/re-decode counts this splice incurred.
     ///
-    /// - Parameter entries: the `FileEntry`s this rebuild freshly precomputed.
-    private func recordWork(in entries: some Collection<FileEntry>) {
-        lastBuildReTokenizedChunkCount = entries.reduce(0) { $0 + $1.chunks.count }
-        lastBuildReDecodedChunkCount = entries.reduce(0) { $0 + $1.chunks.lazy.filter { $0.vector != nil }.count }
+    /// Caller-ordered: any prior rows for `path` must already have been
+    /// evicted (`index.remove(group: path)`) so the id-unique re-add never
+    /// hits `add(items:)`'s duplicate-id drop.
+    ///
+    /// - Parameters:
+    ///   - path: the file whose rows these are — the index eviction group.
+    ///   - rows: the file's `ts_chunks` rows, in id order.
+    ///   - index: the Ranker index to add into, mutated in place.
+    /// - Returns: the file's cache entry, the number of rows added (each a
+    ///   fresh `RankedDocument`), and the number of embeddings decoded.
+    private func splice(
+        path: String, rows: [ChunkRow], into index: inout RankerIndex
+    ) -> (entry: FileEntry, addedCount: Int, decodedCount: Int) {
+        let items = rows.map { row in
+            SearchItem(id: String(row.id), text: row.text, primaryText: row.symbolPath, group: path)
+        }
+        let addedCount = index.add(items: items).count
+
+        var decodedCount = 0
+        for row in rows {
+            guard let blob = row.embedding else { continue }
+            index.setEmbedding(EmbeddingCodec.decode(blob), forID: String(row.id), ifTextMatches: row.text)
+            decodedCount += 1
+        }
+
+        let signature = rows.map { SignatureEntry(id: $0.id, embeddingByteCount: $0.embedding?.count ?? 0) }
+        let chunks = rows.map { row in
+            ChunkMetadata(
+                id: row.id,
+                filePath: row.filePath,
+                symbolPath: row.symbolPath,
+                kind: row.kind,
+                startLine: row.startLine,
+                endLine: row.endLine
+            )
+        }
+        return (FileEntry(signature: signature, chunks: chunks), addedCount, decodedCount)
     }
 
     // MARK: - Loading
@@ -368,9 +451,9 @@ public actor SearchCorpus {
         return signatures
     }
 
-    /// Loads and precomputes every `ts_chunks` row in one query — the
-    /// cold-start bulk load — grouped into per-file entries.
-    private func loadAllFiles() async throws -> [String: FileEntry] {
+    /// Loads every `ts_chunks` row in one query — the cold-start bulk load —
+    /// grouped by file path.
+    private func loadAllRows() async throws -> [String: [ChunkRow]] {
         let rows = try await fetchRows(sql: """
             \(Self.rowColumns) \
             FROM \(Schema.TsChunks.table) ORDER BY \(Schema.TsChunks.filePath), \(Schema.TsChunks.id)
@@ -380,29 +463,28 @@ public actor SearchCorpus {
         for row in rows {
             rowsByFile[row.filePath, default: []].append(row)
         }
-        return rowsByFile.mapValues { makeFileEntry(rows: $0) }
+        return rowsByFile
     }
 
-    /// Loads and precomputes exactly `paths`' rows — the incremental reload —
-    /// one query per file so the bound-parameter count stays fixed regardless
-    /// of corpus size.
-    private func loadFiles(paths: [String]) async throws -> [String: FileEntry] {
-        var entries: [String: FileEntry] = [:]
+    /// Loads exactly `paths`' rows — the incremental reload — one query per
+    /// file so the bound-parameter count stays fixed regardless of corpus
+    /// size.
+    private func loadRows(paths: [String]) async throws -> [String: [ChunkRow]] {
+        var rowsByFile: [String: [ChunkRow]] = [:]
         for path in paths {
-            let rows = try await fetchRows(
+            rowsByFile[path] = try await fetchRows(
                 sql: """
                     \(Self.rowColumns) \
                     FROM \(Schema.TsChunks.table) WHERE \(Schema.TsChunks.filePath) = ? ORDER BY \(Schema.TsChunks.id)
                     """,
                 arguments: [path]
             )
-            entries[path] = makeFileEntry(rows: rows)
         }
-        return entries
+        return rowsByFile
     }
 
-    /// The `SELECT` column list shared by `loadAllFiles()` and
-    /// `loadFiles(paths:)`, which differ only in their `WHERE`/`ORDER BY`.
+    /// The `SELECT` column list shared by `loadAllRows()` and
+    /// `loadRows(paths:)`, which differ only in their `WHERE`/`ORDER BY`.
     private static let rowColumns = """
         SELECT \(Schema.TsChunks.id), \(Schema.TsChunks.filePath), \(Schema.TsChunks.startLine), \
                \(Schema.TsChunks.endLine), \(Schema.TsChunks.text), \(Schema.TsChunks.symbolPath), \
@@ -428,49 +510,44 @@ public actor SearchCorpus {
         }
     }
 
-    // MARK: - Precompute & assembly
+    // MARK: - Assembly
 
-    /// Precomputes one file's `rows` (in id order) into a `FileEntry`: each
-    /// chunk's decoded embedding vector and its tokenized/trigrammed
-    /// `RankedDocument`, plus the file's `(id, embeddingByteCount)` change
-    /// signature. Pure — the rebuild counts its cost from the returned entries
-    /// (`recordWork(in:)`), so this never touches the instrumentation seams
-    /// itself.
-    private func makeFileEntry(rows: [ChunkRow]) -> FileEntry {
-        let chunks = rows.map { row in
-            CachedChunk(
-                id: row.id,
-                filePath: row.filePath,
-                symbolPath: row.symbolPath,
-                text: row.text,
-                kind: row.kind,
-                startLine: row.startLine,
-                endLine: row.endLine,
-                vector: row.embedding.map { EmbeddingCodec.decode($0) },
-                rankedDocument: RankedDocument(primaryText: row.symbolPath, bodyText: row.text)
-            )
+    /// Assembles the cached `files` and the Ranker `index` into a
+    /// `SearchCorpusSnapshot`: flattens every file's chunk metadata into one
+    /// id-ordered sequence (so `chunkIds` match a from-scratch load's `ORDER
+    /// BY id`), joins each chunk back to the index's per-row retrieval state
+    /// (its `RankedDocument`, text, and decoded embedding) by id, and repacks
+    /// the contiguous cosine matrix from the index's already-decoded vectors —
+    /// a `memcpy`, never a re-decode or re-embed.
+    ///
+    /// - Parameters:
+    ///   - files: the per-file metadata cache — the authority on which chunks
+    ///     exist and their result metadata.
+    ///   - index: the Ranker retrieval index those chunks index into.
+    /// - Returns: the assembled snapshot.
+    private func assemble(files: [String: FileEntry], index: RankerIndex) -> SearchCorpusSnapshot {
+        let metas = files.values.flatMap(\.chunks).sorted { $0.id < $1.id }
+
+        // The index keeps its rows in add order; the join keys every chunk's
+        // metadata back to its `RankedDocument` by id. Every metadata id is a
+        // live index row (the splice keeps `files` and `index` in lockstep),
+        // so this lookup never misses.
+        var documentByID: [String: RankedDocument] = [:]
+        documentByID.reserveCapacity(index.ids.count)
+        for (id, document) in zip(index.ids, index.documents) {
+            documentByID[id] = document
         }
-        let signature = rows.map { SignatureEntry(id: $0.id, embeddingByteCount: $0.embedding?.count ?? 0) }
-        return FileEntry(signature: signature, chunks: chunks)
-    }
 
-    /// Assembles the cached `files` into a `SearchCorpusSnapshot`: flattens
-    /// every file's chunks into one id-ordered sequence (so `chunkIds` match a
-    /// from-scratch load's `ORDER BY id`), then repacks the contiguous cosine
-    /// matrix from the already-decoded per-chunk vectors — a `memcpy`, never a
-    /// re-decode or re-embed.
-    private func assemble(files: [String: FileEntry]) -> SearchCorpusSnapshot {
-        let chunks = files.values.flatMap(\.chunks).sorted { $0.id < $1.id }
-        let embeddingDimension = chunks.lazy.compactMap { $0.vector?.count }.first ?? 0
+        let embeddingDimension = metas.lazy.compactMap { index.embedding(forID: String($0.id))?.count }.first ?? 0
 
         var embeddingMatrix: [Float] = []
-        embeddingMatrix.reserveCapacity(chunks.count * embeddingDimension)
+        embeddingMatrix.reserveCapacity(metas.count * embeddingDimension)
         var embeddedFlags: [Bool] = []
-        embeddedFlags.reserveCapacity(chunks.count)
+        embeddedFlags.reserveCapacity(metas.count)
 
-        for chunk in chunks {
+        for meta in metas {
             Self.appendEmbeddingRow(
-                vector: chunk.vector,
+                vector: index.embedding(forID: String(meta.id)),
                 embeddingDimension: embeddingDimension,
                 matrix: &embeddingMatrix,
                 embeddedFlags: &embeddedFlags
@@ -478,24 +555,24 @@ public actor SearchCorpus {
         }
 
         return SearchCorpusSnapshot(
-            chunkIds: chunks.map(\.id),
-            filePaths: chunks.map(\.filePath),
-            symbolPaths: chunks.map(\.symbolPath),
-            texts: chunks.map(\.text),
-            kinds: chunks.map(\.kind),
-            startLines: chunks.map(\.startLine),
-            endLines: chunks.map(\.endLine),
+            chunkIds: metas.map(\.id),
+            filePaths: metas.map(\.filePath),
+            symbolPaths: metas.map(\.symbolPath),
+            texts: metas.map { index.block(forID: String($0.id)) ?? "" },
+            kinds: metas.map(\.kind),
+            startLines: metas.map(\.startLine),
+            endLines: metas.map(\.endLine),
             embeddedFlags: embeddedFlags,
             embeddingDimension: embeddingDimension,
             embeddingMatrix: embeddingMatrix,
-            rankedDocuments: chunks.map(\.rankedDocument)
+            rankedDocuments: metas.map { documentByID[String($0.id)]! }
         )
     }
 
     /// Appends one chunk's row to `matrix` (and its flag to `embeddedFlags`):
-    /// the cached vector if present and matching `embeddingDimension`, or an
-    /// all-zero row otherwise (which scores an exact `0.0` cosine, matching
-    /// `Signals.cosine`'s documented "no embedding" value).
+    /// the index's stored vector if present and matching `embeddingDimension`,
+    /// or an all-zero row otherwise (which scores an exact `0.0` cosine,
+    /// matching `Signals.cosine`'s documented "no embedding" value).
     private static func appendEmbeddingRow(
         vector: [Float]?,
         embeddingDimension: Int,

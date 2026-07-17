@@ -30,7 +30,7 @@ struct InstallSpecTests {
 
     @Test
     func typeScriptFamilyInstallerUsesNpmInstallGlobal() {
-        let installer = try? #require(SharedServerSpecs.typeScriptFamily.installer)
+        let installer = SharedServerSpecs.typeScriptFamily.installer
         #expect(installer?.tool == "npm")
         #expect(installer?.arguments == ["install", "-g", "typescript-language-server", "typescript"])
         #expect(installer?.extraSearchDirectories.isEmpty == true)
