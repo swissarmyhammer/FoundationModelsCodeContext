@@ -86,10 +86,14 @@ comments:
 
     Did NOT run swift format (documented repo-wide formatter version-mismatch churn). Working tree limited to the 5 changed source/test files. Left in doing for /review.
   timestamp: 2026-07-17T23:06:40.058694+00:00
+- actor: claude-code
+  id: 01kxs5qj3g35jgt6kcq9qdnghz
+  text: 'Iteration 2 complete → DONE. All 5 prior findings fixed at root, /test green (541 tests), checkpoint committed (db84b4c), /review clean (0 findings, 14 validators) and moved review→done. Verified-good commit is db84b4c. Total: 2 iterations. Upstream unblock (FoundationModelsRanker primaryText seam) is pushed to main @18f8a80; this repo''s SearchCorpus now uses Ranker''s updateable index directly.'
+  timestamp: 2026-07-17T23:14:05.552590+00:00
 depends_on:
 - 01KXQZC78NAQ36J80QTCSSMRG4
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: b580
 title: Use FoundationModelsRanker streaming/updateable index directly instead of the hand-rolled cosine matrix
 ---
 Follow-up to ^cssmrg4. That task adopted the Ranker *additive streaming pattern* plus the `RankedDocument` primitive, but deliberately did NOT wrap `FoundationModelsRanker.SearchCorpus` directly — it kept a hand-rolled per-file cache + packed cosine matrix in `Sources/FoundationModelsCodeContext/Search/SearchCorpus.swift`. The stated reason: Ranker's `add()` hardcodes the item id as the BM25/trigram primary field, whereas this corpus needs the chunk's symbol path as the primary field (the `symbolPathMatchOutranksBodyOnlyMatch` test depends on it) alongside a separate int64 id and packed cosine matrix.
