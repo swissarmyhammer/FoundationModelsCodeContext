@@ -22,32 +22,32 @@ private typealias RankerIndex = FoundationModelsRanker.SearchCorpus
 public struct SearchCorpusSnapshot: Sendable {
     /// Each chunk's `ts_chunks.id`, positionally aligned with every other
     /// array in this type.
-    public let chunkIds: [Int64]
+    public let chunkIDs: [Int64]
 
-    /// Each chunk's file path, positionally aligned with `chunkIds`.
+    /// Each chunk's file path, positionally aligned with `chunkIDs`.
     public let filePaths: [String]
 
     /// Each chunk's qualified symbol path, positionally aligned with
-    /// `chunkIds`.
+    /// `chunkIDs`.
     public let symbolPaths: [String]
 
-    /// Each chunk's full source text, positionally aligned with `chunkIds`.
+    /// Each chunk's full source text, positionally aligned with `chunkIDs`.
     public let texts: [String]
 
-    /// Each chunk's meta-type, positionally aligned with `chunkIds`.
+    /// Each chunk's meta-type, positionally aligned with `chunkIDs`.
     public let kinds: [SymbolMetaType]
 
     /// Each chunk's zero-based start line, positionally aligned with
-    /// `chunkIds`.
+    /// `chunkIDs`.
     public let startLines: [Int]
 
     /// Each chunk's zero-based end line, positionally aligned with
-    /// `chunkIds`.
+    /// `chunkIDs`.
     public let endLines: [Int]
 
     /// Whether each chunk carries a usable (non-`NULL`,
     /// `embeddingDimension`-length) embedding, positionally aligned with
-    /// `chunkIds`. A chunk without one contributes an all-zero row to
+    /// `chunkIDs`. A chunk without one contributes an all-zero row to
     /// `embeddingMatrix`, which — since every real embedding is
     /// L2-normalized — scores an exact `0.0` cosine against any query,
     /// matching `Signals.cosine`'s documented "no embedding" value.
@@ -58,7 +58,7 @@ public struct SearchCorpusSnapshot: Sendable {
     public let embeddingDimension: Int
 
     /// The corpus's embeddings as one contiguous, row-major `chunkCount ×
-    /// embeddingDimension` matrix — row `i` is `chunkIds[i]`'s embedding (or
+    /// embeddingDimension` matrix — row `i` is `chunkIDs[i]`'s embedding (or
     /// an all-zero row if `embeddedFlags[i]` is `false`). Not `public`:
     /// `cosineScores(queryVector:)` is the sanctioned way to score it.
     let embeddingMatrix: [Float]
@@ -66,13 +66,13 @@ public struct SearchCorpusSnapshot: Sendable {
     /// Each chunk's precomputed BM25/trigram statistics — `symbolPaths[i]`
     /// as the primary field (weighted `BM25.primaryFieldWeight`), `texts[i]`
     /// as the body field (weighted `BM25.bodyFieldWeight`) — positionally
-    /// aligned with `chunkIds`. `FoundationModelsRanker.RankedDocument` carries the
+    /// aligned with `chunkIDs`. `FoundationModelsRanker.RankedDocument` carries the
     /// weighted term frequency, term set, document length, and both trigram
     /// sets the BM25/trigram scoring stages consume.
     let rankedDocuments: [RankedDocument]
 
     /// The number of chunks in this snapshot.
-    public var chunkCount: Int { chunkIds.count }
+    public var chunkCount: Int { chunkIDs.count }
 
     /// The number of chunks with `embeddedFlags[i] == true`.
     public var embeddedChunkCount: Int { embeddedFlags.count { $0 } }
@@ -87,7 +87,7 @@ public struct SearchCorpusSnapshot: Sendable {
     ///
     /// - Parameter queryVector: The L2-normalized query embedding, of length
     ///   `embeddingDimension`.
-    /// - Returns: One score per chunk, positionally aligned with `chunkIds`;
+    /// - Returns: One score per chunk, positionally aligned with `chunkIDs`;
     ///   every score is `0.0` if `queryVector`'s length doesn't match
     ///   `embeddingDimension` or the corpus has no chunks.
     public func cosineScores(queryVector: [Float]) -> [Float] {
@@ -444,11 +444,7 @@ public actor SearchCorpus {
             }
         }
 
-        var signatures: [String: [SignatureEntry]] = [:]
-        for row in rows {
-            signatures[row.filePath, default: []].append(row.entry)
-        }
-        return signatures
+        return Dictionary(grouping: rows, by: \.filePath).mapValues { $0.map(\.entry) }
     }
 
     /// Loads every `ts_chunks` row in one query — the cold-start bulk load —
@@ -459,11 +455,7 @@ public actor SearchCorpus {
             FROM \(Schema.TsChunks.table) ORDER BY \(Schema.TsChunks.filePath), \(Schema.TsChunks.id)
             """)
 
-        var rowsByFile: [String: [ChunkRow]] = [:]
-        for row in rows {
-            rowsByFile[row.filePath, default: []].append(row)
-        }
-        return rowsByFile
+        return Dictionary(grouping: rows, by: \.filePath)
     }
 
     /// Loads exactly `paths`' rows — the incremental reload — one query per
@@ -514,7 +506,7 @@ public actor SearchCorpus {
 
     /// Assembles the cached `files` and the Ranker `index` into a
     /// `SearchCorpusSnapshot`: flattens every file's chunk metadata into one
-    /// id-ordered sequence (so `chunkIds` match a from-scratch load's `ORDER
+    /// id-ordered sequence (so `chunkIDs` match a from-scratch load's `ORDER
     /// BY id`), joins each chunk back to the index's per-row retrieval state
     /// (its `RankedDocument`, text, and decoded embedding) by id, and repacks
     /// the contiguous cosine matrix from the index's already-decoded vectors —
@@ -532,11 +524,7 @@ public actor SearchCorpus {
         // metadata back to its `RankedDocument` by id. Every metadata id is a
         // live index row (the splice keeps `files` and `index` in lockstep),
         // so this lookup never misses.
-        var documentByID: [String: RankedDocument] = [:]
-        documentByID.reserveCapacity(index.ids.count)
-        for (id, document) in zip(index.ids, index.documents) {
-            documentByID[id] = document
-        }
+        let documentByID = Dictionary(uniqueKeysWithValues: zip(index.ids, index.documents))
 
         let embeddingDimension = metas.lazy.compactMap { index.embedding(forID: String($0.id))?.count }.first ?? 0
 
@@ -555,7 +543,7 @@ public actor SearchCorpus {
         }
 
         return SearchCorpusSnapshot(
-            chunkIds: metas.map(\.id),
+            chunkIDs: metas.map(\.id),
             filePaths: metas.map(\.filePath),
             symbolPaths: metas.map(\.symbolPath),
             texts: metas.map { index.block(forID: String($0.id)) ?? "" },
@@ -565,7 +553,14 @@ public actor SearchCorpus {
             embeddedFlags: embeddedFlags,
             embeddingDimension: embeddingDimension,
             embeddingMatrix: embeddingMatrix,
-            rankedDocuments: metas.map { documentByID[String($0.id)]! }
+            rankedDocuments: metas.map { meta in
+                guard let document = documentByID[String(meta.id)] else {
+                    preconditionFailure(
+                        "chunk \(meta.id) has no live index row — `files` and `index` desynced"
+                    )
+                }
+                return document
+            }
         )
     }
 

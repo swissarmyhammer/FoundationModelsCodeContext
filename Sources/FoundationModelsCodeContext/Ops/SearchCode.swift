@@ -295,7 +295,7 @@ public enum SearchCode {
         }
 
         let scores = snapshot.cosineScores(queryVector: queryVector).map(Double.init)
-        let ranking = snapshot.chunkIds.indices
+        let ranking = snapshot.chunkIDs.indices
             .filter { snapshot.embeddedFlags[$0] }
             .sorted { scores[$0] > scores[$1] }
         return (ranking, scores)
@@ -368,7 +368,7 @@ public enum SearchCode {
             let rightScore = normalized[rightIndex] ?? 0.0
             guard leftScore != rightScore else {
                 // Deterministic tie-break: lower chunk id first.
-                return snapshot.chunkIds[leftIndex] < snapshot.chunkIds[rightIndex]
+                return snapshot.chunkIDs[leftIndex] < snapshot.chunkIDs[rightIndex]
             }
             return leftScore > rightScore
         }
@@ -376,7 +376,7 @@ public enum SearchCode {
         return orderedChunkIndices.prefix(topK).map { chunkIndex in
             SearchCodeMatch(
                 hit: Hit(
-                    id: String(snapshot.chunkIds[chunkIndex]),
+                    id: String(snapshot.chunkIDs[chunkIndex]),
                     score: normalized[chunkIndex] ?? 0.0,
                     signals: Signals(
                         bm25: bm25Scores[chunkIndex],

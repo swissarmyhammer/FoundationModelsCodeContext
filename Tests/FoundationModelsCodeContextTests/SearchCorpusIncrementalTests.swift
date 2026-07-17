@@ -126,7 +126,7 @@ struct SearchCorpusIncrementalTests {
             let incrementalSnapshot = try await incremental.snapshot()
             let fromScratchSnapshot = try await SearchCorpus(store: store).snapshot()
 
-            #expect(incrementalSnapshot.chunkIds == fromScratchSnapshot.chunkIds)
+            #expect(incrementalSnapshot.chunkIDs == fromScratchSnapshot.chunkIDs)
             #expect(incrementalSnapshot.symbolPaths == fromScratchSnapshot.symbolPaths)
             #expect(incrementalSnapshot.texts == fromScratchSnapshot.texts)
             #expect(incrementalSnapshot.embeddedFlags == fromScratchSnapshot.embeddedFlags)
@@ -298,7 +298,7 @@ struct SearchCorpusIncrementalTests {
             #expect(await corpus.lastBuildReTokenizedChunkCount == 0)
 
             let fromScratch = try await SearchCorpus(store: store).snapshot()
-            #expect(snapshot.chunkIds == fromScratch.chunkIds)
+            #expect(snapshot.chunkIDs == fromScratch.chunkIDs)
         }
     }
 }

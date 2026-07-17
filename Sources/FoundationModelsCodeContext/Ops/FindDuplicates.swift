@@ -256,7 +256,7 @@ public enum FindDuplicatesOps {
     /// - Returns: Eligible chunk indices, grouped by their `Partition`, each
     ///   list in ascending index order.
     private static func eligiblePartitionedIndices(snapshot: SearchCorpusSnapshot, minChunkBytes: Int) -> [Partition: [Int]] {
-        let eligible = snapshot.chunkIds.indices.filter { index in
+        let eligible = snapshot.chunkIDs.indices.filter { index in
             snapshot.embeddedFlags[index] && snapshot.texts[index].utf8.count >= minChunkBytes
         }
         return Dictionary(grouping: eligible) { Partition.of(kind: snapshot.kinds[$0]) }

@@ -68,6 +68,24 @@ comments:
   id: 01kxs3av3f96wa13dj3945gtqf
   text: 'Iteration 1 — /implement landed green in `doing`. SearchCorpus.swift now uses FoundationModelsRanker.SearchCorpus (aliased RankerIndex) as its retrieval-state container via the new primaryText seam: id=String(ts_chunks.id), primaryText=symbol path, body=text, group=file path. Incremental re-index = index.remove(group: filePath)+add(items:) on changed files, remove(group:) on deleted; embeddings via setEmbedding/embedding(forID:). Ranker owns ids+RankedDocuments+per-row vectors+add/remove-by-group. Two documented residuals kept local because Ranker''s Row can''t carry them: (1) per-file FileEntry with change signature + chunk result metadata (filePath/symbolPath/kind/lines); (2) packed vDSP cosine matrix repacked at assembly — the incremental tests + SearchCorpusMatvecTests assert on snapshot.embeddingMatrix/CosineScoring.matvecScores, so cosine stays on the packed-matrix path. SearchCorpusSnapshot public shape + counters unchanged, so SearchCode untouched. Full suite green (541 tests). NOTE: implementer did NOT run swift format — same version-mismatch churn as the Ranker repo (both local formatters rewrite ~120 committed files; no .swift-format config, no CI format gate). Kept one modified source file, hand-matched to style.'
   timestamp: 2026-07-17T22:32:11.631247+00:00
+- actor: claude-code
+  id: 01kxs4316p6qnvs41mgams3ka6
+  text: 'Iteration 1 review: 5 confirmed findings (all clarity/idiom in Sources/.../Search/SearchCorpus.swift) — chunkIds→chunkIDs acronym casing; two manual grouping loops → Dictionary(grouping:by:); a force-unwrap → guard let/preconditionFailure; a manual parallel-sequence dict build → Dictionary(uniqueKeysWithValues: zip(...)). Task back doing→ /implement to fix at root. Iteration 2 dispatching.'
+  timestamp: 2026-07-17T22:45:24.310075+00:00
+- actor: claude-code
+  id: 01kxs59z1tjh8y2kfaxs33rs1q
+  text: |-
+    Iteration 2 — /implement worked all 5 review findings at the root, one file of real changes: Sources/.../Search/SearchCorpus.swift (plus mechanical reference updates in SearchCode.swift, FindDuplicates.swift, and two test files).
+
+    1. Acronym casing: renamed public property SearchCorpusSnapshot.chunkIds → chunkIDs, and updated every reference across the module (SearchCorpus.swift decl+doc backticks+init label, SearchCode.swift x3, FindDuplicates.swift x1) and the two test assertion sites (SearchCodeTests, SearchCorpusIncrementalTests). Grep-verified no `.chunkIds`/`chunkIds:` property references remain anywhere in Sources/Tests; the only surviving lowercase `chunkIds` is an unrelated DB-fetch local var in SearchCorpusIncrementalTests.swift:254, correctly left alone. Checked the rest of the file for other lowercased acronyms — none (forID/documentByID already correct).
+    2+3. Both manual per-file grouping loops → Dictionary(grouping:by:): loadSignatures returns `Dictionary(grouping: rows, by: \.filePath).mapValues { $0.map(\.entry) }`; loadAllRows returns `Dictionary(grouping: rows, by: \.filePath)`. Per-file id order preserved (SQL still ORDER BY filePath,id), which the signature-diff and chunkID equality depend on.
+    4. Force-unwrap in assemble()'s rankedDocuments: init arg → guard let ... else { preconditionFailure(...) } with a desync message. Only force-unwrap in the file; no others recur.
+    5. Manual parallel-sequence dict build (documentByID) → Dictionary(uniqueKeysWithValues: zip(index.ids, index.documents)). index.ids are unique by the Ranker's first-wins add() invariant, so no trap risk vs the old last-write-wins loop.
+
+    Tests: full suite green — 541 tests, 47 suites, 0 failures. Hard-constraint suites confirmed green in a fresh run: symbolPathMatchOutranksBodyOnlyMatchInFusedOrdering, all SearchCorpusIncrementalTests (incl. incrementalSnapshotChunkIds, deletion, inPlaceEmbeddingDimensionChange), SearchCorpusMatvecTests, SearchCodeTests. swift build clean, no warnings. Adversarial double-check: PASS, no findings (verified duplicate-key/ordering/preconditionFailure equivalence and rename completeness).
+
+    Did NOT run swift format (documented repo-wide formatter version-mismatch churn). Working tree limited to the 5 changed source/test files. Left in doing for /review.
+  timestamp: 2026-07-17T23:06:40.058694+00:00
 depends_on:
 - 01KXQZC78NAQ36J80QTCSSMRG4
 position_column: doing
@@ -85,3 +103,11 @@ Scope to investigate:
 - If Ranker genuinely cannot express the primary-field requirement, document that as a blocker with the specific API gap and stop.
 
 Verify: `swift build`, `swift test` fully green; format with `swift format -i -r Sources Tests`.
+
+## Review Findings (2026-07-17 17:37)
+
+- [x] `Sources/FoundationModelsCodeContext/Search/SearchCorpus.swift:25` — Property name `chunkIds` violates uniform acronym casing: interior acronyms in lowerCamelCase should be uniformly up-cased. Rename property `chunkIds` → `chunkIDs`. Update all references: line 74 (`chunkIds.count`), initializer parameter label at line 324, and documentation backtick references.
+- [x] `Sources/FoundationModelsCodeContext/Search/SearchCorpus.swift:234` — Manually groups rows by key using a loop and default dictionary access, reimplementing Dictionary(grouping:by:) from the standard library. Replace lines 234-238 with `let signatures = Dictionary(grouping: rows, by: \.filePath).mapValues { $0.map(\.entry) }`.
+- [x] `Sources/FoundationModelsCodeContext/Search/SearchCorpus.swift:253` — Manually groups rows by key using a loop and default dictionary access, reimplementing Dictionary(grouping:by:) from the standard library. Replace lines 253-257 with `let rowsByFile = Dictionary(grouping: rows, by: \.filePath)`.
+- [x] `Sources/FoundationModelsCodeContext/Search/SearchCorpus.swift:346` — Force unwrap `!` appears in non-test production code. Replace force unwrap: use `guard let` + error handling, or replace `!` with `?? fatalError()` / `?? preconditionFailure()` if asserting a programmer-error invariant.
+- [x] `Sources/FoundationModelsCodeContext/Search/SearchCorpus.swift:374` — Manually initializes a dictionary from parallel sequences using a loop and reserveCapacity, reimplementing Dictionary(uniqueKeysWithValues:) from the standard library. Replace lines 374-378 with `let documentByID = Dictionary(uniqueKeysWithValues: zip(index.ids, index.documents))`.

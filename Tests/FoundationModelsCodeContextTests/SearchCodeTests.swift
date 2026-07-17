@@ -81,7 +81,7 @@ struct SearchCorpusTests {
             let firstSnapshot = try await corpus.snapshot()
             let secondSnapshot = try await corpus.snapshot()
 
-            #expect(firstSnapshot.chunkIds == secondSnapshot.chunkIds)
+            #expect(firstSnapshot.chunkIDs == secondSnapshot.chunkIDs)
         }
     }
 }
