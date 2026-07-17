@@ -1,19 +1,19 @@
 {
-  "originHash" : "624625f5e0892e7c810681c4274c2cc4a6e35e526aec4d6ed75a9a7cbf12e8f1",
+  "originHash" : "87c5f8c20a94ab73468820636e7481b07dbaf55ab77e9ce1569b96f917e1c08a",
   "pins" : [
     {
       "identity" : "foundationmodelsranker",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swissarmyhammer/FoundationModelsRanker",
+      "location" : "git@github.com:swissarmyhammer/FoundationModelsRanker.git",
       "state" : {
         "branch" : "main",
-        "revision" : "1c1f3024ed548feea78af9ee685f55aebaebf334"
+        "revision" : "29ed9dd353ea3588bd6165d1c41547f974126c53"
       }
     },
     {
       "identity" : "foundationmodelsrouter",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swissarmyhammer/FoundationModelsRouter",
+      "location" : "git@github.com:swissarmyhammer/FoundationModelsRouter.git",
       "state" : {
         "branch" : "main",
         "revision" : "a3d8c04e4a7598d9c261d818ef891cfffd51bcc9"
