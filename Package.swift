@@ -105,14 +105,14 @@ let package = Package(
         // FoundationModelsRanker's so both chains resolve to a single origin. For local
         // co-development of the sibling checkout, use
         // `swift package edit foundationmodelsrouter --path ../FoundationModelsRouter`.
-        .package(url: "https://github.com/swissarmyhammer/FoundationModelsRouter", branch: "main"),
+        .package(url: "git@github.com:swissarmyhammer/FoundationModelsRouter.git", branch: "main"),
         // Referenced by URL for the same reason as FoundationModelsRouter
         // above (the family CI convention: the shared workflow only checks
         // out the calling repo, so a `../FoundationModelsRanker` path dependency would never
         // resolve there — see FoundationModelsRanker's Package.swift). For local
         // co-development of the sibling checkout, use
         // `swift package edit foundationmodelsranker --path ../FoundationModelsRanker`.
-        .package(url: "https://github.com/swissarmyhammer/FoundationModelsRanker", branch: "main"),
+        .package(url: "git@github.com:swissarmyhammer/FoundationModelsRanker.git", branch: "main"),
         // Pinned exact rather than `from:`: SwiftTreeSitter is still pre-1.0,
         // where ChimeHQ has made breaking API changes across minor versions,
         // so an open `from:` range could silently pull in a breaking update.
