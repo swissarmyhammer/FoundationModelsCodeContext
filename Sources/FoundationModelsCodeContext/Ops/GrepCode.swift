@@ -238,10 +238,10 @@ public enum GrepCode {
             try Row.fetchAll(
                 db,
                 sql: """
-                SELECT \(Schema.TsChunks.filePath), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
-                       \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.text) \
-                FROM \(Schema.TsChunks.table)
-                """
+                    SELECT \(Schema.TsChunks.filePath), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
+                           \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.text) \
+                    FROM \(Schema.TsChunks.table)
+                    """
             )
             .map { row in
                 ChunkRow(

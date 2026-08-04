@@ -288,17 +288,17 @@ public enum QueryAST {
         switch queryError {
         case .none:
             return "no error"
-        case let .syntax(offset):
+        case .syntax(let offset):
             return "syntax error at byte offset \(offset)"
-        case let .nodeType(offset):
+        case .nodeType(let offset):
             return "invalid node type at byte offset \(offset)"
-        case let .field(offset):
+        case .field(let offset):
             return "invalid field name at byte offset \(offset)"
-        case let .capture(offset):
+        case .capture(let offset):
             return "invalid capture name at byte offset \(offset)"
-        case let .structure(offset):
+        case .structure(let offset):
             return "invalid query structure at byte offset \(offset)"
-        case let .unknown(offset):
+        case .unknown(let offset):
             return "unknown query error at byte offset \(offset)"
         }
     }

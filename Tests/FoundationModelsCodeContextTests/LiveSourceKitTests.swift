@@ -217,7 +217,7 @@ struct LiveSourceKitTests {
                 }
                 #expect(becameReady, "workspace never reached state.isReady within budget")
 
-                guard case let .running(originalPid) = await Self.sourceKitStatus(context)?.state else {
+                guard case .running(let originalPid) = await Self.sourceKitStatus(context)?.state else {
                     Issue.record("expected sourcekit-lsp to be .running after settling, got \(String(describing: await Self.sourceKitStatus(context)))")
                     return
                 }
@@ -238,10 +238,10 @@ struct LiveSourceKitTests {
                 var restartedPid: Int32?
                 try await Self.poll(budget: .seconds(150), interval: .milliseconds(200)) {
                     switch await Self.sourceKitStatus(context)?.state {
-                    case let .failed(_, attempts) where attempts >= 1:
+                    case .failed(_, let attempts) where attempts >= 1:
                         observedFailedWithAttempts = true
                         return false
-                    case let .running(pid) where pid != originalPid:
+                    case .running(let pid) where pid != originalPid:
                         restartedPid = pid
                         return true
                     default:

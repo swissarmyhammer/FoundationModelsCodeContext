@@ -1,7 +1,6 @@
 import Foundation
-import Testing
-
 import FoundationModelsCodeContext
+import Testing
 
 /// Proves `DiagnosticsReport.records`/`.counts`/`.pending` (and `DiagnosticRecord`/`Counts` and
 /// their own stored properties) are genuinely `public`, not merely visible to this test target's

@@ -391,19 +391,22 @@ public final class FSEventsFileEventSource: FileEventSource, @unchecked Sendable
         )
 
         let pathsToWatch = [rootDirectory.path] as CFArray
-        let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes)
+        let flags =
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes)
             | FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents)
             | FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer)
 
-        guard let stream = FSEventStreamCreate(
-            kCFAllocatorDefault,
-            fsEventsTrampoline,
-            &context,
-            pathsToWatch,
-            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            0.05,
-            flags
-        ) else {
+        guard
+            let stream = FSEventStreamCreate(
+                kCFAllocatorDefault,
+                fsEventsTrampoline,
+                &context,
+                pathsToWatch,
+                FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+                0.05,
+                flags
+            )
+        else {
             // `retainedBox` was retained above for the stream to release
             // when it's torn down; with no stream ever created, that
             // release callback will never run, so release it here instead

@@ -1,6 +1,6 @@
 import Foundation
-import GRDB
 import FoundationModelsRanker
+import GRDB
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -25,9 +25,9 @@ private func reindexFile(
         for (index, chunk) in chunks.enumerated() {
             try db.execute(
                 sql: """
-                INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind, embedding)
-                VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                    INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind, embedding)
+                    VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)
+                    """,
                 arguments: [
                     filePath, chunk.text.utf8.count, index, index + 1, chunk.text, chunk.symbolPath,
                     SymbolMetaType.function.rawValue, chunk.embedding.map(EmbeddingCodec.encode),

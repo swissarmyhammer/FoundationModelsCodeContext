@@ -46,7 +46,7 @@ public enum PythonLanguage: LanguageModule {
     /// themselves, so a method inside a class is qualified as
     /// `ClassName.method`.
     public static let containerNodeKinds: Set<String> = [
-        "class_definition",
+        "class_definition"
     ]
 
     /// Marker files that identify a Python project.

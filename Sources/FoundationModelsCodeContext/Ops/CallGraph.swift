@@ -252,14 +252,14 @@ public enum CallGraphOps {
         try Row.fetchOne(
             db,
             sql: """
-            SELECT \(Schema.LspSymbols.id), \(Schema.LspSymbols.name), \(Schema.LspSymbols.filePath) \
-            FROM \(Schema.LspSymbols.table) \
-            WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) <= ? AND \(Schema.LspSymbols.endLine) >= ? \
-                AND \(Schema.LspSymbols.startColumn) <= ? \
-            ORDER BY (\(Schema.LspSymbols.endLine) - \(Schema.LspSymbols.startLine)) ASC, \
-                     (\(Schema.LspSymbols.endColumn) - \(Schema.LspSymbols.startColumn)) ASC \
-            LIMIT 1
-            """,
+                SELECT \(Schema.LspSymbols.id), \(Schema.LspSymbols.name), \(Schema.LspSymbols.filePath) \
+                FROM \(Schema.LspSymbols.table) \
+                WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) <= ? AND \(Schema.LspSymbols.endLine) >= ? \
+                    AND \(Schema.LspSymbols.startColumn) <= ? \
+                ORDER BY (\(Schema.LspSymbols.endLine) - \(Schema.LspSymbols.startLine)) ASC, \
+                         (\(Schema.LspSymbols.endColumn) - \(Schema.LspSymbols.startColumn)) ASC \
+                LIMIT 1
+                """,
             arguments: [filePath, line, line, column]
         ).map(makeNode)
     }
@@ -280,11 +280,11 @@ public enum CallGraphOps {
         try Row.fetchOne(
             db,
             sql: """
-            SELECT \(Schema.LspSymbols.id), \(Schema.LspSymbols.name), \(Schema.LspSymbols.filePath) \
-            FROM \(Schema.LspSymbols.table) \
-            WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) = ? \
-            LIMIT 1
-            """,
+                SELECT \(Schema.LspSymbols.id), \(Schema.LspSymbols.name), \(Schema.LspSymbols.filePath) \
+                FROM \(Schema.LspSymbols.table) \
+                WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) = ? \
+                LIMIT 1
+                """,
             arguments: [filePath, startLine]
         ).map(makeNode)
     }
@@ -431,16 +431,16 @@ public enum CallGraphOps {
         let rows = try Row.fetchAll(
             db,
             sql: """
-            SELECT caller.\(Schema.LspSymbols.id) AS caller_id, caller.\(Schema.LspSymbols.name) AS caller_name, \
-                   caller.\(Schema.LspSymbols.filePath) AS caller_file_path, \
-                   callee.\(Schema.LspSymbols.id) AS callee_id, callee.\(Schema.LspSymbols.name) AS callee_name, \
-                   callee.\(Schema.LspSymbols.filePath) AS callee_file_path, \
-                   edges.\(Schema.LspCallEdges.source) AS edge_source \
-            FROM \(Schema.LspCallEdges.table) AS edges \
-            JOIN \(Schema.LspSymbols.table) AS caller ON caller.\(Schema.LspSymbols.id) = edges.\(Schema.LspCallEdges.callerId) \
-            JOIN \(Schema.LspSymbols.table) AS callee ON callee.\(Schema.LspSymbols.id) = edges.\(Schema.LspCallEdges.calleeId) \
-            WHERE edges.\(side.column) = ?
-            """,
+                SELECT caller.\(Schema.LspSymbols.id) AS caller_id, caller.\(Schema.LspSymbols.name) AS caller_name, \
+                       caller.\(Schema.LspSymbols.filePath) AS caller_file_path, \
+                       callee.\(Schema.LspSymbols.id) AS callee_id, callee.\(Schema.LspSymbols.name) AS callee_name, \
+                       callee.\(Schema.LspSymbols.filePath) AS callee_file_path, \
+                       edges.\(Schema.LspCallEdges.source) AS edge_source \
+                FROM \(Schema.LspCallEdges.table) AS edges \
+                JOIN \(Schema.LspSymbols.table) AS caller ON caller.\(Schema.LspSymbols.id) = edges.\(Schema.LspCallEdges.callerId) \
+                JOIN \(Schema.LspSymbols.table) AS callee ON callee.\(Schema.LspSymbols.id) = edges.\(Schema.LspCallEdges.calleeId) \
+                WHERE edges.\(side.column) = ?
+                """,
             arguments: [symbolID]
         )
         return try rows.map { row in

@@ -488,7 +488,7 @@ actor LspSession<Connection: LanguageServerConnection> {
             recordDiagnostics(uri: uri, diagnostics: diagnostics)
             return diagnostics
         } catch let error as WireError {
-            guard case let .serverError(code, _) = error, Self.isNotReadyErrorCode(code) else {
+            guard case .serverError(let code, _) = error, Self.isNotReadyErrorCode(code) else {
                 throw error
             }
             isReady = false
@@ -502,7 +502,7 @@ actor LspSession<Connection: LanguageServerConnection> {
         let notifications = await connection.serverNotifications
         for await notification in notifications {
             switch notification {
-            case let .publishDiagnostics(uri, diagnostics):
+            case .publishDiagnostics(let uri, let diagnostics):
                 recordDiagnostics(uri: uri, diagnostics: diagnostics)
             }
         }

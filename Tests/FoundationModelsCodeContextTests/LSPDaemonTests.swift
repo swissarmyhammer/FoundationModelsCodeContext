@@ -126,7 +126,7 @@ struct LSPDaemonTests {
         _ = await startTask.value
 
         let state = await daemon.state()
-        guard case let .failed(reason, attempts) = state else {
+        guard case .failed(let reason, let attempts) = state else {
             Issue.record("expected .failed, got \(state)")
             return
         }
@@ -365,7 +365,7 @@ struct LSPDaemonTests {
         #expect(docs.isEmpty, "resetDocuments() must have been called on the session after the crash")
 
         let state = await daemon.state()
-        guard case let .failed(_, attempts) = state else {
+        guard case .failed(_, let attempts) = state else {
             Issue.record("expected .failed, got \(state)")
             return
         }
@@ -427,7 +427,7 @@ struct LSPDaemonTests {
         await processState.setAlive(false)
         _ = await daemon.healthCheck()
         var state = await daemon.state()
-        guard case let .failed(_, initialAttempts) = state else {
+        guard case .failed(_, let initialAttempts) = state else {
             Issue.record("expected .failed after the crash, got \(state)")
             return
         }
@@ -446,7 +446,7 @@ struct LSPDaemonTests {
         }
 
         state = await daemon.state()
-        guard case let .failed(_, finalAttempts) = state else {
+        guard case .failed(_, let finalAttempts) = state else {
             Issue.record("expected .failed, got \(state)")
             return
         }
@@ -458,7 +458,7 @@ struct LSPDaemonTests {
             try await daemon.restartWithBackoff()
         }
         state = await daemon.state()
-        guard case let .failed(_, attemptsAfterGiveUp) = state else {
+        guard case .failed(_, let attemptsAfterGiveUp) = state else {
             Issue.record("expected .failed, got \(state)")
             return
         }
@@ -503,7 +503,7 @@ struct LSPDaemonTests {
         await processState.setAlive(false)
         _ = await daemon.healthCheck()
         state = await daemon.state()
-        guard case let .failed(_, attempts) = state else {
+        guard case .failed(_, let attempts) = state else {
             Issue.record("expected .failed, got \(state)")
             return
         }

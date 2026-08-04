@@ -413,8 +413,8 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     ///   its module has no language server, or that server's daemon isn't currently running.
     func session(forFileExtension fileExtension: String) async -> LspSession<Connection>? {
         guard let module = Languages.module(forFileExtension: fileExtension),
-              let spec = module.languageServer,
-              let managed = managedDaemons[spec.command]
+            let spec = module.languageServer,
+            let managed = managedDaemons[spec.command]
         else {
             return nil
         }

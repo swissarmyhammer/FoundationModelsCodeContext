@@ -1,6 +1,6 @@
 import Foundation
-import GRDB
 import FoundationModelsRanker
+import GRDB
 
 /// `FoundationModelsRanker`'s updateable, additive retrieval index — the
 /// container this workspace's `SearchCorpus` splices per-file, aliased here so
@@ -432,10 +432,10 @@ public actor SearchCorpus {
             try Row.fetchAll(
                 db,
                 sql: """
-                SELECT \(Schema.TsChunks.filePath), \(Schema.TsChunks.id), \
-                       COALESCE(LENGTH(\(Schema.TsChunks.embedding)), 0) AS embeddingByteCount \
-                FROM \(Schema.TsChunks.table) ORDER BY \(Schema.TsChunks.filePath), \(Schema.TsChunks.id)
-                """
+                    SELECT \(Schema.TsChunks.filePath), \(Schema.TsChunks.id), \
+                           COALESCE(LENGTH(\(Schema.TsChunks.embedding)), 0) AS embeddingByteCount \
+                    FROM \(Schema.TsChunks.table) ORDER BY \(Schema.TsChunks.filePath), \(Schema.TsChunks.id)
+                    """
             ).map { row in
                 (
                     filePath: row[Schema.TsChunks.filePath],
@@ -450,10 +450,11 @@ public actor SearchCorpus {
     /// Loads every `ts_chunks` row in one query — the cold-start bulk load —
     /// grouped by file path.
     private func loadAllRows() async throws -> [String: [ChunkRow]] {
-        let rows = try await fetchRows(sql: """
-            \(Self.rowColumns) \
-            FROM \(Schema.TsChunks.table) ORDER BY \(Schema.TsChunks.filePath), \(Schema.TsChunks.id)
-            """)
+        let rows = try await fetchRows(
+            sql: """
+                \(Self.rowColumns) \
+                FROM \(Schema.TsChunks.table) ORDER BY \(Schema.TsChunks.filePath), \(Schema.TsChunks.id)
+                """)
 
         return Dictionary(grouping: rows, by: \.filePath)
     }

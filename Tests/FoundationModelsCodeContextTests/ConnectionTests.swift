@@ -254,7 +254,7 @@ struct ConnectionTests {
             let symbols = try await symbolsCall
             #expect(symbols.isEmpty)
 
-            guard case let .publishDiagnostics(uri, diagnostics) = notification else {
+            guard case .publishDiagnostics(let uri, let diagnostics) = notification else {
                 Issue.record("expected a publishDiagnostics notification, got \(String(describing: notification))")
                 return
             }

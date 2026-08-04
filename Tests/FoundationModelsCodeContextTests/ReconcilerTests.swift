@@ -86,9 +86,9 @@ struct ReconcilerTests {
             try await store.write { db in
                 try db.execute(
                     sql: """
-                    INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind)
-                    VALUES ('a.rs', 0, 10, 1, 1, 'fn a() {}', 'a', 'function')
-                    """)
+                        INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind)
+                        VALUES ('a.rs', 0, 10, 1, 1, 'fn a() {}', 'a', 'function')
+                        """)
             }
 
             try FileManager.default.removeItem(at: root.appendingPathComponent("a.rs"))

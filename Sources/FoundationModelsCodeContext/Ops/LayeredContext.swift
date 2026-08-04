@@ -132,13 +132,13 @@ enum LayeredContext {
             let row = try Row.fetchOne(
                 db,
                 sql: """
-                SELECT \(Schema.LspSymbols.id), \(Schema.LspSymbols.name), \(Schema.LspSymbols.kind), \(Schema.LspSymbols.detail), \
-                       \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.startColumn), \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn) \
-                FROM \(Schema.LspSymbols.table) \
-                WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) <= ? AND \(Schema.LspSymbols.endLine) >= ? \
-                ORDER BY (\(Schema.LspSymbols.endLine) - \(Schema.LspSymbols.startLine)) ASC \
-                LIMIT 1
-                """,
+                    SELECT \(Schema.LspSymbols.id), \(Schema.LspSymbols.name), \(Schema.LspSymbols.kind), \(Schema.LspSymbols.detail), \
+                           \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.startColumn), \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn) \
+                    FROM \(Schema.LspSymbols.table) \
+                    WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) <= ? AND \(Schema.LspSymbols.endLine) >= ? \
+                    ORDER BY (\(Schema.LspSymbols.endLine) - \(Schema.LspSymbols.startLine)) ASC \
+                    LIMIT 1
+                    """,
                 arguments: [filePath, range.start.line, range.end.line]
             )
         else {
@@ -171,13 +171,13 @@ enum LayeredContext {
         let rows = try Row.fetchAll(
             db,
             sql: """
-            SELECT s.\(Schema.LspSymbols.id), s.\(Schema.LspSymbols.name), s.\(Schema.LspSymbols.kind), s.\(Schema.LspSymbols.detail), \
-                   s.\(Schema.LspSymbols.filePath), s.\(Schema.LspSymbols.startLine), s.\(Schema.LspSymbols.startColumn), \
-                   s.\(Schema.LspSymbols.endLine), s.\(Schema.LspSymbols.endColumn), e.\(Schema.LspCallEdges.fromRanges) \
-            FROM \(Schema.LspCallEdges.table) e \
-            JOIN \(Schema.LspSymbols.table) s ON e.\(Schema.LspCallEdges.callerId) = s.\(Schema.LspSymbols.id) \
-            WHERE e.\(Schema.LspCallEdges.calleeId) = ?
-            """,
+                SELECT s.\(Schema.LspSymbols.id), s.\(Schema.LspSymbols.name), s.\(Schema.LspSymbols.kind), s.\(Schema.LspSymbols.detail), \
+                       s.\(Schema.LspSymbols.filePath), s.\(Schema.LspSymbols.startLine), s.\(Schema.LspSymbols.startColumn), \
+                       s.\(Schema.LspSymbols.endLine), s.\(Schema.LspSymbols.endColumn), e.\(Schema.LspCallEdges.fromRanges) \
+                FROM \(Schema.LspCallEdges.table) e \
+                JOIN \(Schema.LspSymbols.table) s ON e.\(Schema.LspCallEdges.callerId) = s.\(Schema.LspSymbols.id) \
+                WHERE e.\(Schema.LspCallEdges.calleeId) = ?
+                """,
             arguments: [symbolID]
         )
         return rows.map { row in
@@ -212,13 +212,13 @@ enum LayeredContext {
             let row = try Row.fetchOne(
                 db,
                 sql: """
-                SELECT \(Schema.TsChunks.text), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
-                       \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind) \
-                FROM \(Schema.TsChunks.table) \
-                WHERE \(Schema.TsChunks.filePath) = ? AND \(Schema.TsChunks.startLine) <= ? AND \(Schema.TsChunks.endLine) >= ? \
-                ORDER BY (\(Schema.TsChunks.endLine) - \(Schema.TsChunks.startLine)) ASC \
-                LIMIT 1
-                """,
+                    SELECT \(Schema.TsChunks.text), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
+                           \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind) \
+                    FROM \(Schema.TsChunks.table) \
+                    WHERE \(Schema.TsChunks.filePath) = ? AND \(Schema.TsChunks.startLine) <= ? AND \(Schema.TsChunks.endLine) >= ? \
+                    ORDER BY (\(Schema.TsChunks.endLine) - \(Schema.TsChunks.startLine)) ASC \
+                    LIMIT 1
+                    """,
                 arguments: [filePath, line, line]
             )
         else {
@@ -248,10 +248,10 @@ enum LayeredContext {
         let rows = try Row.fetchAll(
             db,
             sql: """
-            SELECT \(Schema.TsChunks.text), \(Schema.TsChunks.filePath), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
-                   \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind) \
-            FROM \(Schema.TsChunks.table) WHERE \(Schema.TsChunks.text) LIKE ? LIMIT ?
-            """,
+                SELECT \(Schema.TsChunks.text), \(Schema.TsChunks.filePath), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
+                       \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind) \
+                FROM \(Schema.TsChunks.table) WHERE \(Schema.TsChunks.text) LIKE ? LIMIT ?
+                """,
             arguments: [pattern, max]
         )
         return rows.map { row in

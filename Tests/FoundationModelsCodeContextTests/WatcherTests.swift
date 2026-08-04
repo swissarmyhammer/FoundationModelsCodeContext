@@ -125,10 +125,11 @@ struct WatcherTests {
             try write("fn a() {}", to: "a.rs", in: root)
             try await store.markDirty(filePath: "a.rs", contentHash: Data([1]), fileSize: 1)
             try await store.write { db in
-                try db.execute(sql: """
-                INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind)
-                VALUES ('a.rs', 0, 10, 1, 1, 'fn a() {}', 'a', 'function')
-                """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind)
+                        VALUES ('a.rs', 0, 10, 1, 1, 'fn a() {}', 'a', 'function')
+                        """)
             }
 
             try FileManager.default.removeItem(at: root.appendingPathComponent("a.rs"))

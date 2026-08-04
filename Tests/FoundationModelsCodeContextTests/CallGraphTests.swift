@@ -31,9 +31,9 @@ private func insertSymbol(
     try await store.write { db in
         try db.execute(
             sql: """
-            INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column)
-            VALUES (?, ?, 'function', ?, ?, ?, ?, ?)
-            """,
+                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column)
+                VALUES (?, ?, 'function', ?, ?, ?, ?, ?)
+                """,
             arguments: [id, name, filePath, startLine, startColumn, endLine, endColumn]
         )
     }
@@ -45,9 +45,9 @@ private func insertEdge(store: Store, callerID: Int64, calleeID: Int64, filePath
     try await store.write { db in
         try db.execute(
             sql: """
-            INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
-            VALUES (?, ?, ?, '[]', ?)
-            """,
+                INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
+                VALUES (?, ?, ?, '[]', ?)
+                """,
             arguments: [callerID, calleeID, filePath, source]
         )
     }

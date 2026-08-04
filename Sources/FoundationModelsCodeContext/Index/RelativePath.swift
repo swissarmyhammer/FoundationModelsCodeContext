@@ -20,7 +20,7 @@ enum RelativePath {
         let baseComponents = base.standardizedFileURL.pathComponents
         let urlComponents = url.standardizedFileURL.pathComponents
         guard urlComponents.count > baseComponents.count,
-              Array(urlComponents.prefix(baseComponents.count)) == baseComponents
+            Array(urlComponents.prefix(baseComponents.count)) == baseComponents
         else {
             return nil
         }

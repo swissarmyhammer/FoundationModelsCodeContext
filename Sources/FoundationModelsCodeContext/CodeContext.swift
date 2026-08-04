@@ -449,7 +449,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         line: Int,
         character: Int,
         includeSource: Bool = defaultIncludeSource,
-        maxResults: Int = 20 // mirrors LiveOpsCore's own private defaultMaxImplementations
+        maxResults: Int = 20  // mirrors LiveOpsCore's own private defaultMaxImplementations
     ) async throws -> ImplementationsResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.implementations(

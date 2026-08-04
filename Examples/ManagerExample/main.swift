@@ -132,11 +132,13 @@ await profile.release()
 /// - Parameter directory: The directory to search beneath.
 /// - Returns: The first regular file found, or `nil` if none exists.
 func firstRegularFile(under directory: URL) -> URL? {
-    guard let enumerator = FileManager.default.enumerator(
-        at: directory,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-    ) else {
+    guard
+        let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+    else {
         return nil
     }
     for entry in enumerator {

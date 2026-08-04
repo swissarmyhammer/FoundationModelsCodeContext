@@ -57,7 +57,7 @@ public enum PHPLanguage: LanguageModule {
 
     /// The marker file that identifies a PHP project: `composer.json`.
     public static let projectMarkers: [ProjectMarker] = [
-        .fileName("composer.json"),
+        .fileName("composer.json")
     ]
 
     /// The PHP language server spec (`intelephense`).

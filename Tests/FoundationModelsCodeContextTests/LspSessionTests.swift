@@ -77,10 +77,11 @@ struct LspSessionTests {
 
         let calls = await connection.calls
         #expect(calls.filter(Self.isDidOpen).count == 1, "an edit must not re-open the document")
-        #expect(calls == [
-            .didOpen(uri: uri, languageID: "swift", version: 1, text: "let x = 1"),
-            .didChange(uri: uri, version: 2, text: "let x = 2"),
-        ])
+        #expect(
+            calls == [
+                .didOpen(uri: uri, languageID: "swift", version: 1, text: "let x = 1"),
+                .didChange(uri: uri, version: 2, text: "let x = 2"),
+            ])
 
         let docs = await session.openDocuments()
         #expect(docs[uri]?.version == 2)

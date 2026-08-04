@@ -187,9 +187,9 @@ public enum BlastRadiusOps {
         let rows = try Row.fetchAll(
             db,
             sql: """
-            SELECT \(Schema.LspSymbols.id), \(Schema.LspSymbols.name) FROM \(Schema.LspSymbols.table) \
-            WHERE \(Schema.LspSymbols.filePath) = ?
-            """,
+                SELECT \(Schema.LspSymbols.id), \(Schema.LspSymbols.name) FROM \(Schema.LspSymbols.table) \
+                WHERE \(Schema.LspSymbols.filePath) = ?
+                """,
             arguments: [filePath]
         )
         let allRoots = rows.map { row in

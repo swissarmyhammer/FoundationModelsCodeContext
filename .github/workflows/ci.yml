@@ -17,3 +17,39 @@ jobs:
       integration-gate-env: CCK_LIVE_LSP
       integration-xctest-glob: "*FoundationModelsCodeContextTests.xctest"
       example-targets: CodeContextExample ManagerExample
+
+  format:
+    name: Format lint
+    runs-on: [self-hosted, macOS]
+    # A hard ceiling so a stuck run fails loudly and frees the one self-hosted
+    # runner for the next commit instead of sitting in progress indefinitely.
+    # This job only parses Swift, so the budget is deliberately small.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # The authoritative formatter is whatever `swift format` the runner's
+      # toolchain ships, so which toolchain ran is the first thing you need when
+      # this job disagrees with a developer's machine. swift-format silently
+      # ignores configuration keys it does not recognize rather than failing, and
+      # it has changed how it reads `.swift-format-ignore` across versions, so a
+      # version mismatch shows up as a puzzling result rather than an error. Log
+      # both versions before linting so that puzzle is answerable from the log.
+      - name: Toolchain versions
+        run: |
+          swift --version
+          swift format --version
+
+      # `--strict` is what makes this a gate. Plain `swift format lint` prints
+      # its findings as warnings and still exits 0, so without the flag the step
+      # can never fail. `--strict` promotes every finding to an error and fails
+      # the job. The style enforced here is the `.swift-format` checked in at the
+      # repo root, not swift-format's built-in defaults.
+      #
+      # The scope covers every Swift file in the repo, not just the library and
+      # its tests: `Examples/*` are real build targets (the `ci` job above builds
+      # them via `example-targets`) and `Package.swift` is checked-in Swift too,
+      # so leaving them out would let exactly the drift this job exists to stop
+      # continue in the corners it does not look at.
+      - name: swift format lint
+        run: swift format lint -r --strict Sources Tests Examples Package.swift

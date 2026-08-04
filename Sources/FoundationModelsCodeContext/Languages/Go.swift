@@ -47,7 +47,7 @@ public enum GoLanguage: LanguageModule {
 
     /// The marker file that identifies a Go project: `go.mod`.
     public static let projectMarkers: [ProjectMarker] = [
-        .fileName("go.mod"),
+        .fileName("go.mod")
     ]
 
     /// The Go language server spec (`gopls`).

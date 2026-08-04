@@ -106,9 +106,10 @@ struct ConnectionHandle<Connection: LanguageServerConnection>: Sendable {
 /// Injected into `LSPDaemon` so it never spawns a real process under test: production code
 /// supplies `LSPDaemon.processConnectionFactory()`; tests supply a factory that wraps
 /// `FakeLanguageServerConnection` with test-controlled `isAlive`/`waitForExit`/`terminate` hooks.
-typealias ConnectionFactory<Connection: LanguageServerConnection> = @Sendable (
-    ServerSpec, URL
-) async throws -> ConnectionHandle<Connection>
+typealias ConnectionFactory<Connection: LanguageServerConnection> =
+    @Sendable (
+        ServerSpec, URL
+    ) async throws -> ConnectionHandle<Connection>
 
 /// Owns the lifecycle of one LSP server child process: spawning, the `initialize`/`initialized`
 /// handshake, health-check-driven auto-restart with exponential backoff, and graceful shutdown.
@@ -275,10 +276,12 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     ///   handshake fails or times out; whatever the connection factory throws if spawning the
     ///   connection fails.
     func start() async throws {
-        guard let location = BinaryLookup.resolve(
-            command: spec.command,
-            extraSearchDirectories: spec.installer?.extraSearchDirectories ?? []
-        ) else {
+        guard
+            let location = BinaryLookup.resolve(
+                command: spec.command,
+                extraSearchDirectories: spec.installer?.extraSearchDirectories ?? []
+            )
+        else {
             if !hasWarnedNotFound {
                 Log.lsp.warning(
                     "LSP binary not found on PATH: \(self.spec.command, privacy: .public) (\(self.spec.installHint, privacy: .public))"

@@ -142,9 +142,9 @@ enum TSCallGraph {
     static func writeCallEdges(db: Database, file: SourceFile, module: any LanguageModule.Type) throws {
         try db.execute(
             sql: """
-            DELETE FROM \(Schema.LspCallEdges.table) \
-            WHERE \(Schema.LspCallEdges.filePath) = ? AND \(Schema.LspCallEdges.source) = ?
-            """,
+                DELETE FROM \(Schema.LspCallEdges.table) \
+                WHERE \(Schema.LspCallEdges.filePath) = ? AND \(Schema.LspCallEdges.source) = ?
+                """,
             arguments: [file.relativePath, source]
         )
 
@@ -192,19 +192,20 @@ enum TSCallGraph {
         var sites: [CallSite] = []
         Chunker.walk(from: root, direction: .children) { node in
             guard let kind = node.nodeType, callNodeKinds.contains(kind),
-                  let calleeName = extractCalleeName(node: node, file: file),
-                  let (_, startByte, endByte) = Chunker.extractTextAndRange(of: node, in: file.contents)
+                let calleeName = extractCalleeName(node: node, file: file),
+                let (_, startByte, endByte) = Chunker.extractTextAndRange(of: node, in: file.contents)
             else {
                 return
             }
 
-            sites.append(CallSite(
-                calleeName: calleeName,
-                startByte: startByte,
-                endByte: endByte,
-                startLine: Int(node.pointRange.lowerBound.row),
-                endLine: Int(node.pointRange.upperBound.row)
-            ))
+            sites.append(
+                CallSite(
+                    calleeName: calleeName,
+                    startByte: startByte,
+                    endByte: endByte,
+                    startLine: Int(node.pointRange.lowerBound.row),
+                    endLine: Int(node.pointRange.upperBound.row)
+                ))
         }
         return sites
     }
@@ -232,12 +233,13 @@ enum TSCallGraph {
     /// - Returns: The extracted callee name, or `nil` if none could be
     ///   recognized.
     private static func extractCalleeName(node: Node, file: SourceFile) -> String? {
-        let callee = calleeFieldNames.lazy.compactMap { fieldName in
-            node.child(byFieldName: fieldName)
-        }.first ?? node.namedChild(at: 0)
+        let callee =
+            calleeFieldNames.lazy.compactMap { fieldName in
+                node.child(byFieldName: fieldName)
+            }.first ?? node.namedChild(at: 0)
 
         guard let callee,
-              let calleeText = Chunker.extractTextAndRange(of: callee, in: file.contents)?.text
+            let calleeText = Chunker.extractTextAndRange(of: callee, in: file.contents)?.text
         else {
             return nil
         }
@@ -298,23 +300,24 @@ enum TSCallGraph {
             let rows = try Row.fetchAll(
                 db,
                 sql: """
-                SELECT DISTINCT \(Schema.TsChunks.filePath), \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind), \
-                       \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine) \
-                FROM \(Schema.TsChunks.table) \
-                WHERE \(Schema.TsChunks.symbolPath) = ? OR \(Schema.TsChunks.symbolPath) LIKE ? ESCAPE '\\'
-                """,
+                    SELECT DISTINCT \(Schema.TsChunks.filePath), \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind), \
+                           \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine) \
+                    FROM \(Schema.TsChunks.table) \
+                    WHERE \(Schema.TsChunks.symbolPath) = ? OR \(Schema.TsChunks.symbolPath) LIKE ? ESCAPE '\\'
+                    """,
                 arguments: [calleeName, suffixPattern]
             )
-            resolved.append(contentsOf: rows.map { row in
-                ResolvedCallee(
-                    calleeName: calleeName,
-                    filePath: row[Schema.TsChunks.filePath],
-                    symbolPath: row[Schema.TsChunks.symbolPath],
-                    kind: row[Schema.TsChunks.kind],
-                    startLine: row[Schema.TsChunks.startLine],
-                    endLine: row[Schema.TsChunks.endLine]
-                )
-            })
+            resolved.append(
+                contentsOf: rows.map { row in
+                    ResolvedCallee(
+                        calleeName: calleeName,
+                        filePath: row[Schema.TsChunks.filePath],
+                        symbolPath: row[Schema.TsChunks.symbolPath],
+                        kind: row[Schema.TsChunks.kind],
+                        startLine: row[Schema.TsChunks.startLine],
+                        endLine: row[Schema.TsChunks.endLine]
+                    )
+                })
         }
         return resolved
     }
@@ -374,11 +377,11 @@ enum TSCallGraph {
             let fromRanges = "[[\(site.startLine),0,\(site.endLine),0]]"
             try db.execute(
                 sql: """
-                INSERT INTO \(Schema.LspCallEdges.table)
-                    (\(Schema.LspCallEdges.callerId), \(Schema.LspCallEdges.calleeId), \(Schema.LspCallEdges.filePath), \
-                     \(Schema.LspCallEdges.fromRanges), \(Schema.LspCallEdges.source))
-                VALUES (?, ?, ?, ?, ?)
-                """,
+                    INSERT INTO \(Schema.LspCallEdges.table)
+                        (\(Schema.LspCallEdges.callerId), \(Schema.LspCallEdges.calleeId), \(Schema.LspCallEdges.filePath), \
+                         \(Schema.LspCallEdges.fromRanges), \(Schema.LspCallEdges.source))
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
                 arguments: [callerID, calleeID, callerFile, fromRanges, source]
             )
             return
@@ -410,12 +413,12 @@ enum TSCallGraph {
         try Row.fetchOne(
             db,
             sql: """
-            SELECT \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine) \
-            FROM \(Schema.TsChunks.table) \
-            WHERE \(Schema.TsChunks.filePath) = ? AND \(Schema.TsChunks.startByte) <= ? AND \(Schema.TsChunks.endByte) >= ? \
-            ORDER BY (\(Schema.TsChunks.endByte) - \(Schema.TsChunks.startByte)) ASC \
-            LIMIT 1
-            """,
+                SELECT \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine) \
+                FROM \(Schema.TsChunks.table) \
+                WHERE \(Schema.TsChunks.filePath) = ? AND \(Schema.TsChunks.startByte) <= ? AND \(Schema.TsChunks.endByte) >= ? \
+                ORDER BY (\(Schema.TsChunks.endByte) - \(Schema.TsChunks.startByte)) ASC \
+                LIMIT 1
+                """,
             arguments: [filePath, startByte, endByte]
         ).map { row in
             (
@@ -469,18 +472,18 @@ enum TSCallGraph {
         if let existingID = try Int64.fetchOne(
             db,
             sql: """
-            SELECT \(Schema.LspSymbols.id) FROM \(Schema.LspSymbols.table) \
-            WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) = ? \
-            LIMIT 1
-            """,
+                SELECT \(Schema.LspSymbols.id) FROM \(Schema.LspSymbols.table) \
+                WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) = ? \
+                LIMIT 1
+                """,
             arguments: [filePath, startLine]
         ) {
             try db.execute(
                 sql: """
-                UPDATE \(Schema.LspSymbols.table) \
-                SET \(Schema.LspSymbols.name) = ?, \(Schema.LspSymbols.kind) = ?, \(Schema.LspSymbols.endLine) = ? \
-                WHERE \(Schema.LspSymbols.id) = ?
-                """,
+                    UPDATE \(Schema.LspSymbols.table) \
+                    SET \(Schema.LspSymbols.name) = ?, \(Schema.LspSymbols.kind) = ?, \(Schema.LspSymbols.endLine) = ? \
+                    WHERE \(Schema.LspSymbols.id) = ?
+                    """,
                 arguments: [name, kind, endLine, existingID]
             )
             return existingID
@@ -488,12 +491,12 @@ enum TSCallGraph {
 
         try db.execute(
             sql: """
-            INSERT INTO \(Schema.LspSymbols.table)
-                (\(Schema.LspSymbols.name), \(Schema.LspSymbols.kind), \(Schema.LspSymbols.filePath), \
-                 \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.startColumn), \
-                 \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn))
-            VALUES (?, ?, ?, ?, 0, ?, 0)
-            """,
+                INSERT INTO \(Schema.LspSymbols.table)
+                    (\(Schema.LspSymbols.name), \(Schema.LspSymbols.kind), \(Schema.LspSymbols.filePath), \
+                     \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.startColumn), \
+                     \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn))
+                VALUES (?, ?, ?, ?, 0, ?, 0)
+                """,
             arguments: [name, kind, filePath, startLine, endLine]
         )
         return db.lastInsertedRowID

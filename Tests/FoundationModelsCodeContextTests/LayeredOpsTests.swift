@@ -43,9 +43,9 @@ struct LayeredOpsTests {
         try await store.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                    INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
                 arguments: [id, name, kind, filePath, startLine, startColumn, endLine, endColumn, detail]
             )
         }
@@ -56,9 +56,9 @@ struct LayeredOpsTests {
         try await store.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
-                VALUES (?, ?, ?, ?, 'lsp')
-                """,
+                    INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
+                    VALUES (?, ?, ?, ?, 'lsp')
+                    """,
                 arguments: [callerID, calleeID, filePath, fromRanges]
             )
         }
@@ -531,7 +531,7 @@ struct LayeredOpsTests {
             let unwrappedDefinitionIndex = try #require(definitionIndex)
             #expect(unwrappedOpenIndex < unwrappedDefinitionIndex, "syncOpen must run before the live definition request")
 
-            if case let .didOpen(_, _, _, text) = calls[unwrappedOpenIndex] {
+            if case .didOpen(_, _, _, let text) = calls[unwrappedOpenIndex] {
                 #expect(text == "func sample() {}\n", "syncOpen must send the current on-disk content")
             } else {
                 Issue.record("expected a didOpen call")

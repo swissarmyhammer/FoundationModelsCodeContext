@@ -1,6 +1,6 @@
 import Foundation
-import GRDB
 import FoundationModelsRanker
+import GRDB
 import Testing
 
 @testable import FoundationModelsCodeContext

@@ -170,8 +170,25 @@ comments:
     - evidence: `swift build` (clean rebuild from `rm -rf .build`) — 0 warnings in package sources (only pre-existing vendored mlx-swift C++ warnings and the documented `missing creator for mutated node` SourceKit notice); `swift test` — 562 tests passed, 0 failed, 48 suites, in 7.334s (post-clean-build run). Only skips observed are the pre-existing `LiveSourceKitTests` suite/test `.enabled(if:)` gates (`CCK_LIVE_LSP` unset), which are documented as acceptable. No fixes were needed — the `Chunker.walk` extraction is behavior-preserving.
     - next: ready for review
   timestamp: 2026-08-04T13:04:49.111173+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01kz6e80wta81f3yehygmq7cmg
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit 96e4ae3, "refactor(treesitter): extract shared depth-guarded tree walker") — 0 findings, 0 confirmed, 0 refuted, 9 validators attempted, 0 failed, 0 skipped; all 5 prior findings from the 2026-08-04 07:27 section checked
+    - next: task moved to done
+  timestamp: 2026-08-04T13:08:43.034079+00:00
+- actor: claude-code
+  id: 01kz6e8ey4hsbqdya9761epppr
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 3 files; extracted Chunker.walk(from:direction:context:visit:) + WalkDirection, all 5 duplicated walks became wrappers, inout accumulators replaced by closure capture; all 5 findings checked off
+    - test: green — swift test, 562 passed in 48 suites, 0 failures; swift build 0 package-source warnings (clean rebuild)
+    - commit: 96e4ae3 refactor(treesitter): extract shared depth-guarded tree walker
+    - review: clean — 0 findings, 9 validators, all 5 prior findings checked, task moved to done
+    - next: none — task complete
+  timestamp: 2026-08-04T13:08:57.412296+00:00
+position_column: done
+position_ordinal: b780
 title: Bound the recursive AST walks in Chunker and TSCallGraph so a deep parse tree cannot overflow the stack
 ---
 ## What

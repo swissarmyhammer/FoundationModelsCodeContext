@@ -56,7 +56,7 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
             let watchedURIs = allFiles.map { documentURI(forRelativePath: $0, rootDirectory: rootDirectory) }
             let outcome = await Settle.settle(session: session, uris: watchedURIs, settleWindow: settleWindow, hardTimeout: hardTimeout, clock: clock)
             switch outcome {
-            case let .settled(state):
+            case .settled(let state):
                 uriDiagnostics = state
             case .pending:
                 settlePending = true
@@ -195,7 +195,8 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
         var recordsByPath: [String: [DiagnosticRecord]] = [:]
         for (uri, diagnostics) in uriDiagnostics {
             let path = RelativePath.relativeFilePath(fromURI: uri, rootDirectory: rootDirectory)
-            let filtered = diagnostics
+            let filtered =
+                diagnostics
                 .filter { $0.severity.rawValue <= severity.rawValue }
                 .map { DiagnosticRecord.from(diagnostic: $0, path: path) }
             guard !filtered.isEmpty else { continue }

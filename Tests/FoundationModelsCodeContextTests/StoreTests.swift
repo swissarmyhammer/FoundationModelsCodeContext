@@ -45,9 +45,10 @@ struct StoreTests {
                 Set(try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'"))
             }
 
-            #expect(tableNames.isSuperset(of: [
-                "indexed_files", "ts_chunks", "lsp_symbols", "lsp_call_edges", "meta",
-            ]))
+            #expect(
+                tableNames.isSuperset(of: [
+                    "indexed_files", "ts_chunks", "lsp_symbols", "lsp_call_edges", "meta",
+                ]))
         }
     }
 
@@ -128,39 +129,47 @@ struct StoreTests {
             try await store.markDirty(filePath: "Sources/B.swift", contentHash: Data([2]), fileSize: 1)
 
             try await store.write { db in
-                try db.execute(sql: """
-                INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind)
-                VALUES ('Sources/A.swift', 0, 10, 1, 2, 'func a() {}', 'A.a', 'function')
-                """)
-                try db.execute(sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
-                VALUES (1, 'a', 'function', 'Sources/A.swift', 1, 0, 2, 1, NULL)
-                """)
-                try db.execute(sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
-                VALUES (2, 'b', 'function', 'Sources/A.swift', 3, 0, 4, 1, NULL)
-                """)
-                try db.execute(sql: """
-                INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
-                VALUES (1, 2, 'Sources/A.swift', '[]', 'lsp')
-                """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind)
+                        VALUES ('Sources/A.swift', 0, 10, 1, 2, 'func a() {}', 'A.a', 'function')
+                        """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
+                        VALUES (1, 'a', 'function', 'Sources/A.swift', 1, 0, 2, 1, NULL)
+                        """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
+                        VALUES (2, 'b', 'function', 'Sources/A.swift', 3, 0, 4, 1, NULL)
+                        """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
+                        VALUES (1, 2, 'Sources/A.swift', '[]', 'lsp')
+                        """)
 
-                try db.execute(sql: """
-                INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind)
-                VALUES ('Sources/B.swift', 0, 10, 1, 2, 'func c() {}', 'B.c', 'function')
-                """)
-                try db.execute(sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
-                VALUES (3, 'c', 'function', 'Sources/B.swift', 1, 0, 2, 1, NULL)
-                """)
-                try db.execute(sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
-                VALUES (4, 'd', 'function', 'Sources/B.swift', 3, 0, 4, 1, NULL)
-                """)
-                try db.execute(sql: """
-                INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
-                VALUES (3, 4, 'Sources/B.swift', '[]', 'treesitter')
-                """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind)
+                        VALUES ('Sources/B.swift', 0, 10, 1, 2, 'func c() {}', 'B.c', 'function')
+                        """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
+                        VALUES (3, 'c', 'function', 'Sources/B.swift', 1, 0, 2, 1, NULL)
+                        """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
+                        VALUES (4, 'd', 'function', 'Sources/B.swift', 3, 0, 4, 1, NULL)
+                        """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
+                        VALUES (3, 4, 'Sources/B.swift', '[]', 'treesitter')
+                        """)
             }
 
             let before = try await store.read { db in

@@ -45,12 +45,12 @@ struct ManagerQueriesTests {
         var body = ""
         for index in 0..<count {
             body += """
-            func markerFunc_\(namePrefix)\(index)() -> Int {
-                // MARKERTAG
-                return \(index)
-            }
+                func markerFunc_\(namePrefix)\(index)() -> Int {
+                    // MARKERTAG
+                    return \(index)
+                }
 
-            """
+                """
         }
         try write(body, to: "Fixture.swift", in: root)
     }

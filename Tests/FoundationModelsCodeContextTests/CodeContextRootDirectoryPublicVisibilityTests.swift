@@ -1,7 +1,6 @@
 import Foundation
-import Testing
-
 import FoundationModelsCodeContext
+import Testing
 
 /// Proves `CodeContext.rootDirectory` is genuinely `public nonisolated`, not merely visible to this
 /// test target's other suites via `@testable import`.

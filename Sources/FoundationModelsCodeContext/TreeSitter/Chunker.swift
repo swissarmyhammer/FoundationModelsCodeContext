@@ -398,7 +398,7 @@ public enum Chunker {
         var chunks: [SemanticChunk] = []
         walk(from: root, direction: .children) { node in
             if let kind = module.chunkKinds[node.nodeType ?? ""],
-               let chunk = makeChunk(node: node, kind: kind, file: file, module: module)
+                let chunk = makeChunk(node: node, kind: kind, file: file, module: module)
             {
                 chunks.append(chunk)
             }
@@ -513,9 +513,9 @@ public enum Chunker {
     /// space or exceeds `maxNameFieldLength`).
     private static func extractNameField(node: Node, fieldName: String, file: SourceFile) -> String? {
         guard let fieldNode = node.child(byFieldName: fieldName),
-              let fieldText = extractText(of: fieldNode, in: file.contents),
-              !fieldText.contains(" "),
-              isValidSymbolText(text: fieldText, maxLength: maxNameFieldLength)
+            let fieldText = extractText(of: fieldNode, in: file.contents),
+            !fieldText.contains(" "),
+            isValidSymbolText(text: fieldText, maxLength: maxNameFieldLength)
         else {
             return nil
         }
@@ -528,8 +528,8 @@ public enum Chunker {
     /// Port of the Rust reference's `extract_impl_type_name`.
     private static func extractImplTypeName(node: Node, file: SourceFile) -> String? {
         guard let typeNode = node.child(byFieldName: "type"),
-              let typeText = extractText(of: typeNode, in: file.contents),
-              isValidSymbolText(text: typeText, maxLength: maxImplTypeNameLength)
+            let typeText = extractText(of: typeNode, in: file.contents),
+            isValidSymbolText(text: typeText, maxLength: maxImplTypeNameLength)
         else {
             return nil
         }

@@ -168,12 +168,13 @@ struct LSPIndexWorkerTests {
 
             await connection.setDocumentSymbolsResult(.success([callerSymbol]))
             await connection.setPrepareCallHierarchyResult(.success([callerItem]))
-            await connection.setOutgoingCallsResult(.success([
-                CallHierarchyOutgoingCall(
-                    to: calleeItem,
-                    fromRanges: [LSPRange(start: Position(line: 0, character: 17), end: Position(line: 0, character: 23))]
-                ),
-            ]))
+            await connection.setOutgoingCallsResult(
+                .success([
+                    CallHierarchyOutgoingCall(
+                        to: calleeItem,
+                        fromRanges: [LSPRange(start: Position(line: 0, character: 17), end: Position(line: 0, character: 23))]
+                    )
+                ]))
 
             let indexedCount = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
                 store: store, rootDirectory: root, extensions: ["swift"], session: session
@@ -184,11 +185,11 @@ struct LSPIndexWorkerTests {
                 try Row.fetchAll(
                     db,
                     sql: """
-                    SELECT caller.name AS caller_name, callee.name AS callee_name, e.file_path, e.source, e.from_ranges \
-                    FROM lsp_call_edges e \
-                    JOIN lsp_symbols caller ON caller.id = e.caller_id \
-                    JOIN lsp_symbols callee ON callee.id = e.callee_id
-                    """
+                        SELECT caller.name AS caller_name, callee.name AS callee_name, e.file_path, e.source, e.from_ranges \
+                        FROM lsp_call_edges e \
+                        JOIN lsp_symbols caller ON caller.id = e.caller_id \
+                        JOIN lsp_symbols callee ON callee.id = e.callee_id
+                        """
                 ).map { row in
                     [
                         row["caller_name"] as String, row["callee_name"] as String, row["file_path"] as String,
@@ -215,10 +216,11 @@ struct LSPIndexWorkerTests {
 
             // A starts with two symbols: `helper` and `other`. B is not yet
             // dirty, so this pass only ever touches A.
-            await connection.setDocumentSymbolsResult(.success([
-                Self.documentSymbol(name: "helper", kind: .function, startLine: 0, endLine: 0),
-                Self.documentSymbol(name: "other", kind: .function, startLine: 1, endLine: 1),
-            ]))
+            await connection.setDocumentSymbolsResult(
+                .success([
+                    Self.documentSymbol(name: "helper", kind: .function, startLine: 0, endLine: 0),
+                    Self.documentSymbol(name: "other", kind: .function, startLine: 1, endLine: 1),
+                ]))
             _ = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
                 store: store, rootDirectory: root, extensions: ["swift"], session: session
             )
@@ -233,12 +235,13 @@ struct LSPIndexWorkerTests {
                 .success([Self.documentSymbol(name: "caller", kind: .function, startLine: 0, endLine: 0)])
             )
             await connection.setPrepareCallHierarchyResult(.success([callerItem]))
-            await connection.setOutgoingCallsResult(.success([
-                CallHierarchyOutgoingCall(
-                    to: calleeItem,
-                    fromRanges: [LSPRange(start: Position(line: 0, character: 17), end: Position(line: 0, character: 23))]
-                ),
-            ]))
+            await connection.setOutgoingCallsResult(
+                .success([
+                    CallHierarchyOutgoingCall(
+                        to: calleeItem,
+                        fromRanges: [LSPRange(start: Position(line: 0, character: 17), end: Position(line: 0, character: 23))]
+                    )
+                ]))
             _ = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
                 store: store, rootDirectory: root, extensions: ["swift"], session: session
             )
@@ -262,9 +265,10 @@ struct LSPIndexWorkerTests {
             // just-deleted `helper` symbol within this same pass.
             try write("\nfunc other() {}\n", to: "A.swift", in: root)
             try await store.markDirty(filePath: "A.swift", contentHash: Data("A.swift-v2".utf8), fileSize: 2)
-            await connection.setDocumentSymbolsResult(.success([
-                Self.documentSymbol(name: "other", kind: .function, startLine: 1, endLine: 1),
-            ]))
+            await connection.setDocumentSymbolsResult(
+                .success([
+                    Self.documentSymbol(name: "other", kind: .function, startLine: 1, endLine: 1)
+                ]))
             await connection.setPrepareCallHierarchyResult(.success([]))
             await connection.setOutgoingCallsResult(.success([]))
             _ = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
@@ -320,10 +324,11 @@ struct LSPIndexWorkerTests {
             // Both files must have been *attempted* — proving the loop
             // continues to the next dirty file after the first one throws,
             // rather than aborting the whole batch on the first failure.
-            let queriedURIs: Set<DocumentURI> = await Set(connection.calls.compactMap { call in
-                if case let .documentSymbols(uri) = call { return uri }
-                return nil
-            })
+            let queriedURIs: Set<DocumentURI> = await Set(
+                connection.calls.compactMap { call in
+                    if case .documentSymbols(let uri) = call { return uri }
+                    return nil
+                })
             #expect(queriedURIs == [Self.uri(for: "A.swift", in: root), Self.uri(for: "B.swift", in: root)])
         }
     }

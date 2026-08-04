@@ -133,10 +133,11 @@ struct SymbolOpsTests {
             try await TreeSitterWorker.run(store: store, rootDirectory: root)
 
             try await store.write { db in
-                try db.execute(sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
-                VALUES (1, 'topLevel', 'function', 'Sample.swift', 0, 5, 0, 14, 'func topLevel() -> Void')
-                """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
+                        VALUES (1, 'topLevel', 'function', 'Sample.swift', 0, 5, 0, 14, 'func topLevel() -> Void')
+                        """)
             }
 
             let result = try await SymbolOps.getSymbol(store: store, query: "topLevel")
@@ -161,10 +162,11 @@ struct SymbolOpsTests {
             try await TreeSitterWorker.run(store: store, rootDirectory: root)
 
             try await store.write { db in
-                try db.execute(sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
-                VALUES (1, 'ghostSymbol', 'variable', 'Sample.swift', 99, 0, 99, 10, NULL)
-                """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
+                        VALUES (1, 'ghostSymbol', 'variable', 'Sample.swift', 99, 0, 99, 10, NULL)
+                        """)
             }
 
             let result = try await SymbolOps.getSymbol(store: store, query: "ghostSymbol")
@@ -200,10 +202,11 @@ struct SymbolOpsTests {
             try await TreeSitterWorker.run(store: store, rootDirectory: root)
 
             try await store.write { db in
-                try db.execute(sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
-                VALUES (1, 'topLevel', 'Function', 'Sample.swift', 0, 5, 0, 14, NULL)
-                """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
+                        VALUES (1, 'topLevel', 'Function', 'Sample.swift', 0, 5, 0, 14, NULL)
+                        """)
             }
 
             let result = try await SymbolOps.getSymbol(store: store, query: "topLevel")
@@ -271,10 +274,11 @@ struct SymbolOpsTests {
             let symbols = try await SymbolOps.listSymbols(store: store, file: "Sample.swift")
 
             let paths = symbols.map(\.qualifiedPath)
-            #expect(paths == [
-                "main", "MyStruct", "MyStruct.new", "MyStruct.authenticate",
-                "AuthService", "AuthService.new", "AuthService.validate",
-            ])
+            #expect(
+                paths == [
+                    "main", "MyStruct", "MyStruct.new", "MyStruct.authenticate",
+                    "AuthService", "AuthService.new", "AuthService.validate",
+                ])
             #expect(symbols.allSatisfy { $0.source == .treeSitter })
         }
     }
@@ -340,7 +344,7 @@ struct GrepCodeTests {
             let start = utf8.index(utf8.startIndex, offsetBy: position.start)
             let end = utf8.index(utf8.startIndex, offsetBy: position.end)
             #expect(String(decoding: utf8[start..<end], as: UTF8.self) == "café")
-            #expect(position.start == 5) // "func " is 5 ASCII bytes
+            #expect(position.start == 5)  // "func " is 5 ASCII bytes
             #expect(position.end == 5 + "café".utf8.count)
         }
     }

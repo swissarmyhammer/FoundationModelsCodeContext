@@ -214,10 +214,10 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             try String.fetchAll(
                 db,
                 sql: """
-                SELECT \(Schema.IndexedFiles.filePath) FROM \(Schema.IndexedFiles.table) \
-                WHERE \(Schema.IndexedFiles.lspIndexed) = 0 AND (\(likeClauses)) \
-                ORDER BY \(Schema.IndexedFiles.filePath) LIMIT ?
-                """,
+                    SELECT \(Schema.IndexedFiles.filePath) FROM \(Schema.IndexedFiles.table) \
+                    WHERE \(Schema.IndexedFiles.lspIndexed) = 0 AND (\(likeClauses)) \
+                    ORDER BY \(Schema.IndexedFiles.filePath) LIMIT ?
+                    """,
                 arguments: arguments
             )
         }
@@ -281,12 +281,14 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         let fileURL = rootDirectory.appendingPathComponent(relativePath)
         let uri = DocumentURI(fileURL.absoluteString)
 
-        guard let documentSymbols = await syncAndFetchSymbols(
-            relativePath: relativePath,
-            uri: uri,
-            contents: contents,
-            session: session
-        ) else {
+        guard
+            let documentSymbols = await syncAndFetchSymbols(
+                relativePath: relativePath,
+                uri: uri,
+                contents: contents,
+                session: session
+            )
+        else {
             return false
         }
 
@@ -455,17 +457,18 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ) {
         for symbol in symbols {
             let qualifiedPath = parentPath.map { "\($0)\(Chunker.symbolPathSeparator)\(symbol.name)" } ?? symbol.name
-            flattened.append(FlatSymbol(
-                name: symbol.name,
-                qualifiedPath: qualifiedPath,
-                kind: symbol.kind,
-                filePath: filePath,
-                startLine: symbol.range.start.line,
-                startColumn: symbol.range.start.character,
-                endLine: symbol.range.end.line,
-                endColumn: symbol.range.end.character,
-                detail: symbol.detail
-            ))
+            flattened.append(
+                FlatSymbol(
+                    name: symbol.name,
+                    qualifiedPath: qualifiedPath,
+                    kind: symbol.kind,
+                    filePath: filePath,
+                    startLine: symbol.range.start.line,
+                    startColumn: symbol.range.start.character,
+                    endLine: symbol.range.end.line,
+                    endColumn: symbol.range.end.character,
+                    detail: symbol.detail
+                ))
             if let children = symbol.children {
                 appendFlattenedSymbols(filePath: filePath, symbols: children, parentPath: qualifiedPath, into: &flattened)
             }
@@ -539,13 +542,14 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         var edges: [PendingCallEdge] = []
 
         for symbol in flatSymbols where callableKinds.contains(symbol.kind) {
-            edges.append(contentsOf: await collectEdges(
-                forSymbol: symbol,
-                filePath: filePath,
-                uri: uri,
-                rootDirectory: rootDirectory,
-                session: session
-            ))
+            edges.append(
+                contentsOf: await collectEdges(
+                    forSymbol: symbol,
+                    filePath: filePath,
+                    uri: uri,
+                    rootDirectory: rootDirectory,
+                    session: session
+                ))
         }
 
         return edges
@@ -604,7 +608,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
 
         return outgoing.compactMap { call in
             guard let calleeURL = URL(string: call.to.uri.value),
-                  let calleeRelativePath = RelativePath.of(calleeURL, relativeTo: rootDirectory)
+                let calleeRelativePath = RelativePath.of(calleeURL, relativeTo: rootDirectory)
             else {
                 return nil
             }
@@ -711,7 +715,8 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ) throws -> SymbolReextraction {
         let existingIDsByStartLine = try existingSymbolIDsByStartLine(db: db, filePath: filePath)
         let newStartLines = Set(flatSymbols.map(\.startLine))
-        let deletedIDs = existingIDsByStartLine
+        let deletedIDs =
+            existingIDsByStartLine
             .filter { startLine, _ in !newStartLines.contains(startLine) }
             .map(\.value)
 
@@ -757,9 +762,9 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ) throws {
         try db.execute(
             sql: """
-            DELETE FROM \(Schema.LspCallEdges.table) \
-            WHERE \(Schema.LspCallEdges.filePath) = ? AND \(Schema.LspCallEdges.source) = 'lsp'
-            """,
+                DELETE FROM \(Schema.LspCallEdges.table) \
+                WHERE \(Schema.LspCallEdges.filePath) = ? AND \(Schema.LspCallEdges.source) = 'lsp'
+                """,
             arguments: [filePath]
         )
 
@@ -786,11 +791,11 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
 
             try db.execute(
                 sql: """
-                INSERT INTO \(Schema.LspCallEdges.table)
-                    (\(Schema.LspCallEdges.callerId), \(Schema.LspCallEdges.calleeId), \(Schema.LspCallEdges.filePath), \
-                     \(Schema.LspCallEdges.fromRanges), \(Schema.LspCallEdges.source))
-                VALUES (?, ?, ?, ?, 'lsp')
-                """,
+                    INSERT INTO \(Schema.LspCallEdges.table)
+                        (\(Schema.LspCallEdges.callerId), \(Schema.LspCallEdges.calleeId), \(Schema.LspCallEdges.filePath), \
+                         \(Schema.LspCallEdges.fromRanges), \(Schema.LspCallEdges.source))
+                    VALUES (?, ?, ?, ?, 'lsp')
+                    """,
                 arguments: [callerID, calleeID, filePath, edge.fromRangesJSON]
             )
         }
@@ -820,9 +825,9 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     private static func setLSPIndexed(db: Database, filePath: String, indexed: Bool) throws {
         try db.execute(
             sql: """
-            UPDATE \(Schema.IndexedFiles.table) SET \(Schema.IndexedFiles.lspIndexed) = ? \
-            WHERE \(Schema.IndexedFiles.filePath) = ?
-            """,
+                UPDATE \(Schema.IndexedFiles.table) SET \(Schema.IndexedFiles.lspIndexed) = ? \
+                WHERE \(Schema.IndexedFiles.filePath) = ?
+                """,
             arguments: [indexed, filePath]
         )
     }
@@ -840,9 +845,9 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         let rows = try Row.fetchAll(
             db,
             sql: """
-            SELECT \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.id) FROM \(Schema.LspSymbols.table) \
-            WHERE \(Schema.LspSymbols.filePath) = ?
-            """,
+                SELECT \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.id) FROM \(Schema.LspSymbols.table) \
+                WHERE \(Schema.LspSymbols.filePath) = ?
+                """,
             arguments: [filePath]
         )
         var idsByStartLine: [Int: Int64] = [:]
@@ -879,9 +884,9 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             let rows = try String.fetchAll(
                 db,
                 sql: """
-                SELECT DISTINCT \(Schema.LspCallEdges.filePath) FROM \(Schema.LspCallEdges.table) \
-                WHERE \(Schema.LspCallEdges.calleeId) IN (\(placeholders)) AND \(Schema.LspCallEdges.filePath) != ?
-                """,
+                    SELECT DISTINCT \(Schema.LspCallEdges.filePath) FROM \(Schema.LspCallEdges.table) \
+                    WHERE \(Schema.LspCallEdges.calleeId) IN (\(placeholders)) AND \(Schema.LspCallEdges.filePath) != ?
+                    """,
                 arguments: arguments
             )
             affectedFiles.formUnion(rows)
@@ -942,20 +947,20 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         if let existingID = try Int64.fetchOne(
             db,
             sql: """
-            SELECT \(Schema.LspSymbols.id) FROM \(Schema.LspSymbols.table) \
-            WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) = ? \
-            LIMIT 1
-            """,
+                SELECT \(Schema.LspSymbols.id) FROM \(Schema.LspSymbols.table) \
+                WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) = ? \
+                LIMIT 1
+                """,
             arguments: [filePath, startLine]
         ) {
             try db.execute(
                 sql: """
-                UPDATE \(Schema.LspSymbols.table) \
-                SET \(Schema.LspSymbols.name) = ?, \(Schema.LspSymbols.kind) = ?, \
-                    \(Schema.LspSymbols.startColumn) = ?, \(Schema.LspSymbols.endLine) = ?, \
-                    \(Schema.LspSymbols.endColumn) = ?, \(Schema.LspSymbols.detail) = ? \
-                WHERE \(Schema.LspSymbols.id) = ?
-                """,
+                    UPDATE \(Schema.LspSymbols.table) \
+                    SET \(Schema.LspSymbols.name) = ?, \(Schema.LspSymbols.kind) = ?, \
+                        \(Schema.LspSymbols.startColumn) = ?, \(Schema.LspSymbols.endLine) = ?, \
+                        \(Schema.LspSymbols.endColumn) = ?, \(Schema.LspSymbols.detail) = ? \
+                    WHERE \(Schema.LspSymbols.id) = ?
+                    """,
                 arguments: [name, kind, startColumn, endLine, endColumn, detail, existingID]
             )
             return existingID
@@ -963,12 +968,12 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
 
         try db.execute(
             sql: """
-            INSERT INTO \(Schema.LspSymbols.table)
-                (\(Schema.LspSymbols.name), \(Schema.LspSymbols.kind), \(Schema.LspSymbols.filePath), \
-                 \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.startColumn), \
-                 \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn), \(Schema.LspSymbols.detail))
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+                INSERT INTO \(Schema.LspSymbols.table)
+                    (\(Schema.LspSymbols.name), \(Schema.LspSymbols.kind), \(Schema.LspSymbols.filePath), \
+                     \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.startColumn), \
+                     \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn), \(Schema.LspSymbols.detail))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
             arguments: [name, kind, filePath, startLine, startColumn, endLine, endColumn, detail]
         )
         return db.lastInsertedRowID
@@ -993,11 +998,12 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         if let cached = cache[filePath] {
             return cached
         }
-        let exists = try Bool.fetchOne(
-            db,
-            sql: "SELECT EXISTS(SELECT 1 FROM \(Schema.IndexedFiles.table) WHERE \(Schema.IndexedFiles.filePath) = ?)",
-            arguments: [filePath]
-        ) ?? false
+        let exists =
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT EXISTS(SELECT 1 FROM \(Schema.IndexedFiles.table) WHERE \(Schema.IndexedFiles.filePath) = ?)",
+                arguments: [filePath]
+            ) ?? false
         cache[filePath] = exists
         return exists
     }
@@ -1054,7 +1060,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             return []
         }
         return stride(from: 0, to: elements.count, by: size).map { startIndex in
-            Array(elements[startIndex ..< Swift.min(startIndex + size, elements.count)])
+            Array(elements[startIndex..<Swift.min(startIndex + size, elements.count)])
         }
     }
 }

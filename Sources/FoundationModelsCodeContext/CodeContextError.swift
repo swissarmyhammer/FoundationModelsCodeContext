@@ -62,27 +62,27 @@ extension CodeContextError: LocalizedError {
     /// A human-readable description of the error, suitable for logging or surfacing to a caller.
     public var errorDescription: String? {
         switch self {
-        case let .binaryNotFound(command, installHint):
+        case .binaryNotFound(let command, let installHint):
             "binary not found: \(command) (\(installHint))"
-        case let .spawnFailed(reason):
+        case .spawnFailed(let reason):
             "failed to spawn language server: \(reason)"
-        case let .handshakeFailed(reason):
+        case .handshakeFailed(let reason):
             "initialize handshake failed: \(reason)"
-        case let .timeout(duration):
+        case .timeout(let duration):
             "operation timed out after \(duration)"
         case .notRunning:
             "server not running"
-        case let .storage(reason):
+        case .storage(let reason):
             "storage error: \(reason)"
-        case let .embedding(reason):
+        case .embedding(let reason):
             "embedding error: \(reason)"
-        case let .query(reason):
+        case .query(let reason):
             "query error: \(reason)"
-        case let .pattern(reason):
+        case .pattern(let reason):
             "pattern error: \(reason)"
-        case let .notFound(reason):
+        case .notFound(let reason):
             "not found: \(reason)"
-        case let .overlappingRoot(reason):
+        case .overlappingRoot(let reason):
             "overlapping root: \(reason)"
         }
     }

@@ -387,7 +387,8 @@ public enum SymbolOps {
     /// itself).
     private static func matchSuffix(candidates: [SymbolCandidateRow], query: String, maxResults: Int) -> GetSymbolResult? {
         let suffixPattern = "\(Chunker.symbolPathSeparator)\(query)"
-        let scoredRows = candidates
+        let scoredRows =
+            candidates
             .filter { $0.qualifiedPath.hasSuffix(suffixPattern) || $0.qualifiedPath == query }
             .map { (candidate: $0, score: suffixBaseScore + shorterPathBonus(qualifiedPath: $0.qualifiedPath)) }
             .sorted { $0.score > $1.score }
@@ -400,7 +401,8 @@ public enum SymbolOps {
     /// Tier 3: case-insensitive substring match.
     private static func matchCaseInsensitive(candidates: [SymbolCandidateRow], query: String, maxResults: Int) -> GetSymbolResult? {
         let queryLowercased = query.lowercased()
-        let scoredRows = candidates
+        let scoredRows =
+            candidates
             .filter { $0.qualifiedPath.lowercased().contains(queryLowercased) }
             .map { (candidate: $0, score: caseInsensitiveBaseScore + shorterPathBonus(qualifiedPath: $0.qualifiedPath)) }
             .sorted { $0.score > $1.score }
@@ -412,7 +414,8 @@ public enum SymbolOps {
 
     /// Tier 4: subsequence fuzzy match, ranked by fuzzy score.
     private static func matchFuzzy(candidates: [SymbolCandidateRow], query: String, maxResults: Int) -> GetSymbolResult? {
-        let scoredRows = candidates
+        let scoredRows =
+            candidates
             .compactMap { candidate -> (candidate: SymbolCandidateRow, score: Int)? in
                 guard let score = fuzzyScore(query: query, target: candidate.qualifiedPath) else {
                     return nil
@@ -491,10 +494,12 @@ public enum SymbolOps {
         let candidates = try await loadCandidateRows(store: store, filePath: nil)
         let filtered = kind.map { filterKind in candidates.filter { $0.kind == filterKind } } ?? candidates
 
-        let scoredRows = filtered
+        let scoredRows =
+            filtered
             .compactMap { candidate -> (candidate: SymbolCandidateRow, score: Int)? in
-                guard let score = fuzzyScore(query: query, target: candidate.qualifiedPath)
-                    ?? fuzzyScore(query: query, target: candidate.name)
+                guard
+                    let score = fuzzyScore(query: query, target: candidate.qualifiedPath)
+                        ?? fuzzyScore(query: query, target: candidate.name)
                 else {
                     return nil
                 }
@@ -528,7 +533,8 @@ public enum SymbolOps {
     /// - Throws: Rethrows `Store`'s storage errors.
     public static func listSymbols(store: Store, file: String) async throws -> [SymbolLocation] {
         let candidates = try await loadCandidateRows(store: store, filePath: file)
-        return candidates
+        return
+            candidates
             .sorted { $0.startLine < $1.startLine }
             .map { candidate in
                 SymbolLocation(
@@ -586,7 +592,8 @@ public enum SymbolOps {
             if let previousMatchedIndex, previousMatchedIndex == targetIndex - 1 {
                 score += 15
             }
-            let previousCharacterIsSeparator = targetIndex == 0
+            let previousCharacterIsSeparator =
+                targetIndex == 0
                 || !(targetCharacters[targetIndex - 1].isLetter || targetCharacters[targetIndex - 1].isNumber)
             if previousCharacterIsSeparator {
                 score += 10
@@ -705,10 +712,10 @@ public enum SymbolOps {
         let rows = try Row.fetchAll(
             db,
             sql: """
-            SELECT \(Schema.TsChunks.filePath), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
-                   \(Schema.TsChunks.text), \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind) \
-            FROM \(Schema.TsChunks.table) \(whereClause)
-            """,
+                SELECT \(Schema.TsChunks.filePath), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
+                       \(Schema.TsChunks.text), \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind) \
+                FROM \(Schema.TsChunks.table) \(whereClause)
+                """,
             arguments: arguments
         )
         return rows.map { row in
@@ -736,11 +743,11 @@ public enum SymbolOps {
         let rows = try Row.fetchAll(
             db,
             sql: """
-            SELECT \(Schema.LspSymbols.name), \(Schema.LspSymbols.kind), \(Schema.LspSymbols.filePath), \
-                   \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.startColumn), \
-                   \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn), \(Schema.LspSymbols.detail) \
-            FROM \(Schema.LspSymbols.table) \(whereClause)
-            """,
+                SELECT \(Schema.LspSymbols.name), \(Schema.LspSymbols.kind), \(Schema.LspSymbols.filePath), \
+                       \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.startColumn), \
+                       \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn), \(Schema.LspSymbols.detail) \
+                FROM \(Schema.LspSymbols.table) \(whereClause)
+                """,
             arguments: arguments
         )
         return rows.map { row in

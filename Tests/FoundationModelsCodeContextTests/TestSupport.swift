@@ -1,5 +1,5 @@
-import FoundationModelsCodeContext
 import Foundation
+import FoundationModelsCodeContext
 import GRDB
 
 /// Creates a fresh temporary workspace directory for `body`, removed
@@ -87,9 +87,9 @@ func insertChunk(
     try await store.write { db in
         try db.execute(
             sql: """
-            INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind, embedding)
-            VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)
-            """,
+                INSERT INTO ts_chunks (file_path, start_byte, end_byte, start_line, end_line, text, symbol_path, kind, embedding)
+                VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)
+                """,
             arguments: [
                 filePath, text.utf8.count, startLine, endLine, text, symbolPath, kind.rawValue,
                 embedding.map(EmbeddingCodec.encode),

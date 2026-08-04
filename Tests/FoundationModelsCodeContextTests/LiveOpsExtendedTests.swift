@@ -38,9 +38,9 @@ struct LiveOpsExtendedTests {
         try await store.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
-                """,
+                    INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column, detail)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    """,
                 arguments: [id, name, kind, filePath, startLine, startColumn, endLine, endColumn]
             )
         }
@@ -51,9 +51,9 @@ struct LiveOpsExtendedTests {
         try await store.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
-                VALUES (?, ?, ?, '[]', 'lsp')
-                """,
+                    INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
+                    VALUES (?, ?, ?, '[]', 'lsp')
+                    """,
                 arguments: [callerID, calleeID, filePath]
             )
         }
@@ -153,7 +153,11 @@ struct LiveOpsExtendedTests {
 
             #expect(!result.canRename)
             let calls = await connection.calls
-            #expect(!calls.contains { if case .rename = $0 { return true }; return false })
+            #expect(
+                !calls.contains {
+                    if case .rename = $0 { return true }
+                    return false
+                })
         }
     }
 
@@ -197,7 +201,11 @@ struct LiveOpsExtendedTests {
             #expect(result.actions == [resolved])
 
             let calls = await connection.calls
-            #expect(calls.contains { if case .resolveCodeAction = $0 { return true }; return false })
+            #expect(
+                calls.contains {
+                    if case .resolveCodeAction = $0 { return true }
+                    return false
+                })
         }
     }
 
@@ -305,13 +313,14 @@ struct LiveOpsExtendedTests {
             let processState = ProcessState()
             let connection = FakeLanguageServerConnection()
             let symbolURI = DocumentURI(root.appendingPathComponent("Sample.swift").absoluteString)
-            await connection.setWorkspaceSymbolsResult(.success([
-                SymbolInformation(
-                    name: "sample", kind: .function,
-                    location: Location(uri: symbolURI, range: LSPRange(start: Position(line: 0, character: 0), end: Position(line: 0, character: 6))),
-                    containerName: nil
-                ),
-            ]))
+            await connection.setWorkspaceSymbolsResult(
+                .success([
+                    SymbolInformation(
+                        name: "sample", kind: .function,
+                        location: Location(uri: symbolURI, range: LSPRange(start: Position(line: 0, character: 0), end: Position(line: 0, character: 6))),
+                        containerName: nil
+                    )
+                ]))
 
             let daemon = LSPDaemon<FakeLanguageServerConnection>(
                 spec: Self.serverSpec(),

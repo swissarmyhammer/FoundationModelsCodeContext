@@ -27,12 +27,12 @@ struct ChunkerTests {
     @Test
     func swiftMethodNestedInStructIsQualifiedByContainerName() throws {
         let source = """
-        struct Struct {
-            func method() {}
-        }
+            struct Struct {
+                func method() {}
+            }
 
-        func freeFunction() {}
-        """
+            func freeFunction() {}
+            """
         let file = SourceFile(relativePath: "Sample.swift", contents: source)
 
         let chunks = Chunker.chunk(file: file, module: SwiftLanguage.self)
@@ -56,10 +56,10 @@ struct ChunkerTests {
     @Test
     func rustImplItemContainerQualifiesNestedFunctionWithImplPrefix() throws {
         let source = """
-        impl Foo {
-            fn bar() {}
-        }
-        """
+            impl Foo {
+                fn bar() {}
+            }
+            """
         let file = SourceFile(relativePath: "sample.rs", contents: source)
 
         let chunks = Chunker.chunk(file: file, module: RustLanguage.self)
@@ -74,13 +74,13 @@ struct ChunkerTests {
     @Test
     func pythonMethodNestedInClassIsQualifiedByContainerName() throws {
         let source = """
-        class Foo:
-            def bar(self):
-                pass
+            class Foo:
+                def bar(self):
+                    pass
 
-        def baz():
-            pass
-        """
+            def baz():
+                pass
+            """
         let file = SourceFile(relativePath: "sample.py", contents: source)
 
         let chunks = Chunker.chunk(file: file, module: PythonLanguage.self)

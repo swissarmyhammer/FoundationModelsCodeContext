@@ -33,6 +33,6 @@ enum SharedChunkKinds {
     /// symbol_path across JavaScript, TypeScript, and TSX: class
     /// declarations.
     static let javaScriptFamilyContainers: Set<String> = [
-        "class_declaration",
+        "class_declaration"
     ]
 }

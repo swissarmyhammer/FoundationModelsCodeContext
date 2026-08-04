@@ -242,19 +242,19 @@ public final class Store: Sendable {
         try await write { db in
             try db.execute(
                 sql: """
-                INSERT INTO \(Schema.IndexedFiles.table)
-                    (\(Schema.IndexedFiles.filePath), \(Schema.IndexedFiles.contentHash), \
-                     \(Schema.IndexedFiles.fileSize), \(Schema.IndexedFiles.lastSeenAt), \
-                     \(Schema.IndexedFiles.tsIndexed), \(Schema.IndexedFiles.lspIndexed), \(Schema.IndexedFiles.embedded))
-                VALUES (?, ?, ?, ?, 0, 0, 0)
-                ON CONFLICT(\(Schema.IndexedFiles.filePath)) DO UPDATE SET
-                    \(Schema.IndexedFiles.contentHash) = excluded.\(Schema.IndexedFiles.contentHash),
-                    \(Schema.IndexedFiles.fileSize) = excluded.\(Schema.IndexedFiles.fileSize),
-                    \(Schema.IndexedFiles.lastSeenAt) = excluded.\(Schema.IndexedFiles.lastSeenAt),
-                    \(Schema.IndexedFiles.tsIndexed) = 0,
-                    \(Schema.IndexedFiles.lspIndexed) = 0,
-                    \(Schema.IndexedFiles.embedded) = 0
-                """,
+                    INSERT INTO \(Schema.IndexedFiles.table)
+                        (\(Schema.IndexedFiles.filePath), \(Schema.IndexedFiles.contentHash), \
+                         \(Schema.IndexedFiles.fileSize), \(Schema.IndexedFiles.lastSeenAt), \
+                         \(Schema.IndexedFiles.tsIndexed), \(Schema.IndexedFiles.lspIndexed), \(Schema.IndexedFiles.embedded))
+                    VALUES (?, ?, ?, ?, 0, 0, 0)
+                    ON CONFLICT(\(Schema.IndexedFiles.filePath)) DO UPDATE SET
+                        \(Schema.IndexedFiles.contentHash) = excluded.\(Schema.IndexedFiles.contentHash),
+                        \(Schema.IndexedFiles.fileSize) = excluded.\(Schema.IndexedFiles.fileSize),
+                        \(Schema.IndexedFiles.lastSeenAt) = excluded.\(Schema.IndexedFiles.lastSeenAt),
+                        \(Schema.IndexedFiles.tsIndexed) = 0,
+                        \(Schema.IndexedFiles.lspIndexed) = 0,
+                        \(Schema.IndexedFiles.embedded) = 0
+                    """,
                 arguments: [filePath, contentHash, fileSize, lastSeenAt]
             )
         }
@@ -320,9 +320,9 @@ public final class Store: Sendable {
             try String.fetchAll(
                 db,
                 sql: """
-                SELECT \(Schema.IndexedFiles.filePath) FROM \(Schema.IndexedFiles.table) \
-                WHERE \(column) = 0 ORDER BY \(Schema.IndexedFiles.filePath)
-                """
+                    SELECT \(Schema.IndexedFiles.filePath) FROM \(Schema.IndexedFiles.table) \
+                    WHERE \(column) = 0 ORDER BY \(Schema.IndexedFiles.filePath)
+                    """
             )
         }
     }
@@ -397,9 +397,9 @@ public final class Store: Sendable {
         try await write { db in
             try db.execute(
                 sql: """
-                INSERT INTO \(Schema.Meta.table) (\(Schema.Meta.key), \(Schema.Meta.value)) VALUES (?, ?)
-                ON CONFLICT(\(Schema.Meta.key)) DO UPDATE SET \(Schema.Meta.value) = excluded.\(Schema.Meta.value)
-                """,
+                    INSERT INTO \(Schema.Meta.table) (\(Schema.Meta.key), \(Schema.Meta.value)) VALUES (?, ?)
+                    ON CONFLICT(\(Schema.Meta.key)) DO UPDATE SET \(Schema.Meta.value) = excluded.\(Schema.Meta.value)
+                    """,
                 arguments: [Self.embedderDimensionKey, String(dimension)]
             )
         }

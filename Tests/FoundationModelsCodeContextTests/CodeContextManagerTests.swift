@@ -127,7 +127,7 @@ struct CodeContextManagerTests {
             let (firstOutcome, secondOutcome) = await (parentOutcome, childOutcome)
 
             switch (firstOutcome, secondOutcome) {
-            case let (.success(parentContext), .success(childContext)):
+            case (.success(let parentContext), .success(let childContext)):
                 // The only valid double-success is both calls resolving to the identical
                 // (parent) context — never two distinct, independently-started contexts.
                 #expect(parentContext === childContext)

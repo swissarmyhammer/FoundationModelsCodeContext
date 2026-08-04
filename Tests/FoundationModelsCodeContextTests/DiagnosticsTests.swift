@@ -66,9 +66,9 @@ struct DiagnosticsTests {
         try await store.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column)
-                VALUES (?, ?, 'function', ?, 0, 0, 10, 0)
-                """,
+                    INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column)
+                    VALUES (?, ?, 'function', ?, 0, 0, 10, 0)
+                    """,
                 arguments: [id, name, filePath]
             )
         }
@@ -78,9 +78,9 @@ struct DiagnosticsTests {
         try await store.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
-                VALUES (?, ?, ?, '[]', 'lsp')
-                """,
+                    INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
+                    VALUES (?, ?, ?, '[]', 'lsp')
+                    """,
                 arguments: [callerID, calleeID, filePath]
             )
         }
@@ -152,7 +152,7 @@ struct DiagnosticsTests {
         try await Task.sleep(for: .milliseconds(20))
         #expect(task.isCancelled == false)
 
-        clock.advance(by: .milliseconds(200)) // now at t=500, the *restarted* deadline
+        clock.advance(by: .milliseconds(200))  // now at t=500, the *restarted* deadline
         let outcome = await task.value
         #expect(outcome == .settled([uri: [diag]]))
         continuation.finish()
@@ -175,7 +175,7 @@ struct DiagnosticsTests {
             )
         }
 
-        for _ in 0 ..< 19 {
+        for _ in 0..<19 {
             await clock.waitForWaiter(count: 2)
             clock.advance(by: .milliseconds(250))
             continuation.yield(DiagnosticUpdate(uri: uri, diagnostics: []))
@@ -234,12 +234,13 @@ struct DiagnosticsTests {
             _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
 
             let connection = FakeLanguageServerConnection()
-            await connection.setPullDiagnosticsResult(.success([
-                Self.diagnostic(severity: .error, message: "err"),
-                Self.diagnostic(severity: .warning, message: "warn"),
-                Self.diagnostic(severity: .information, message: "info"),
-                Self.diagnostic(severity: .hint, message: "hint"),
-            ]))
+            await connection.setPullDiagnosticsResult(
+                .success([
+                    Self.diagnostic(severity: .error, message: "err"),
+                    Self.diagnostic(severity: .warning, message: "warn"),
+                    Self.diagnostic(severity: .information, message: "info"),
+                    Self.diagnostic(severity: .hint, message: "hint"),
+                ]))
             let session = LspSession(connection: connection, languageID: "swift")
 
             let report = try await DiagnosticsOps.diagnostics(
@@ -265,12 +266,13 @@ struct DiagnosticsTests {
             _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
 
             let connection = FakeLanguageServerConnection()
-            await connection.setPullDiagnosticsResult(.success([
-                Self.diagnostic(severity: .error, message: "err"),
-                Self.diagnostic(severity: .warning, message: "warn"),
-                Self.diagnostic(severity: .information, message: "info"),
-                Self.diagnostic(severity: .hint, message: "hint"),
-            ]))
+            await connection.setPullDiagnosticsResult(
+                .success([
+                    Self.diagnostic(severity: .error, message: "err"),
+                    Self.diagnostic(severity: .warning, message: "warn"),
+                    Self.diagnostic(severity: .information, message: "info"),
+                    Self.diagnostic(severity: .hint, message: "hint"),
+                ]))
             let session = LspSession(connection: connection, languageID: "swift")
 
             let report = try await DiagnosticsOps.diagnostics(
@@ -360,7 +362,7 @@ struct DiagnosticsTests {
             }
 
             let uri = DocumentURI(root.appendingPathComponent("a.swift").absoluteString)
-            for _ in 0 ..< 19 {
+            for _ in 0..<19 {
                 await clock.waitForWaiter(count: 2)
                 clock.advance(by: .milliseconds(250))
                 await connection.emit(notification: .publishDiagnostics(uri: uri, diagnostics: []))
@@ -527,7 +529,7 @@ struct DiagnosticsTests {
     func buildReportCapsTotalRecordsAtPerReportCap() throws {
         var uriDiagnostics: [DocumentURI: [Diagnostic]] = [:]
         let targetURI = DocumentURI("file:///repo/target.swift")
-        uriDiagnostics[targetURI] = (0 ..< 150).map { Self.diagnostic(severity: .error, message: "e\($0)") }
+        uriDiagnostics[targetURI] = (0..<150).map { Self.diagnostic(severity: .error, message: "e\($0)") }
 
         let report = DiagnosticsOps<FakeLanguageServerConnection>.buildReport(
             uriDiagnostics: uriDiagnostics,

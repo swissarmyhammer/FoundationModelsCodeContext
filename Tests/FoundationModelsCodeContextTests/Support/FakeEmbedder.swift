@@ -1,5 +1,5 @@
-import FoundationModelsCodeContext
 import Foundation
+import FoundationModelsCodeContext
 
 /// A deterministic, hash-based `TextEmbedding` test double.
 ///

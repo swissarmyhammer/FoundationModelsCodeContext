@@ -1,5 +1,5 @@
-import FoundationModelsCodeContext
 import Foundation
+import FoundationModelsCodeContext
 
 /// A `FileEventSource` test double that lets a test synchronously drive
 /// synthetic filesystem events into a `Watcher` without touching the real

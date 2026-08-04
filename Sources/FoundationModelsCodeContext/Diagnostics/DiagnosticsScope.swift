@@ -49,9 +49,9 @@ enum DiagnosticsScopeResolver {
         switch scope {
         case .workingTree:
             rawPaths = try await GitStatus.workingTreeChanges(rootDirectory: rootDirectory)
-        case let .file(target):
+        case .file(let target):
             rawPaths = GlobExpansion.expand(pattern: target, rootDirectory: rootDirectory)
-        case let .sha(range):
+        case .sha(let range):
             rawPaths = try await GitStatus.changedFiles(sinceRange: range, rootDirectory: rootDirectory)
         }
 
@@ -173,8 +173,8 @@ enum GitStatus {
         if indexStatus == "?", worktreeStatus == "?" {
             return path
         }
-        guard indexStatus != "U", worktreeStatus != "U" else { return nil } // unmerged/conflicted
-        guard indexStatus != "D", worktreeStatus != "D" else { return nil } // deleted
+        guard indexStatus != "U", worktreeStatus != "U" else { return nil }  // unmerged/conflicted
+        guard indexStatus != "D", worktreeStatus != "D" else { return nil }  // deleted
 
         guard indexStatus == "M" || worktreeStatus == "M" || indexStatus == "A" || indexStatus == "R" || indexStatus == "C" else {
             return nil
@@ -295,7 +295,7 @@ enum GlobExpansion {
         guard Darwin.glob(absolutePattern, GLOB_TILDE, nil, &globResult) == 0 else {
             return []
         }
-        return (0 ..< Int(globResult.gl_pathc)).compactMap { index in
+        return (0..<Int(globResult.gl_pathc)).compactMap { index in
             globResult.gl_pathv[index].map { String(cString: $0) }
         }
     }

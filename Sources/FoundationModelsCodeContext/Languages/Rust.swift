@@ -61,7 +61,7 @@ public enum RustLanguage: LanguageModule {
 
     /// The marker file that identifies a Rust project: `Cargo.toml`.
     public static let projectMarkers: [ProjectMarker] = [
-        .fileName("Cargo.toml"),
+        .fileName("Cargo.toml")
     ]
 
     /// The Rust language server spec (`rust-analyzer`).

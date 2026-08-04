@@ -167,12 +167,12 @@ public enum TreeSitterWorker {
             for chunk in chunks {
                 try db.execute(
                     sql: """
-                    INSERT INTO \(Schema.TsChunks.table)
-                        (\(Schema.TsChunks.filePath), \(Schema.TsChunks.startByte), \(Schema.TsChunks.endByte), \
-                         \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \(Schema.TsChunks.text), \
-                         \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind))
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
+                        INSERT INTO \(Schema.TsChunks.table)
+                            (\(Schema.TsChunks.filePath), \(Schema.TsChunks.startByte), \(Schema.TsChunks.endByte), \
+                             \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \(Schema.TsChunks.text), \
+                             \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind))
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
                     arguments: [
                         chunk.filePath, chunk.startByte, chunk.endByte,
                         chunk.startLine, chunk.endLine, chunk.text,
@@ -185,10 +185,10 @@ public enum TreeSitterWorker {
 
             try db.execute(
                 sql: """
-                UPDATE \(Schema.IndexedFiles.table) \
-                SET \(Schema.IndexedFiles.tsIndexed) = 1, \(Schema.IndexedFiles.embedded) = 0 \
-                WHERE \(Schema.IndexedFiles.filePath) = ?
-                """,
+                    UPDATE \(Schema.IndexedFiles.table) \
+                    SET \(Schema.IndexedFiles.tsIndexed) = 1, \(Schema.IndexedFiles.embedded) = 0 \
+                    WHERE \(Schema.IndexedFiles.filePath) = ?
+                    """,
                 arguments: [file.relativePath]
             )
         }
@@ -258,9 +258,9 @@ public enum TreeSitterWorker {
             try Row.fetchAll(
                 db,
                 sql: """
-                SELECT \(Schema.TsChunks.id), \(Schema.TsChunks.text) FROM \(Schema.TsChunks.table) \
-                WHERE \(Schema.TsChunks.filePath) = ? ORDER BY \(Schema.TsChunks.id)
-                """,
+                    SELECT \(Schema.TsChunks.id), \(Schema.TsChunks.text) FROM \(Schema.TsChunks.table) \
+                    WHERE \(Schema.TsChunks.filePath) = ? ORDER BY \(Schema.TsChunks.id)
+                    """,
                 arguments: [filePath]
             ).map { row in
                 EmbeddableChunk(id: row[Schema.TsChunks.id], text: row[Schema.TsChunks.text])

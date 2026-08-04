@@ -156,7 +156,7 @@ enum Settle {
             case .debounceFired, .closed:
                 guard clock.now < hardDeadline else { return .pending }
                 return .settled(state)
-            case let .updates(updates):
+            case .updates(let updates):
                 if applyWatchedUpdates(updates, watched: watched, into: &state) {
                     debounceDeadline = clock.now.advanced(by: settleWindow)
                 }
@@ -224,7 +224,7 @@ enum Settle {
         await withTaskGroup(of: RaceEvent.self) { group in
             group.addTask {
                 switch await mailbox.next() {
-                case let .updates(updates): .updates(updates)
+                case .updates(let updates): .updates(updates)
                 case .closed: .closed
                 }
             }

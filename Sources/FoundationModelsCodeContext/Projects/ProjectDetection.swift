@@ -140,9 +140,9 @@ public enum ProjectDetection {
     ///   `*.xcodeproj`, mirroring `find_wildcard_match` in the Rust crate).
     private static func matches(marker: ProjectMarker, entryName: String) -> Bool {
         switch marker {
-        case let .fileName(name):
+        case .fileName(let name):
             return entryName == name
-        case let .glob(pattern):
+        case .glob(let pattern):
             guard pattern.hasPrefix("*") else {
                 return entryName == pattern
             }

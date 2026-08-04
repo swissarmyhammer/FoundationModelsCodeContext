@@ -22,12 +22,12 @@ private func readEdges(store: Store) async throws -> [EdgeRow] {
         try Row.fetchAll(
             db,
             sql: """
-            SELECT caller.name AS caller_name, callee.name AS callee_name, edges.source AS source
-            FROM lsp_call_edges AS edges
-            JOIN lsp_symbols AS caller ON caller.id = edges.caller_id
-            JOIN lsp_symbols AS callee ON callee.id = edges.callee_id
-            ORDER BY caller.name, callee.name
-            """
+                SELECT caller.name AS caller_name, callee.name AS callee_name, edges.source AS source
+                FROM lsp_call_edges AS edges
+                JOIN lsp_symbols AS caller ON caller.id = edges.caller_id
+                JOIN lsp_symbols AS callee ON callee.id = edges.callee_id
+                ORDER BY caller.name, callee.name
+                """
         ).map { row in
             EdgeRow(
                 callerSymbolPath: row["caller_name"],
@@ -324,15 +324,17 @@ struct TSCallGraphTests {
             // past this fixture's real chunks, so they can't collide with
             // TSCallGraph's own (file_path, start_line)-keyed synthetic rows.
             try await store.write { db in
-                try db.execute(sql: """
-                INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column)
-                VALUES (1000, 'lspCaller', 'function', 'Sample.swift', 500, 0, 500, 0),
-                       (1001, 'lspCallee', 'function', 'Sample.swift', 501, 0, 501, 0)
-                """)
-                try db.execute(sql: """
-                INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
-                VALUES (1000, 1001, 'Sample.swift', '[]', 'lsp')
-                """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_symbols (id, name, kind, file_path, start_line, start_column, end_line, end_column)
+                        VALUES (1000, 'lspCaller', 'function', 'Sample.swift', 500, 0, 500, 0),
+                               (1001, 'lspCallee', 'function', 'Sample.swift', 501, 0, 501, 0)
+                        """)
+                try db.execute(
+                    sql: """
+                        INSERT INTO lsp_call_edges (caller_id, callee_id, file_path, from_ranges, source)
+                        VALUES (1000, 1001, 'Sample.swift', '[]', 'lsp')
+                        """)
             }
 
             _ = try await store.markAllDirty(layer: .treeSitter)
