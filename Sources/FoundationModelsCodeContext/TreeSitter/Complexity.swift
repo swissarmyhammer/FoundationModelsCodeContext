@@ -144,6 +144,20 @@ private enum NodeRole {
   case none
 }
 
+/// How much nesting a node inherits from the constructs above it, handed down
+/// the metric walk from each node to the ones below it.
+private enum InheritedNesting {
+  /// The symbol being measured itself, which the walk starts at: it takes no
+  /// increment, and its own body does not count as a body nested inside it, so
+  /// everything directly below it starts from zero.
+  case measuredSymbol
+
+  /// A node below the measured symbol: `nesting` counts the nesting increments
+  /// and function bodies enclosing it, which is the penalty a nesting increment
+  /// there pays, and `branchDepth` counts the nesting increments alone.
+  case below(nesting: Int, branchDepth: Int)
+}
+
 /// Measures Sonar Cognitive Complexity and max branching depth over a snippet of
 /// source text, generic over any `LanguageModule`.
 ///
@@ -450,9 +464,7 @@ public enum Complexity {
     }
 
     let functionNodeKinds = functionNodeKinds(of: module)
-    var nodesByRange: [ByteRange: Node] = [:]
-    indexSymbolNodes(
-      node: root, module: module, source: snippet, astDepth: 0, into: &nodesByRange)
+    let nodesByRange = indexSymbolNodes(root: root, module: module, source: snippet)
 
     let chunks = Chunker.chunk(
       file: SourceFile(relativePath: snippetPath, contents: snippet), module: module)
@@ -491,49 +503,39 @@ public enum Complexity {
     return kinds
   }
 
-  /// Recurses `node` and its descendants, recording every node whose kind is in
+  /// Walks `root` and its descendants, recording every node whose kind is in
   /// `module.chunkKinds` against the byte span that identifies it.
   ///
-  /// Mirrors `Chunker.collectChunks(node:file:module:astDepth:into:)` — same
-  /// pre-order, same recursion into every child named and anonymous alike, and
-  /// the same `Chunker.maxASTDepth` bound, counted the same way. That last
+  /// Runs on `Chunker.walk(from:direction:visit:)` in
+  /// `Chunker.WalkDirection.children` — the very traversal
+  /// `Chunker.chunk(file:module:)` collects its chunks with, so the same
+  /// pre-order, the same descent into every child named and anonymous alike,
+  /// and the same `Chunker.maxASTDepth` bound counted the same way. That last
   /// point is what makes the index usable: `measuredFunctions` looks each chunk
   /// `Chunker` produced up in this index by byte span, so the two walks have to
   /// stop at exactly the same place or a chunk could arrive with no node to
-  /// measure it against.
+  /// measure it against. Sharing one walker is what guarantees they do.
   ///
   /// - Parameters:
-  ///   - node: The node to walk.
+  ///   - root: The node to walk, itself included.
   ///   - module: The language module supplying the chunk-kind table.
-  ///   - source: The text `node` was parsed from, for resolving byte offsets.
-  ///   - astDepth: How far below the walk's root `node` sits.
-  ///   - nodesByRange: The definition nodes found so far, keyed by byte span
-  ///     and recorded into in place.
+  ///   - source: The text `root` was parsed from, for resolving byte offsets.
+  /// - Returns: Every definition node found, keyed by its byte span.
   private static func indexSymbolNodes(
-    node: Node,
+    root: Node,
     module: any LanguageModule.Type,
-    source: String,
-    astDepth: Int,
-    into nodesByRange: inout [ByteRange: Node]
-  ) {
-    guard astDepth < Chunker.maxASTDepth else {
-      return
-    }
-
-    if module.chunkKinds[node.nodeType ?? ""] != nil,
-      let (_, startByte, endByte) = Chunker.extractTextAndRange(of: node, in: source)
-    {
+    source: String
+  ) -> [ByteRange: Node] {
+    var nodesByRange: [ByteRange: Node] = [:]
+    Chunker.walk(from: root, direction: .children) { node in
+      guard module.chunkKinds[node.nodeType ?? ""] != nil,
+        let (_, startByte, endByte) = Chunker.extractTextAndRange(of: node, in: source)
+      else {
+        return
+      }
       nodesByRange[ByteRange(startByte: startByte, endByte: endByte)] = node
     }
-
-    for childIndex in 0..<node.childCount {
-      guard let child = node.child(at: childIndex) else {
-        continue
-      }
-      indexSymbolNodes(
-        node: child, module: module, source: source, astDepth: astDepth + 1,
-        into: &nodesByRange)
-    }
+    return nodesByRange
   }
 
   /// Measures every `.function` and `.method` chunk against the node it came
@@ -599,10 +601,22 @@ public enum Complexity {
   /// Measures the subtree under `node`, with the nesting level reset at `node`
   /// itself.
   ///
-  /// Walks `node`'s children rather than `node`, so that measuring a function
-  /// does not have that function's own body count as a nested one: only
-  /// function bodies found *below* the symbol being measured raise the nesting
-  /// level.
+  /// The walk starts at `node` but scores nothing there — `InheritedNesting`
+  /// tells the visitor which node is the measured one — so that measuring a
+  /// function does not have that function's own body count as a nested one:
+  /// only function bodies found *below* the symbol being measured raise the
+  /// nesting level.
+  ///
+  /// Runs on `Chunker.walk(from:direction:context:visit:)` in
+  /// `Chunker.WalkDirection.children`, and so stops at `Chunker.maxASTDepth`
+  /// without throwing: what was reached is what gets reported. Because the walk
+  /// starts at the measured symbol rather than at the parse root, its levels are
+  /// counted from there — which is what makes a symbol's score independent of
+  /// how deeply the symbol itself is nested. The measured node can already sit
+  /// up to `Chunker.maxASTDepth` levels below the root, so this walk can touch
+  /// absolute AST levels past that number while still only ever stacking
+  /// `Chunker.maxASTDepth` frames of its own, which is the quantity the bound is
+  /// protecting.
   ///
   /// - Parameters:
   ///   - node: The node whose subtree to measure.
@@ -614,16 +628,16 @@ public enum Complexity {
     var cognitiveComplexity = 0
     var maxBranchingDepth = 0
 
-    for childIndex in 0..<node.childCount {
-      guard let child = node.child(at: childIndex) else {
-        continue
+    Chunker.walk(from: node, direction: .children, context: InheritedNesting.measuredSymbol) {
+      scored, inherited in
+      guard case .below(let nesting, let branchDepth) = inherited else {
+        return .below(nesting: 0, branchDepth: 0)
       }
-      accumulate(
-        node: child,
+      return accumulate(
+        node: scored,
         functionNodeKinds: functionNodeKinds,
-        nesting: 0,
-        branchDepth: 0,
-        astDepth: 1,
+        nesting: nesting,
+        branchDepth: branchDepth,
         cognitiveComplexity: &cognitiveComplexity,
         maxBranchingDepth: &maxBranchingDepth
       )
@@ -633,19 +647,8 @@ public enum Complexity {
       cognitiveComplexity: cognitiveComplexity, maxBranchingDepth: maxBranchingDepth)
   }
 
-  /// Adds `node`'s own contribution to the running metrics, then recurses into
-  /// its children at whatever nesting level `node` leaves behind.
-  ///
-  /// Stops descending at `Chunker.maxASTDepth` without throwing: what was
-  /// reached is what gets reported.
-  ///
-  /// `astDepth` counts down from the symbol node `metrics(under:…)` was asked
-  /// to measure, not from the parse root — which is what makes a symbol's
-  /// score independent of how deeply the symbol itself is nested. The measured
-  /// node can already sit up to `Chunker.maxASTDepth` levels below the root,
-  /// so this walk can touch absolute AST levels past that number while still
-  /// only ever stacking `Chunker.maxASTDepth` frames of its own, which is the
-  /// quantity the bound is protecting.
+  /// Adds `node`'s own contribution to the running metrics, and reports the
+  /// nesting the nodes below it inherit.
   ///
   /// - Parameters:
   ///   - node: The node to score.
@@ -653,22 +656,17 @@ public enum Complexity {
   ///   - nesting: How many nesting increments and function bodies enclose
   ///     `node`, which is the penalty a nesting increment here pays.
   ///   - branchDepth: How many nesting increments alone enclose `node`.
-  ///   - astDepth: How far below the walk's root `node` sits.
   ///   - cognitiveComplexity: The running Cognitive Complexity score.
   ///   - maxBranchingDepth: The deepest `branchDepth` reached so far.
+  /// - Returns: The nesting `node`'s own children sit inside.
   private static func accumulate(
     node: Node,
     functionNodeKinds: Set<String>,
     nesting: Int,
     branchDepth: Int,
-    astDepth: Int,
     cognitiveComplexity: inout Int,
     maxBranchingDepth: inout Int
-  ) {
-    guard astDepth < Chunker.maxASTDepth else {
-      return
-    }
-
+  ) -> InheritedNesting {
     var childNesting = nesting
     var childBranchDepth = branchDepth
 
@@ -686,20 +684,7 @@ public enum Complexity {
       break
     }
 
-    for childIndex in 0..<node.childCount {
-      guard let child = node.child(at: childIndex) else {
-        continue
-      }
-      accumulate(
-        node: child,
-        functionNodeKinds: functionNodeKinds,
-        nesting: childNesting,
-        branchDepth: childBranchDepth,
-        astDepth: astDepth + 1,
-        cognitiveComplexity: &cognitiveComplexity,
-        maxBranchingDepth: &maxBranchingDepth
-      )
-    }
+    return .below(nesting: childNesting, branchDepth: childBranchDepth)
   }
 
   /// Classifies what `node` contributes to the symbol it sits inside.

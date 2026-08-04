@@ -85,6 +85,91 @@ comments:
     - evidence: 6 files — Sources/FoundationModelsCodeContext/TreeSitter/Chunker.swift, Sources/FoundationModelsCodeContext/TreeSitter/TSCallGraph.swift, Sources/FoundationModelsCodeContext/TreeSitter/Complexity.swift, Tests/FoundationModelsCodeContextTests/TestSupport.swift, Tests/FoundationModelsCodeContextTests/ChunkerTests.swift, Tests/FoundationModelsCodeContextTests/TSCallGraphTests.swift, Tests/FoundationModelsCodeContextTests/ComplexityTests.swift. `swift build` clean, no warnings; `swift test` → 562 tests in 48 suites passed, 0 failures. All 4 acceptance criteria and all 3 required tests satisfied; 5 double-check findings fixed.
     - next: /review
   timestamp: 2026-08-04T12:23:24.495928+00:00
+- actor: claude-code
+  id: 01kz6c5rp67vc5wgm87gv4szwe
+  text: |
+    ### review — findings
+    - evidence: 5 findings (5 confirmed, 1 refuted, 9 attempted) on `review sha HEAD~1..HEAD` — Sources/FoundationModelsCodeContext/TreeSitter/Chunker.swift:274, Sources/FoundationModelsCodeContext/TreeSitter/Chunker.swift:366, Sources/FoundationModelsCodeContext/TreeSitter/Complexity.swift:512, Sources/FoundationModelsCodeContext/TreeSitter/Complexity.swift:659, Sources/FoundationModelsCodeContext/TreeSitter/TSCallGraph.swift:192
+    - next: /implement — all five findings are one cause: the depth-guarded traverse-and-recurse scaffold is duplicated across the five walks. Extract a shared generic tree walker taking a per-node visitor closure and route every walk through it. Task stays in `review`.
+  timestamp: 2026-08-04T12:32:31.942352+00:00
+- actor: claude-code
+  id: 01kz6c6btjmdtbdmcake8bzx64
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 7 files; shared Chunker.maxASTDepth = 128 (not 512: TreeSitterWorker.readAndChunk runs the walk on a cooperative-pool thread with a 512 KB stack)
+    - test: green — swift test, 562 passed in 48 suites, 0 failures; swift build 0 source warnings
+    - commit: cdf0417 fix(treesitter): bound recursive AST walks to prevent stack overflow
+    - review: findings — Chunker.swift:274, Chunker.swift:366, Complexity.swift:512, Complexity.swift:659, TSCallGraph.swift:192
+    - next: extract a shared generic tree walker taking a per-node visitor closure, with direction as a parameter (collectSymbolNames climbs parents); the five sites become wrappers
+  timestamp: 2026-08-04T12:32:51.538783+00:00
+- actor: claude-code
+  id: 01kz6cfnf0nt9wcm5dbfjatfdn
+  text: |-
+    Picked back up from `review` with the five findings open. They are one cause with five sites, so one extraction answers all five. Research before writing:
+
+    **What the five walks actually differ in**
+    - `Chunker.collectChunks`, `Complexity.indexSymbolNodes`, `TSCallGraph.collectCallSites` — identical downward scaffold, differ only in what they do per node and what they accumulate.
+    - `Chunker.collectSymbolNames` — climbs, and not to the immediate parent: it skips ancestors until one is a `chunkKinds` or `containerNodeKinds` node, then recurses into that one. So "direction" cannot be a bare parent pointer; the upward case needs a predicate that picks which ancestor counts as the next level.
+    - `Complexity.accumulate` — the only walk that hands state *down* the tree (`nesting`, `branchDepth`), which the other four do not. So the shared walker needs a per-node visitor that returns the context its children are visited with, not just a `(Node) -> Void` callback.
+
+    **Shape chosen**: `Chunker.walk(from:direction:context:visit:)` with `Chunker.WalkDirection` = `.children` | `.nearestAncestor(matching:)`, plus a contextless `Chunker.walk(from:direction:visit:)` overload for the four walks that thread nothing. The recursion, the `astDepth` counter, and the `guard astDepth < maxASTDepth` exist in exactly one place. Accumulation happens by closure capture of a local `var` in each wrapper, so `inout` plumbing disappears from all five signatures.
+
+    **Home**: `Chunker`, following the precedent the file already sets — `parseFile`, `extractTextAndRange`, `symbolPathSeparator`, and `maxASTDepth` are all shared tree-sitter primitives living there with a "Not `private`:" doc note naming their out-of-file users. `maxASTDepth` stays put, so the tests that assert against it are untouched.
+
+    **A second child-iteration site the extraction can also remove**: `Complexity.metrics(under:)` loops over the measured node's children itself, to start each subtree walk with nesting reset and the measured node's own body not counted as a nested one. Rather than leave that loop behind next to the shared walker, the walk starts at the measured node with a context case that marks it — same visited set, same depths, no second copy of the child-iteration idiom.
+
+    `Complexity.isLabeledJump`'s loop over `node.childCount` stays: it is a single-node scan for a label child, not a depth-guarded traverse-and-recurse, so it is not this cause.
+
+    **Behavior must not move.** `Complexity.measuredFunctions` correlates chunks to nodes by byte span, so `collectChunks` and `indexSymbolNodes` have to keep stopping at exactly the same depth; routing both through one walker is what now guarantees it. `metrics(under:)`'s children previously started at `astDepth: 1` under a `< 128` guard, and still do — the measured node is visited at 0 and scores nothing.
+  timestamp: 2026-08-04T12:37:56.320648+00:00
+- actor: claude-code
+  id: 01kz6ctd0fq0098j3bnax46328
+  text: |-
+    Extraction landed; verifying before flipping the findings.
+
+    **What exists now.** `Chunker.WalkDirection` (`.children` / `.nearestAncestor(matching:)`), `Chunker.walk(from:direction:context:visit:)` whose visitor returns the context the nodes below it are visited with, a contextless `Chunker.walk(from:direction:visit:)` overload for the four walks that thread nothing, and one `private` recursive `walk(from:direction:context:astDepth:visit:)` that holds the only `guard astDepth < maxASTDepth`, the only child-iteration loop, and the only parent climb in the module. All five walks are now wrappers; every `inout` accumulator parameter is gone, replaced by closure capture of a local `var` in the wrapper.
+
+    **Two decisions worth recording.**
+
+    `Complexity.accumulate` is why the walker is generic over a context rather than a plain `(Node) -> Void` callback: it is the only walk that hands state *down* the tree. A `(Node) -> Void` walker could carry the other four and would have left `accumulate` recursing on its own — finding four would have stayed open.
+
+    `Complexity.metrics(under:)` no longer loops over the measured node's children itself. It starts the walk *at* the measured node with `InheritedNesting.measuredSymbol`, a context case that means "score nothing here, and hand zero nesting down", so the measured function's own body still does not count as a body nested inside it. Depths are unchanged: the measured node is visited at 0 and its children at 1, exactly where the old loop started them. Without this the file would have kept a second copy of the child-iteration idiom sitting next to the shared walker.
+
+    **Evidence the bound is still load-bearing through the shared walker**, not just inherited by name: with `Chunker.maxASTDepth` temporarily at 64, `ChunkerTests.theDepthBoundLeavesAnOrdinaryFiftyDeepNestFullyChunked` fails (`["deeplyNested"]`, losing `deeplyNested.innermost`) and `ComplexityTests.theDepthLimitDoesNotDistortOrdinaryNesting` fails (`maxBranchingDepth` 31, not 50) — so the guard bites in both the chunk path and the metric path. Restored to 128.
+
+    `swift build` clean, no source warnings. `swift test` → 562 tests in 48 suites passed, 0 failures, including all three deep-tree tests and both ordinary-code guards. The `TSCallGraph` deep test is the one that goes through `TreeSitterWorker`'s `async` path onto a 512 KB cooperative-pool thread, so the added frame per level (one shared `walk` frame plus its visitor's, in place of one hand-written frame) still fits the budget at 128.
+  timestamp: 2026-08-04T12:43:48.111350+00:00
+- actor: claude-code
+  id: 01kz6df2h8xct75ef6yqjgq6sf
+  text: |-
+    `/double-check` returned REVISE with one code finding and one process finding. Both handled, and the code finding corrects something I wrote in the comment above.
+
+    **The frame-cost claim in `Chunker.maxASTDepth`'s doc was wrong, and so is the sentence in my previous comment.** I wrote that a level "now costs one `walk` frame plus its visitor's". It does not. In the private walker, `visit(node, context)` is a complete call whose result is bound to `nextContext` *before* any recursive `walk`, so the visitor's frame — and, for the four contextless walks, the forwarding closure's frame too — is popped before the descent. One AST level is still exactly one persistent frame, a shared `walk` frame in place of the old hand-written one, with at most one visitor frame live at a time, at the deepest node reached. The bisected 448–512-frame measurement therefore carries over unchanged rather than needing margin to absorb a doubling. The doc's own arithmetic gave the error away: two frames per level would put 128 levels at ~256 frames, over half the budget, not the "near a quarter" the same paragraph claimed.
+
+    The extraction in fact *lowered* the metric walk's peak. `Complexity.accumulate`'s seven-argument frame used to be the recursion chain itself; it is now transient, called and returned once per node. The old doc's warning that `accumulate` "carries more arguments and so buys fewer levels per byte" no longer describes anything, and is gone.
+
+    Also corrected in the same doc comment: the closing paragraph named `walk(from:direction:context:visit:)` as "the one place the bound is applied". The `guard astDepth < maxASTDepth` lives in the private `walk(from:direction:context:astDepth:visit:)`; the four-argument overload only forwards to it. Fixed to name the private one.
+
+    **On the second finding — checking the boxes, yes; moving the column, no.** The five review findings are now `- [x]`. The task stays in `doing`: `/implement` hands work to the review gate rather than walking it forward itself, and moving the card is `/review`'s job, not this step's.
+
+    Everything the reviewer checked and could not break, confirmed independently by it: visited set, order, and per-node depth identical for all five walks (including `metrics(under:)`, where scored levels are 1…127 before and after, verified down to `maxASTDepth` of 0 and 1); the `nearestAncestor` climb reproduces the old skip-and-stop-at-first-accepted loop with no non-terminating path; `collectChunks` and `indexSymbolNodes` now issue the literally identical `walk(from: root, direction: .children)` so the byte-span correlation cannot drift; no traverse-and-recurse scaffold, child-iteration loop, or parent climb remains anywhere in `Sources/` outside the private walker; and `Complexity.isLabeledJump`'s child scan is a single-level field-lookup fallback, not a missed instance of the cause. No exclusivity problem from the closures capturing `cognitiveComplexity`/`maxBranchingDepth`: `visit` completes before any recursive `walk`, so the accesses never overlap.
+
+    Re-verified after the doc fix: `swift build` clean, `swift test` → 562 tests in 48 suites passed, 0 failures.
+  timestamp: 2026-08-04T12:55:05.512881+00:00
+- actor: claude-code
+  id: 01kz6dfb7a988kpxj63p8mjfna
+  text: |-
+    ### implement — changed
+    - evidence: 3 files — Sources/FoundationModelsCodeContext/TreeSitter/Chunker.swift, Sources/FoundationModelsCodeContext/TreeSitter/TSCallGraph.swift, Sources/FoundationModelsCodeContext/TreeSitter/Complexity.swift. All 5 review findings fixed by one extraction: `Chunker.WalkDirection` + `Chunker.walk(...)`, with one private recursive `walk(from:direction:context:astDepth:visit:)` holding the module's only depth guard, child-iteration loop, and parent climb; all five walks are now wrappers. `swift build` clean, no source warnings; `swift test` → 562 tests in 48 suites passed, 0 failures. No test files changed — this is a behavior-preserving extraction, proved by the existing suite plus a bound-still-bites check (maxASTDepth temporarily 64 → both ordinary-nesting guard tests fail; restored to 128).
+    - next: /review
+  timestamp: 2026-08-04T12:55:14.410899+00:00
+- actor: claude-code
+  id: 01kz6e0weqbww8vcmsay3fm8he
+  text: |-
+    ### test — green
+    - evidence: `swift build` (clean rebuild from `rm -rf .build`) — 0 warnings in package sources (only pre-existing vendored mlx-swift C++ warnings and the documented `missing creator for mutated node` SourceKit notice); `swift test` — 562 tests passed, 0 failed, 48 suites, in 7.334s (post-clean-build run). Only skips observed are the pre-existing `LiveSourceKitTests` suite/test `.enabled(if:)` gates (`CCK_LIVE_LSP` unset), which are documented as acceptable. No fixes were needed — the `Chunker.walk` extraction is behavior-preserving.
+    - next: ready for review
+  timestamp: 2026-08-04T13:04:49.111173+00:00
 position_column: doing
 position_ordinal: '80'
 title: Bound the recursive AST walks in Chunker and TSCallGraph so a deep parse tree cannot overflow the stack
@@ -138,3 +223,11 @@ an `async` context, so the walk actually runs on a cooperative-pool thread with 
 `Chunker.maxASTDepth`'s doc comment for the four measurements behind `128`.
 
 #bug
+
+## Review Findings (2026-08-04 07:27)
+
+- [x] `Sources/FoundationModelsCodeContext/TreeSitter/Chunker.swift:274` — Recursive tree-walk structure with depth-guarding and child iteration duplicated across multiple walker functions; the same pattern repeats verbatim in collectChunks, indexSymbolNodes, accumulate, and collectCallSites with only the node-processing logic differing. Extract a shared generic tree walker function that takes a closure parameter for the per-node processing logic. Example: `private static func walkTree(node:astDepth:into:visitor:)` taking a closure that encapsulates what collectChunks does between lines 285-289, what indexSymbolNodes does between 523-527, and what collectCallSites does between 202-213. Each caller becomes a one-liner invoking this helper with its own visitor closure, eliminating the structural duplication that could drift if depth bounds or child-iteration logic ever needs fixes.
+- [x] `Sources/FoundationModelsCodeContext/TreeSitter/Chunker.swift:366` — Recursive tree-walk with depth-guarding duplicates the same pattern as collectChunks, indexSymbolNodes, accumulate, and collectCallSites; guard and recursion with astDepth increment recur identically, differing only in direction (upward parent traversal vs downward children) and node-processing logic. Include this in the shared tree-walker extraction. The upward vs downward distinction is a parameter (direction/visitor closure), not a reason to duplicate the depth-guarding scaffold. Extract a generic walker that accepts a direction flag or callback to determine whether to traverse children or parent.
+- [x] `Sources/FoundationModelsCodeContext/TreeSitter/Complexity.swift:512` — Recursive tree-walk structure mirrors Chunker.collectChunks and TSCallGraph.collectCallSites; depth-guarding, child-iteration loop, and recursion call are verbatim duplicates across the three functions, differing only in node-processing logic and parameter types. Consolidate into a shared tree-walker (see Chunker.swift finding above). indexSymbolNodes becomes a wrapper around the shared walker with a closure capturing its node-processing logic (lines 523-527).
+- [x] `Sources/FoundationModelsCodeContext/TreeSitter/Complexity.swift:659` — Recursive tree-walk scaffold duplicates collectChunks, indexSymbolNodes, and collectCallSites; guard at depth, child-iteration loop, and recursion with astDepth + 1 are near-verbatim across all four functions, differing only in node-processing and parameter lists. Apply the shared tree-walker extraction (see Chunker.collectChunks finding). accumulate becomes a wrapper passing its node-scoring logic (lines 675-687) as a closure parameter to the shared walker, eliminating this fourth instance of the duplicated traverse-and-recurse skeleton.
+- [x] `Sources/FoundationModelsCodeContext/TreeSitter/TSCallGraph.swift:192` — Recursive tree-walk scaffold duplicates Chunker.collectChunks and Complexity.indexSymbolNodes; guard, child-iteration, and recursion structure are near-verbatim across all three, with only node-processing differing. Apply shared tree-walker extraction (see Chunker.swift finding). collectCallSites becomes a wrapper passing its node-processing closure (lines 202-213) to the shared helper, eliminating duplication and ensuring depth-bound fixes propagate to all three walkers at once.

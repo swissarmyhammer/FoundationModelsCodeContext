@@ -162,10 +162,15 @@ public enum Chunker {
     ///   build on a Swift concurrency cooperative-pool thread, whose 512 KB
     ///   stack is the smallest these walks run on — `TreeSitterWorker` calls
     ///   `chunk(file:module:)` from an `async` context, so that is the real
-    ///   budget, not the main thread's 8 MB. Measured on `collectChunks`
-    ///   frames; `Complexity.accumulate` carries more arguments and so buys
-    ///   fewer levels per byte. `128` keeps peak usage near a quarter of the
-    ///   budget, which is the margin that covers the difference.
+    ///   budget, not the main thread's 8 MB. Measured when one level was one
+    ///   `collectChunks` frame, and one level is still one frame — a shared
+    ///   `walk(from:direction:context:astDepth:visit:)` frame in its place — so
+    ///   the measurement carries over unchanged. A visitor's frame is not
+    ///   stacked: `visit` returns before the walk descends, so at most one is
+    ///   live at a time, at the deepest node reached. That lowered the metric
+    ///   walk's peak rather than raising it: `Complexity.accumulate`'s wide
+    ///   frame used to *be* the recursion chain and is now transient. `128`
+    ///   keeps peak usage near a quarter of the budget.
     ///
     /// A 5000-term expression spine parses 5005 levels deep and is cut off
     /// long before it can do damage. Reaching the bound is not an error — each
@@ -173,19 +178,20 @@ public enum Chunker {
     /// return-empty-rather-than-throw convention for unparseable files.
     ///
     /// Two of the walks count something other than absolute AST level, and
-    /// both say so at their own declaration:
-    /// `collectSymbolNames(node:file:module:astDepth:into:)` counts enclosing
-    /// chunked-or-container nodes as it climbs, and `Complexity.accumulate`
-    /// counts down from the symbol node it was asked to measure rather than
-    /// from the parse root — so that walk can touch absolute levels past this
-    /// number, while still only ever stacking `128` frames of its own.
+    /// both say so where they are started: `collectSymbolNames(node:file:module:)`
+    /// walks `WalkDirection.nearestAncestor(matching:)`, where one level is one
+    /// enclosing chunked-or-container node rather than one parent, and
+    /// `Complexity.metrics(under:functionNodeKinds:)` starts its walk at the
+    /// symbol it was asked to measure rather than at the parse root — so that
+    /// walk can touch absolute levels past this number, while still only ever
+    /// stacking `128` frames of its own.
     ///
-    /// Not `private`: `TSCallGraph.collectCallSites(node:file:astDepth:into:)`
-    /// and `Complexity`'s own walks bound themselves against this same number,
-    /// and `Complexity` additionally correlates the nodes its walk visits back
-    /// to the chunks `chunk(file:module:)` produced — a correlation that only
-    /// holds while both walks stop at the same depth. Sharing the constant is
-    /// what keeps them from drifting apart.
+    /// Not `private`: `Complexity` correlates the nodes its walk visits back to
+    /// the chunks `chunk(file:module:)` produced — a correlation that only holds
+    /// while both walks stop at the same depth — and the test target asserts
+    /// against this same number. Every walk over a parse tree in this module
+    /// runs through `walk(from:direction:context:astDepth:visit:)`, the one
+    /// place the bound is applied, so no walk can drift away from it.
     static let maxASTDepth = 128
 
     /// Parses `file`'s content with `module`'s tree-sitter grammar and
@@ -209,9 +215,7 @@ public enum Chunker {
             return []
         }
 
-        var chunks: [SemanticChunk] = []
-        collectChunks(node: root, file: file, module: module, astDepth: 0, into: &chunks)
-        return chunks
+        return collectChunks(root: root, file: file, module: module)
     }
 
     /// Parses `contents` with `module`'s tree-sitter grammar.
@@ -251,49 +255,155 @@ public enum Chunker {
         return (tree, root)
     }
 
-    /// Recurses `node` and its descendants, appending a `SemanticChunk` for
-    /// every node whose kind is in `module.chunkKinds`.
+    /// Which nodes a bounded walk continues into after visiting one.
     ///
-    /// Port of the Rust reference's `extract_chunks_recursive`, which always
-    /// recurses into every child — named and anonymous alike — regardless of
-    /// whether the current node itself was chunked, so nested definitions
-    /// (a method inside a class, a function inside a module) are still
-    /// found.
+    /// Direction is the only structural difference between the walks over a
+    /// parse tree in this module, which is what lets them all share
+    /// `walk(from:direction:context:visit:)` instead of each carrying its own
+    /// copy of the traversal and its own application of the `maxASTDepth`
+    /// bound.
+    enum WalkDirection {
+        /// Every child of the visited node, named and anonymous alike, in
+        /// order — so a definition nested inside another is still reached,
+        /// whether or not the node enclosing it was itself of interest.
+        ///
+        /// One level is one AST level.
+        case children
+
+        /// The nearest ancestor `matches` accepts, with the ancestors between
+        /// skipped rather than visited; the walk ends at the first visited node
+        /// with no accepted ancestor above it.
+        ///
+        /// One level is one accepted ancestor, which is more than one AST level
+        /// whenever any were skipped on the way to it.
+        case nearestAncestor(matching: (Node) -> Bool)
+    }
+
+    /// Visits `node`, then everything `direction` leads to from it, stopping at
+    /// `maxASTDepth`.
     ///
-    /// Stops descending at `maxASTDepth` without throwing: the chunks found
-    /// above the bound are still appended and returned, matching
-    /// `chunk(file:module:)`'s empty-array-rather-than-throw convention for
-    /// input it cannot fully handle.
+    /// The one bounded traversal behind every walk over a parse tree in this
+    /// module: `chunk(file:module:)`'s chunk and symbol-name walks,
+    /// `TSCallGraph.writeCallEdges(db:file:module:)`'s call-site walk, and
+    /// `Complexity`'s node-index and metric walks. Each of them supplies what
+    /// it does per node as `visit` and accumulates into what that closure
+    /// captures, so the recursion, the depth counter, and the bound exist in
+    /// exactly one place and cannot drift apart between the walks.
+    ///
+    /// Reaching the bound is not an error, and nothing is thrown: `visit` keeps
+    /// whatever it gathered above it, matching this type's
+    /// return-empty-rather-than-throw convention for input it cannot fully
+    /// handle.
+    ///
+    /// Not `private`: `TSCallGraph` and `Complexity` walk parse trees through
+    /// this same function rather than recursing themselves.
     ///
     /// - Parameters:
-    ///   - node: The node to walk.
-    ///   - file: The source file `node` was parsed from.
-    ///   - module: The language module supplying the chunk-kind table.
-    ///   - astDepth: How far below the walk's root `node` sits.
-    ///   - chunks: The chunks collected so far, appended to in place.
-    private static func collectChunks(
-        node: Node,
-        file: SourceFile,
-        module: any LanguageModule.Type,
+    ///   - node: The node to start from, itself visited first.
+    ///   - direction: Which nodes to continue into after visiting one.
+    ///   - context: The value `visit` is handed for `node` itself.
+    ///   - visit: Called once per visited node, with the context the node above
+    ///     it produced; returns the context the nodes below it are visited
+    ///     with.
+    static func walk<Context>(
+        from node: Node,
+        direction: WalkDirection,
+        context: Context,
+        visit: (Node, Context) -> Context
+    ) {
+        walk(from: node, direction: direction, context: context, astDepth: 0, visit: visit)
+    }
+
+    /// Visits `node`, then everything `direction` leads to from it, stopping at
+    /// `maxASTDepth`, for a walk whose nodes need nothing from the nodes above
+    /// them.
+    ///
+    /// - Parameters:
+    ///   - node: The node to start from, itself visited first.
+    ///   - direction: Which nodes to continue into after visiting one.
+    ///   - visit: Called once per visited node.
+    static func walk(from node: Node, direction: WalkDirection, visit: (Node) -> Void) {
+        walk(from: node, direction: direction, context: ()) { visitedNode, _ in
+            visit(visitedNode)
+        }
+    }
+
+    /// Carries a walk one level, or stops it at `maxASTDepth`.
+    ///
+    /// - Parameters:
+    ///   - node: The node to visit.
+    ///   - direction: Which nodes to continue into after visiting `node`.
+    ///   - context: The value `visit` is handed for `node`.
+    ///   - astDepth: How many levels below the walk's starting node `node`
+    ///     sits, counted in whatever unit `direction` advances by.
+    ///   - visit: The per-node visitor.
+    private static func walk<Context>(
+        from node: Node,
+        direction: WalkDirection,
+        context: Context,
         astDepth: Int,
-        into chunks: inout [SemanticChunk]
+        visit: (Node, Context) -> Context
     ) {
         guard astDepth < maxASTDepth else {
             return
         }
 
-        if let kind = module.chunkKinds[node.nodeType ?? ""],
-           let chunk = makeChunk(node: node, kind: kind, file: file, module: module)
-        {
-            chunks.append(chunk)
-        }
+        let nextContext = visit(node, context)
 
-        for childIndex in 0..<node.childCount {
-            guard let child = node.child(at: childIndex) else {
-                continue
+        switch direction {
+        case .children:
+            for childIndex in 0..<node.childCount {
+                guard let child = node.child(at: childIndex) else {
+                    continue
+                }
+                walk(
+                    from: child, direction: direction, context: nextContext,
+                    astDepth: astDepth + 1, visit: visit)
             }
-            collectChunks(node: child, file: file, module: module, astDepth: astDepth + 1, into: &chunks)
+        case .nearestAncestor(let matches):
+            var descendant = node
+            while let ancestor = descendant.parent {
+                if matches(ancestor) {
+                    walk(
+                        from: ancestor, direction: direction, context: nextContext,
+                        astDepth: astDepth + 1, visit: visit)
+                    return
+                }
+                descendant = ancestor
+            }
         }
+    }
+
+    /// Walks `root` and its descendants, collecting a `SemanticChunk` for every
+    /// node whose kind is in `module.chunkKinds`.
+    ///
+    /// Port of the Rust reference's `extract_chunks_recursive`, which always
+    /// recurses into every child — named and anonymous alike — regardless of
+    /// whether the current node itself was chunked, so nested definitions
+    /// (a method inside a class, a function inside a module) are still
+    /// found. `WalkDirection.children` is that same traversal.
+    ///
+    /// - Parameters:
+    ///   - root: The node to walk, itself included.
+    ///   - file: The source file `root` was parsed from.
+    ///   - module: The language module supplying the chunk-kind table.
+    /// - Returns: One chunk per matched definition node, in AST traversal
+    ///   order — the ones found above `maxASTDepth` if the tree runs deeper
+    ///   than the bound.
+    private static func collectChunks(
+        root: Node,
+        file: SourceFile,
+        module: any LanguageModule.Type
+    ) -> [SemanticChunk] {
+        var chunks: [SemanticChunk] = []
+        walk(from: root, direction: .children) { node in
+            if let kind = module.chunkKinds[node.nodeType ?? ""],
+               let chunk = makeChunk(node: node, kind: kind, file: file, module: module)
+            {
+                chunks.append(chunk)
+            }
+        }
+        return chunks
     }
 
     /// Builds a `SemanticChunk` for `node`, or `nil` if `node`'s range can't
@@ -324,70 +434,60 @@ public enum Chunker {
         )
     }
 
-    /// Collects `node`'s qualified symbol name components, outermost first.
+    /// Collects `node`'s qualified symbol name components, outermost first:
+    /// `node`'s own name (if any), then the name of each enclosing definition
+    /// or container above it.
     ///
-    /// Port of the Rust reference's `collect_symbol_names`.
-    private static func collectSymbolNames(node: Node, file: SourceFile, module: any LanguageModule.Type) -> [String] {
-        var names: [String] = []
-        collectSymbolNames(node: node, file: file, module: module, astDepth: 0, into: &names)
-        return names.reversed()
-    }
-
-    /// Appends `node`'s own name (if any) to `names`, then walks up through
-    /// ancestors — skipping intermediate wrapper nodes like a class body —
-    /// until it finds one that is itself chunked or is a container, and
-    /// recurses into that one.
-    ///
-    /// Port of the Rust reference's `collect_names_recursive`.
+    /// Port of the Rust reference's `collect_symbol_names` and its
+    /// `collect_names_recursive`, which climbs past intermediate wrapper nodes
+    /// like a class body rather than naming them —
+    /// `WalkDirection.nearestAncestor(matching:)` is that same climb, with
+    /// `qualifiesSymbolPath(node:module:)` deciding which ancestors count.
     ///
     /// Stops climbing at `maxASTDepth` without throwing: the components
     /// gathered so far still form the symbol path, which is a shorter
-    /// qualification rather than an error. Unlike the downward walks, one
-    /// level here is one enclosing *chunked or container* node — the ancestors
-    /// between two of those are skipped iteratively — and a container need not
-    /// be a definition at all (`YAMLLanguage` counts a `block_mapping`,
-    /// `MarkdownLanguage` a `section`).
-    ///
-    /// The guard is defensive rather than load-bearing: the only caller is
-    /// `makeChunk`, reached from `collectChunks`, which itself only descends
-    /// to `maxASTDepth`. Each climb consumes at least one AST level, so
-    /// `astDepth` here can never exceed where the downward walk already
-    /// stopped.
+    /// qualification rather than an error. That bound is defensive rather than
+    /// load-bearing here: the only caller is `makeChunk`, reached from
+    /// `collectChunks`, which itself only descends to `maxASTDepth`, and each
+    /// climb consumes at least one AST level — so this walk can never reach
+    /// deeper than the downward walk already stopped at.
     ///
     /// - Parameters:
-    ///   - node: The node whose name to append.
+    ///   - node: The node whose qualified name to collect.
     ///   - file: The source file `node` was parsed from.
     ///   - module: The language module supplying the chunk-kind and container
     ///     tables.
-    ///   - astDepth: How many enclosing chunked or container nodes the climb
-    ///     has passed through so far.
-    ///   - names: The name components collected so far, innermost first,
-    ///     appended to in place.
-    private static func collectSymbolNames(
-        node: Node,
-        file: SourceFile,
-        module: any LanguageModule.Type,
-        astDepth: Int,
-        into names: inout [String]
-    ) {
-        guard astDepth < maxASTDepth else {
-            return
-        }
-
-        if let name = extractNodeName(node: node, file: file, module: module) {
-            names.append(name)
-        }
-
-        var ancestor = node
-        while let parent = ancestor.parent {
-            let parentKind = parent.nodeType ?? ""
-            if module.chunkKinds[parentKind] != nil || module.containerNodeKinds.contains(parentKind) {
-                collectSymbolNames(
-                    node: parent, file: file, module: module, astDepth: astDepth + 1, into: &names)
-                return
+    /// - Returns: The name components, outermost first; empty if neither `node`
+    ///   nor any enclosing definition has a name.
+    private static func collectSymbolNames(node: Node, file: SourceFile, module: any LanguageModule.Type) -> [String] {
+        var names: [String] = []
+        let direction = WalkDirection.nearestAncestor(matching: { ancestor in
+            qualifiesSymbolPath(node: ancestor, module: module)
+        })
+        walk(from: node, direction: direction) { named in
+            if let name = extractNodeName(node: named, file: file, module: module) {
+                names.append(name)
             }
-            ancestor = parent
         }
+        return names.reversed()
+    }
+
+    /// Whether `node` contributes a component to a nested definition's
+    /// qualified symbol path, which is what makes it one level of the climb
+    /// `collectSymbolNames(node:file:module:)` makes.
+    ///
+    /// A container counts as well as a definition, and a container need not be
+    /// a definition at all — `YAMLLanguage` counts a `block_mapping`,
+    /// `MarkdownLanguage` a `section`.
+    ///
+    /// - Parameters:
+    ///   - node: The ancestor node to test.
+    ///   - module: The language module supplying the chunk-kind and container
+    ///     tables.
+    /// - Returns: `true` if `node`'s kind is in either table.
+    private static func qualifiesSymbolPath(node: Node, module: any LanguageModule.Type) -> Bool {
+        let kind = node.nodeType ?? ""
+        return module.chunkKinds[kind] != nil || module.containerNodeKinds.contains(kind)
     }
 
     /// Extracts `node`'s own name via the `name`/`identifier`/`declarator`
