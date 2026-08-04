@@ -150,4 +150,33 @@ struct ChunkerTests {
         let chunks = Chunker.chunk(file: file, module: NoGrammarLanguage.self)
         #expect(chunks.isEmpty)
     }
+
+    // MARK: - Recursion bound
+
+    @Test
+    func anASTDeeperThanTheLimitStillChunksTheDefinitionsAboveIt() throws {
+        // 5000 terms parse into a left-nested binary spine roughly 5000 nodes
+        // deep — dozens of times past `Chunker.maxASTDepth`. An unbounded walk
+        // overflows the stack and terminates the whole test process here
+        // rather than failing an expectation, so returning at all *is* the
+        // assertion; the chunk check pins down that the bound still reports
+        // everything shallower than itself.
+        let source = swiftDeepExpressionSpine(termCount: 5000)
+        let file = SourceFile(relativePath: "Deep.swift", contents: source)
+
+        let chunks = Chunker.chunk(file: file, module: SwiftLanguage.self)
+
+        let chunk = try #require(chunks.first { $0.symbolPath == "deepSpine" })
+        #expect(chunk.kind == .function)
+    }
+
+    @Test
+    func theDepthBoundLeavesAnOrdinaryFiftyDeepNestFullyChunked() {
+        let source = swiftNestedIfs(count: 50)
+        let file = SourceFile(relativePath: "Nested.swift", contents: source)
+
+        let chunks = Chunker.chunk(file: file, module: SwiftLanguage.self)
+
+        #expect(chunks.map(\.symbolPath) == ["deeplyNested", "deeplyNested.innermost"])
+    }
 }

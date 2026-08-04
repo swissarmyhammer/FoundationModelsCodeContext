@@ -344,4 +344,36 @@ struct TSCallGraphTests {
             #expect(sources == ["lsp", "treesitter"])
         }
     }
+
+    // MARK: - Recursion bound
+
+    @Test
+    func anASTDeeperThanTheLimitStillResolvesTheCallSitesAboveIt() async throws {
+        // 5000 terms parse into a left-nested binary spine roughly 5000 nodes
+        // deep — dozens of times past `Chunker.maxASTDepth`. An unbounded walk
+        // overflows the stack and terminates the whole test process here
+        // rather than failing an expectation, so
+        // `TSCallGraph.writeCallEdges(db:file:module:)` returning at all *is*
+        // half the assertion; the other half is that the shallow call site
+        // sharing the function with that spine still resolves to an edge.
+        //
+        // Driven through `TreeSitterWorker.run` like every other test in this
+        // file, because an edge needs the file's `ts_chunks` rows written in
+        // the same transaction before a callee can resolve against them.
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write(
+                "func helper() -> Int { 0 }\n\n"
+                    + swiftDeepExpressionSpine(termCount: 5000, leadingStatements: "    _ = helper()\n"),
+                to: "Deep.swift",
+                in: root
+            )
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            try await TreeSitterWorker.run(store: store, rootDirectory: root)
+
+            let edges = try await readEdges(store: store)
+            #expect(edges == [EdgeRow(callerSymbolPath: "deepSpine", calleeSymbolPath: "helper", source: "treesitter")])
+        }
+    }
 }

@@ -153,7 +153,7 @@ enum TSCallGraph {
         }
 
         var callSites: [CallSite] = []
-        collectCallSites(node: root, file: file, into: &callSites)
+        collectCallSites(node: root, file: file, astDepth: 0, into: &callSites)
         guard !callSites.isEmpty else {
             return
         }
@@ -175,11 +175,30 @@ enum TSCallGraph {
     /// node whose kind is in `callNodeKinds` and whose callee can be
     /// extracted.
     ///
-    /// Mirrors `Chunker.collectChunks(node:file:module:into:)`: recurses into
-    /// every child regardless of whether the current node itself produced a
-    /// call site, so nested calls (an argument that is itself a call) are
-    /// still found.
-    private static func collectCallSites(node: Node, file: SourceFile, into sites: inout [CallSite]) {
+    /// Mirrors `Chunker.collectChunks(node:file:module:astDepth:into:)`:
+    /// recurses into every child regardless of whether the current node itself
+    /// produced a call site, so nested calls (an argument that is itself a
+    /// call) are still found, and stops descending at `Chunker.maxASTDepth`
+    /// without throwing — the call sites found above the bound are still
+    /// appended and resolved, matching
+    /// `writeCallEdges(db:file:module:)`'s return-rather-than-throw handling
+    /// of a file it cannot parse.
+    ///
+    /// - Parameters:
+    ///   - node: The node to walk.
+    ///   - file: The source file `node` was parsed from.
+    ///   - astDepth: How far below the walk's root `node` sits.
+    ///   - sites: The call sites collected so far, appended to in place.
+    private static func collectCallSites(
+        node: Node,
+        file: SourceFile,
+        astDepth: Int,
+        into sites: inout [CallSite]
+    ) {
+        guard astDepth < Chunker.maxASTDepth else {
+            return
+        }
+
         if let kind = node.nodeType, callNodeKinds.contains(kind),
            let calleeName = extractCalleeName(node: node, file: file),
            let (_, startByte, endByte) = Chunker.extractTextAndRange(of: node, in: file.contents)
@@ -197,7 +216,7 @@ enum TSCallGraph {
             guard let child = node.child(at: childIndex) else {
                 continue
             }
-            collectCallSites(node: child, file: file, into: &sites)
+            collectCallSites(node: child, file: file, astDepth: astDepth + 1, into: &sites)
         }
     }
 

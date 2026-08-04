@@ -131,6 +131,63 @@ public enum Chunker {
     /// to build a path and the "." used to search it never drift apart.
     static let symbolPathSeparator = "."
 
+    /// How many levels the recursive tree-sitter walks in this module descend
+    /// before they stop.
+    ///
+    /// A parse tree deeper than the running thread's stack does not raise a
+    /// catchable error — it terminates the process. Hand-written source comes
+    /// nowhere near that, but the walks are handed whatever is on disk, and
+    /// machine-generated input reaches it easily: most grammars parse a long
+    /// chained expression such as `a + b + c + …` into a left-nested binary
+    /// spine one node deep per term.
+    ///
+    /// This is a deliberate cutoff, not a level nothing real reaches. `128`
+    /// was picked against four measurements:
+    ///
+    /// - **Swift source in this repository reaches 39.** Parsing all 126
+    ///   Swift files under `Sources/` and `Tests/` and taking the deepest AST
+    ///   level in each tops out at 39.
+    /// - **The 50-deep nested-`if` fixture reaches 106.** `swiftNestedIfs` in
+    ///   the test target, whose innermost `if` holds a definition of its own,
+    ///   is already far past anything a person writes and still fits.
+    /// - **60 levels of nested YAML mappings reach 184.** The measurement
+    ///   above is one grammar, and the shallow-AST conclusion does not carry
+    ///   to the others: `YAMLLanguage.containerNodeKinds` nests about three
+    ///   AST levels per indent level and `MarkdownLanguage`'s `section` nests
+    ///   per heading level, so `128` corresponds to roughly 42 levels of YAML
+    ///   indentation. Hand-written YAML is nowhere near that; generated YAML
+    ///   past that depth loses the definitions below the bound, which is the
+    ///   trade this constant exists to make.
+    /// - **The stack dies between 448 and 512 frames.** Bisected in a debug
+    ///   build on a Swift concurrency cooperative-pool thread, whose 512 KB
+    ///   stack is the smallest these walks run on — `TreeSitterWorker` calls
+    ///   `chunk(file:module:)` from an `async` context, so that is the real
+    ///   budget, not the main thread's 8 MB. Measured on `collectChunks`
+    ///   frames; `Complexity.accumulate` carries more arguments and so buys
+    ///   fewer levels per byte. `128` keeps peak usage near a quarter of the
+    ///   budget, which is the margin that covers the difference.
+    ///
+    /// A 5000-term expression spine parses 5005 levels deep and is cut off
+    /// long before it can do damage. Reaching the bound is not an error — each
+    /// walk keeps what it found above the bound, matching this type's
+    /// return-empty-rather-than-throw convention for unparseable files.
+    ///
+    /// Two of the walks count something other than absolute AST level, and
+    /// both say so at their own declaration:
+    /// `collectSymbolNames(node:file:module:astDepth:into:)` counts enclosing
+    /// chunked-or-container nodes as it climbs, and `Complexity.accumulate`
+    /// counts down from the symbol node it was asked to measure rather than
+    /// from the parse root — so that walk can touch absolute levels past this
+    /// number, while still only ever stacking `128` frames of its own.
+    ///
+    /// Not `private`: `TSCallGraph.collectCallSites(node:file:astDepth:into:)`
+    /// and `Complexity`'s own walks bound themselves against this same number,
+    /// and `Complexity` additionally correlates the nodes its walk visits back
+    /// to the chunks `chunk(file:module:)` produced — a correlation that only
+    /// holds while both walks stop at the same depth. Sharing the constant is
+    /// what keeps them from drifting apart.
+    static let maxASTDepth = 128
+
     /// Parses `file`'s content with `module`'s tree-sitter grammar and
     /// extracts one `SemanticChunk` per AST node whose kind is in
     /// `module.chunkKinds`.
@@ -153,7 +210,7 @@ public enum Chunker {
         }
 
         var chunks: [SemanticChunk] = []
-        collectChunks(node: root, file: file, module: module, into: &chunks)
+        collectChunks(node: root, file: file, module: module, astDepth: 0, into: &chunks)
         return chunks
     }
 
@@ -202,12 +259,29 @@ public enum Chunker {
     /// whether the current node itself was chunked, so nested definitions
     /// (a method inside a class, a function inside a module) are still
     /// found.
+    ///
+    /// Stops descending at `maxASTDepth` without throwing: the chunks found
+    /// above the bound are still appended and returned, matching
+    /// `chunk(file:module:)`'s empty-array-rather-than-throw convention for
+    /// input it cannot fully handle.
+    ///
+    /// - Parameters:
+    ///   - node: The node to walk.
+    ///   - file: The source file `node` was parsed from.
+    ///   - module: The language module supplying the chunk-kind table.
+    ///   - astDepth: How far below the walk's root `node` sits.
+    ///   - chunks: The chunks collected so far, appended to in place.
     private static func collectChunks(
         node: Node,
         file: SourceFile,
         module: any LanguageModule.Type,
+        astDepth: Int,
         into chunks: inout [SemanticChunk]
     ) {
+        guard astDepth < maxASTDepth else {
+            return
+        }
+
         if let kind = module.chunkKinds[node.nodeType ?? ""],
            let chunk = makeChunk(node: node, kind: kind, file: file, module: module)
         {
@@ -218,7 +292,7 @@ public enum Chunker {
             guard let child = node.child(at: childIndex) else {
                 continue
             }
-            collectChunks(node: child, file: file, module: module, into: &chunks)
+            collectChunks(node: child, file: file, module: module, astDepth: astDepth + 1, into: &chunks)
         }
     }
 
@@ -255,7 +329,7 @@ public enum Chunker {
     /// Port of the Rust reference's `collect_symbol_names`.
     private static func collectSymbolNames(node: Node, file: SourceFile, module: any LanguageModule.Type) -> [String] {
         var names: [String] = []
-        collectSymbolNames(node: node, file: file, module: module, into: &names)
+        collectSymbolNames(node: node, file: file, module: module, astDepth: 0, into: &names)
         return names.reversed()
     }
 
@@ -265,12 +339,41 @@ public enum Chunker {
     /// recurses into that one.
     ///
     /// Port of the Rust reference's `collect_names_recursive`.
+    ///
+    /// Stops climbing at `maxASTDepth` without throwing: the components
+    /// gathered so far still form the symbol path, which is a shorter
+    /// qualification rather than an error. Unlike the downward walks, one
+    /// level here is one enclosing *chunked or container* node — the ancestors
+    /// between two of those are skipped iteratively — and a container need not
+    /// be a definition at all (`YAMLLanguage` counts a `block_mapping`,
+    /// `MarkdownLanguage` a `section`).
+    ///
+    /// The guard is defensive rather than load-bearing: the only caller is
+    /// `makeChunk`, reached from `collectChunks`, which itself only descends
+    /// to `maxASTDepth`. Each climb consumes at least one AST level, so
+    /// `astDepth` here can never exceed where the downward walk already
+    /// stopped.
+    ///
+    /// - Parameters:
+    ///   - node: The node whose name to append.
+    ///   - file: The source file `node` was parsed from.
+    ///   - module: The language module supplying the chunk-kind and container
+    ///     tables.
+    ///   - astDepth: How many enclosing chunked or container nodes the climb
+    ///     has passed through so far.
+    ///   - names: The name components collected so far, innermost first,
+    ///     appended to in place.
     private static func collectSymbolNames(
         node: Node,
         file: SourceFile,
         module: any LanguageModule.Type,
+        astDepth: Int,
         into names: inout [String]
     ) {
+        guard astDepth < maxASTDepth else {
+            return
+        }
+
         if let name = extractNodeName(node: node, file: file, module: module) {
             names.append(name)
         }
@@ -279,7 +382,8 @@ public enum Chunker {
         while let parent = ancestor.parent {
             let parentKind = parent.nodeType ?? ""
             if module.chunkKinds[parentKind] != nil || module.containerNodeKinds.contains(parentKind) {
-                collectSymbolNames(node: parent, file: file, module: module, into: &names)
+                collectSymbolNames(
+                    node: parent, file: file, module: module, astDepth: astDepth + 1, into: &names)
                 return
             }
             ancestor = parent

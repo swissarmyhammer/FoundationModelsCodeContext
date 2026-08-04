@@ -88,28 +88,6 @@ struct ComplexityTests {
     }
     """
 
-  /// Builds a Swift function whose body is `count` `if` statements nested one
-  /// inside the next, for pinning branching depth against a known number.
-  private static func swiftNestedIfs(count: Int) -> String {
-    var body = ""
-    for level in 0..<count {
-      body += String(repeating: "    ", count: level + 1) + "if flag\(level) {\n"
-    }
-    for level in stride(from: count - 1, through: 0, by: -1) {
-      body += String(repeating: "    ", count: level + 1) + "}\n"
-    }
-    return "func deeplyNested() {\n" + body + "}\n"
-  }
-
-  /// Builds a Swift function around a single `1 + 1 + …` expression of
-  /// `termCount` terms, which every grammar parses into a left-nested binary
-  /// spine one node deep per term — the cheapest way to produce an AST far
-  /// deeper than any real source file.
-  private static func swiftDeepExpressionSpine(termCount: Int) -> String {
-    "func deepSpine() -> Int {\n    return 1" + String(repeating: " + 1", count: termCount - 1)
-      + "\n}\n"
-  }
-
   // MARK: - Cognitive complexity and branching depth
 
   @Test
@@ -339,23 +317,27 @@ struct ComplexityTests {
   // MARK: - Recursion bound
 
   @Test
-  func anASTDeeperThanTheLimitReturnsInsteadOfOverflowingTheStack() {
+  func anASTDeeperThanTheLimitStillReportsTheSymbolsAboveIt() throws {
     // 5000 terms parse into a left-nested binary spine roughly 5000 nodes
-    // deep — an order of magnitude past `Complexity.maxASTDepth`. An
-    // unbounded walk crashes the whole test process here rather than
-    // failing an expectation, so surviving this call *is* the assertion.
+    // deep — dozens of times past `Chunker.maxASTDepth`. An unbounded walk
+    // crashes the whole test process here rather than failing an expectation,
+    // so surviving this call *is* half the assertion; the other half is that a
+    // snippet this deep is still measured like any other, rather than
+    // degrading to no symbols at all.
     let result = Complexity.measure(
-      snippet: Self.swiftDeepExpressionSpine(termCount: 5000),
+      snippet: swiftDeepExpressionSpine(termCount: 5000),
       module: SwiftLanguage.self
     )
 
-    #expect(result.total.maxBranchingDepth <= Complexity.maxASTDepth)
+    let function = try #require(result.symbols.first { $0.symbolPath == "deepSpine" })
+    #expect(function.kind == .function)
+    #expect(result.total.maxBranchingDepth <= Chunker.maxASTDepth)
   }
 
   @Test
   func theDepthLimitDoesNotDistortOrdinaryNesting() throws {
     let result = Complexity.measure(
-      snippet: Self.swiftNestedIfs(count: 50), module: SwiftLanguage.self)
+      snippet: swiftNestedIfs(count: 50), module: SwiftLanguage.self)
 
     let function = try #require(result.symbols.first { $0.symbolPath == "deeplyNested" })
     #expect(function.metrics.maxBranchingDepth == 50)

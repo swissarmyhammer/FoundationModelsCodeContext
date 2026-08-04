@@ -33,8 +33,25 @@ comments:
 
     Discovered work filed separately as `^ffthv6a`: `Chunker.collectChunks`, `Chunker.collectSymbolNames`, and `TSCallGraph.collectCallSites` recurse with no depth bound, and `Chunker.chunk` kills the process with signal 10 on this card's own 5000-term recursion fixture. `Complexity.measure` works around it by refusing to call `Chunker.chunk` when its own bounded walk reports the tree is deeper than `maxASTDepth`; that workaround should be removed once those walks are bounded.
   timestamp: 2026-08-04T11:29:49.260152+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01kz6a2xcfpvkzcfzggcpc6gmp
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (5b77d1c) — 0 findings, 0 confirmed, 0 refuted; 9 validators attempted, 0 failed, 0 skipped. Scope included Sources/FoundationModelsCodeContext/TreeSitter/Complexity.swift (+939) and Tests/FoundationModelsCodeContextTests/ComplexityTests.swift (+363); .reviewignore excludes only .kanban/.
+    - next: none — task moved to done.
+  timestamp: 2026-08-04T11:56:01.295948+00:00
+- actor: claude-code
+  id: 01kz6a3vz39etq36gsnyr78ngg
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — Complexity.swift (+939), ComplexityTests.swift (+363); prior agent stopped without reporting, work found complete on disk
+    - test: green — swift test, 559 passed in 48 suites, 0 failures (ComplexityTests 14/14); swift build zero warnings
+    - commit: 5b77d1c feat(treesitter): add cognitive complexity and branching depth metrics
+    - review: clean — 0 findings, 9 validators, task moved to done
+    - next: none — task complete
+  timestamp: 2026-08-04T11:56:32.611415+00:00
+position_column: done
+position_ordinal: b680
 title: Compute cognitive complexity and max branching depth from a code snippet via tree-sitter
 ---
 ## What

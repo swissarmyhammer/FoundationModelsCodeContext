@@ -125,18 +125,6 @@ private struct MeasuredChunk {
   let metrics: ComplexityMetrics
 }
 
-/// The definition nodes found by a depth-bounded walk, plus whether that walk
-/// ever hit its bound.
-private struct SymbolNodeIndex {
-  /// Every visited node whose kind is in the module's `chunkKinds`, keyed by
-  /// the byte span that identifies it.
-  var nodesByRange: [ByteRange: Node] = [:]
-
-  /// Whether the walk refused to descend somewhere, meaning the parse tree is
-  /// deeper than `Complexity.maxASTDepth`.
-  var reachedDepthLimit = false
-}
-
 /// What a node contributes to the metrics of the symbol it sits inside.
 private enum NodeRole {
   /// A branching construct: increments by `1 + <current nesting>`, and nests
@@ -173,31 +161,6 @@ private enum NodeRole {
 /// `treeSitterLanguage` and a snippet that fails to parse both measure as an
 /// empty result rather than throwing.
 public enum Complexity {
-  // MARK: - Limits
-
-  /// The deepest AST level this file's recursive walks descend to before they
-  /// stop.
-  ///
-  /// `Chunker` and `TSCallGraph` walk files the indexer read off disk and take
-  /// no such bound. This walk is different: it is handed arbitrary
-  /// caller-supplied text, and a pathological snippet — a long chained
-  /// expression such as `a + b + c + …`, which most grammars parse into a
-  /// left-nested binary spine one node deep per term — would otherwise recurse
-  /// until the stack overflows, which is a process crash rather than a
-  /// catchable error.
-  ///
-  /// `512` sits an order of magnitude above ordinary source and far below
-  /// where the stack runs out: a 50-deep nested-`if` fixture parses only 103
-  /// levels deep, so real code is measured exactly, while a 5000-term
-  /// expression spine parses 5005 levels deep and is cut off long before it
-  /// can do damage. Reaching the bound is not an error — the walk reports the
-  /// nodes it did visit, matching this file's degrade-quietly convention.
-  ///
-  /// Not `private`: `ComplexityTests` asserts both the ordinary-code and the
-  /// pathological-input cases against this same number, so the test and the
-  /// walk can never disagree about where the bound sits.
-  static let maxASTDepth = 512
-
   /// The synthetic `SourceFile.relativePath` given to a caller-supplied
   /// snippet, which has no file of its own.
   ///
@@ -465,13 +428,15 @@ public enum Complexity {
   /// `total` counts each function and method exactly once, skipping any that is
   /// nested inside another, so an enclosing function and a closure inside it
   /// are not both added; its branching depth is the max over every entry. A
-  /// snippet with no entries at all — bare statements, or a parse tree too deep
-  /// to identify symbols in — falls back to `total` measured over the whole
-  /// parse tree.
+  /// snippet with no entries at all — bare statements, say — falls back to
+  /// `total` measured over the whole parse tree.
   ///
   /// Returns an empty result — rather than throwing — if `module` has no
   /// `treeSitterLanguage` or parsing fails, matching
-  /// `Chunker.chunk(file:module:)`.
+  /// `Chunker.chunk(file:module:)`. A snippet whose parse tree runs deeper
+  /// than `Chunker.maxASTDepth` is measured as far as that bound reaches, in
+  /// the same degrade-quietly way and by the same number that `Chunker`'s own
+  /// walk uses; nothing about it is special-cased here.
   ///
   /// - Parameters:
   ///   - snippet: The source text to measure.
@@ -485,22 +450,15 @@ public enum Complexity {
     }
 
     let functionNodeKinds = functionNodeKinds(of: module)
-    var index = SymbolNodeIndex()
-    indexSymbolNodes(node: root, module: module, source: snippet, astDepth: 0, into: &index)
+    var nodesByRange: [ByteRange: Node] = [:]
+    indexSymbolNodes(
+      node: root, module: module, source: snippet, astDepth: 0, into: &nodesByRange)
 
-    // `Chunker.chunk(file:module:)` walks the tree with an unbounded
-    // recursion of its own, so it is only safe on a tree the bounded walk
-    // above got all the way through. A deeper tree degrades to no symbols at
-    // all rather than crashing the process — see `maxASTDepth`, and the task
-    // filed to bound `Chunker`'s own walk.
-    let chunks =
-      index.reachedDepthLimit
-      ? []
-      : Chunker.chunk(
-        file: SourceFile(relativePath: snippetPath, contents: snippet), module: module)
+    let chunks = Chunker.chunk(
+      file: SourceFile(relativePath: snippetPath, contents: snippet), module: module)
 
     let functions = measuredFunctions(
-      chunks: chunks, index: index, functionNodeKinds: functionNodeKinds)
+      chunks: chunks, nodesByRange: nodesByRange, functionNodeKinds: functionNodeKinds)
     let entries = entries(chunks: chunks, functions: functions)
 
     guard !entries.isEmpty else {
@@ -536,34 +494,36 @@ public enum Complexity {
   /// Recurses `node` and its descendants, recording every node whose kind is in
   /// `module.chunkKinds` against the byte span that identifies it.
   ///
-  /// Mirrors `Chunker.collectChunks(node:file:module:into:)` — same pre-order,
-  /// same recursion into every child named and anonymous alike — but stops
-  /// descending at `maxASTDepth` and reports having done so, which is the
-  /// signal `measure(snippet:module:)` uses to decide whether `Chunker`'s own
-  /// unbounded walk can safely be run over the same tree.
+  /// Mirrors `Chunker.collectChunks(node:file:module:astDepth:into:)` — same
+  /// pre-order, same recursion into every child named and anonymous alike, and
+  /// the same `Chunker.maxASTDepth` bound, counted the same way. That last
+  /// point is what makes the index usable: `measuredFunctions` looks each chunk
+  /// `Chunker` produced up in this index by byte span, so the two walks have to
+  /// stop at exactly the same place or a chunk could arrive with no node to
+  /// measure it against.
   ///
   /// - Parameters:
   ///   - node: The node to walk.
   ///   - module: The language module supplying the chunk-kind table.
   ///   - source: The text `node` was parsed from, for resolving byte offsets.
   ///   - astDepth: How far below the walk's root `node` sits.
-  ///   - index: The index to record definition nodes into.
+  ///   - nodesByRange: The definition nodes found so far, keyed by byte span
+  ///     and recorded into in place.
   private static func indexSymbolNodes(
     node: Node,
     module: any LanguageModule.Type,
     source: String,
     astDepth: Int,
-    into index: inout SymbolNodeIndex
+    into nodesByRange: inout [ByteRange: Node]
   ) {
-    guard astDepth < maxASTDepth else {
-      index.reachedDepthLimit = true
+    guard astDepth < Chunker.maxASTDepth else {
       return
     }
 
     if module.chunkKinds[node.nodeType ?? ""] != nil,
       let (_, startByte, endByte) = Chunker.extractTextAndRange(of: node, in: source)
     {
-      index.nodesByRange[ByteRange(startByte: startByte, endByte: endByte)] = node
+      nodesByRange[ByteRange(startByte: startByte, endByte: endByte)] = node
     }
 
     for childIndex in 0..<node.childCount {
@@ -571,7 +531,8 @@ public enum Complexity {
         continue
       }
       indexSymbolNodes(
-        node: child, module: module, source: source, astDepth: astDepth + 1, into: &index)
+        node: child, module: module, source: source, astDepth: astDepth + 1,
+        into: &nodesByRange)
     }
   }
 
@@ -580,18 +541,19 @@ public enum Complexity {
   ///
   /// - Parameters:
   ///   - chunks: Every chunk `Chunker` found in the snippet.
-  ///   - index: The definition nodes to measure against.
+  ///   - nodesByRange: The definition nodes to measure against, keyed by byte
+  ///     span.
   ///   - functionNodeKinds: The node kinds whose bodies raise the nesting level.
   /// - Returns: One measured entry per function or method chunk whose node the
   ///   index holds.
   private static func measuredFunctions(
     chunks: [SemanticChunk],
-    index: SymbolNodeIndex,
+    nodesByRange: [ByteRange: Node],
     functionNodeKinds: Set<String>
   ) -> [MeasuredChunk] {
     chunks.compactMap { chunk in
       guard chunk.kind == .function || chunk.kind == .method,
-        let node = index.nodesByRange[ByteRange(of: chunk)]
+        let node = nodesByRange[ByteRange(of: chunk)]
       else {
         return nil
       }
@@ -674,8 +636,16 @@ public enum Complexity {
   /// Adds `node`'s own contribution to the running metrics, then recurses into
   /// its children at whatever nesting level `node` leaves behind.
   ///
-  /// Stops descending at `maxASTDepth` without throwing: what was reached is
-  /// what gets reported.
+  /// Stops descending at `Chunker.maxASTDepth` without throwing: what was
+  /// reached is what gets reported.
+  ///
+  /// `astDepth` counts down from the symbol node `metrics(under:…)` was asked
+  /// to measure, not from the parse root — which is what makes a symbol's
+  /// score independent of how deeply the symbol itself is nested. The measured
+  /// node can already sit up to `Chunker.maxASTDepth` levels below the root,
+  /// so this walk can touch absolute AST levels past that number while still
+  /// only ever stacking `Chunker.maxASTDepth` frames of its own, which is the
+  /// quantity the bound is protecting.
   ///
   /// - Parameters:
   ///   - node: The node to score.
@@ -695,7 +665,7 @@ public enum Complexity {
     cognitiveComplexity: inout Int,
     maxBranchingDepth: inout Int
   ) {
-    guard astDepth < maxASTDepth else {
+    guard astDepth < Chunker.maxASTDepth else {
       return
     }
 
