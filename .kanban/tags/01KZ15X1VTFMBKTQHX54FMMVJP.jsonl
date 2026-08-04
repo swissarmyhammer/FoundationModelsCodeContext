@@ -1,0 +1,1 @@
+{"id":"01KZ15X1VT4KZYZ58YQ4RKK0WM","timestamp":"2026-08-02T12:06:42.810363Z","op":"create","item_id":"01KZ15X1VTFMBKTQHX54FMMVJP","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: bfd4f2\n+tag_name: feature\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: bfd4f2\n-tag_name: feature\n","transaction_id":null}
