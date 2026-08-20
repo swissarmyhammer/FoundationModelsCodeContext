@@ -14,8 +14,17 @@ comments:
     - `swift format lint --strict` on all Swift sources: green.
     - The integration package build runs now. Root `swift test` and the live integration run come next.
   timestamp: 2026-08-20T12:01:16.316028+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m0fhhe6rh4xf3aq43rvgyd7f
+  text: |-
+    ### commit — changed
+    - evidence: 44a88e9 refactor(tests): remove the env-var gate and split the live suite into its own package; pushed to main (b2b0977..44a88e9)
+    - test evidence: root `swift test` 561 tests in 47 suites, all green; `swift test --package-path IntegrationTests` 1 test green against a real sourcekit-lsp (63 s); `swift format lint --strict` green
+    - note: `swift package update` was necessary at the root. The old resolution pinned `mlx-swift-lm` to a `foundationmodels-fixes` revision that does not compile with the current SDK. The new resolution uses `stable (ba8ff43)`. `Package.resolved` is not tracked in this repository.
+    - next: none. The work is complete.
+  timestamp: 2026-08-20T12:15:09.016070+00:00
+position_column: done
+position_ordinal: b880
 title: Move the live LSP suite to a nested IntegrationTests package and remove the CCK_LIVE_LSP gate
 ---
 Comply with the org test expectations for all sibling packages.
