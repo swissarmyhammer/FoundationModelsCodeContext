@@ -1,5 +1,18 @@
 name: CI
 
+# Repo-local, and deliberately so.
+#
+# This workflow used to call `swissarmyhammer/workflows/.github/workflows/swift-ci.yaml@main`
+# and pass it the `CCK_LIVE_LSP` gate variable name. The org test expectations
+# do not permit an environment variable as the test selection mechanism, so
+# that gate is gone.
+#
+# The unit/integration split is structural. The root `Package.swift` declares
+# no integration target at all: the live `sourcekit-lsp` suite is its own
+# package under `IntegrationTests/`, so `swift test` at the root cannot reach
+# it. Nothing below sets an environment variable to select a suite, and
+# nothing may start to do so.
+
 on:
   push:
     branches: [main]
@@ -11,12 +24,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
-    uses: swissarmyhammer/workflows/.github/workflows/swift-ci.yaml@main
-    with:
-      integration-gate-env: CCK_LIVE_LSP
-      integration-xctest-glob: "*FoundationModelsCodeContextTests.xctest"
-      example-targets: CodeContextExample ManagerExample
+  unit:
+    name: Unit tests
+    runs-on: [self-hosted, macOS]
+    # A hard ceiling so a stuck run fails loudly and frees the one self-hosted
+    # runner for the next commit instead of sitting in progress indefinitely.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          sw_vers
+          swift --version
+
+      - name: Clean build directories
+        run: rm -rf .build IntegrationTests/.build
+
+      # `swift build --build-tests` builds every root target — the library,
+      # the unit test target, and the `CodeContextExample`/`ManagerExample`
+      # executables — so an example that stops compiling fails here.
+      - name: Build (incl. tests and examples)
+        run: swift build --build-tests
+
+      - name: Run unit tests
+        run: swift test
+
+      # The compile coupling the nested package would otherwise lose.
+      #
+      # The root build does not compile the integration files at all, so a
+      # broken integration test could rot unnoticed between the runs that
+      # execute it. This step restores the coupling, and it runs on EVERY
+      # trigger — a build of the integration package is cheap, and only the
+      # run is slow. Do not drop it and do not make it conditional.
+      # `IntegrationTests/Package.swift` records the same requirement from
+      # the manifest side.
+      - name: Build the integration package's tests
+        run: swift build --package-path IntegrationTests --build-tests
+
+  integration:
+    name: Integration (real sourcekit-lsp)
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 60
+    # Fail-fast ordering: the unit job runs first, so a compile error or a
+    # unit failure reports in minutes and no long integration run starts on a
+    # broken tree.
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          sw_vers
+          swift --version
+          command -v sourcekit-lsp || echo "sourcekit-lsp not on PATH; the suite reports skipped"
+
+      - name: Clean build directory
+        run: rm -rf IntegrationTests/.build
+
+      - name: Run the integration suite
+        run: swift test --package-path IntegrationTests
 
   format:
     name: Format lint
@@ -47,9 +114,10 @@ jobs:
       # repo root, not swift-format's built-in defaults.
       #
       # The scope covers every Swift file in the repo, not just the library and
-      # its tests: `Examples/*` are real build targets (the `ci` job above builds
-      # them via `example-targets`) and `Package.swift` is checked-in Swift too,
-      # so leaving them out would let exactly the drift this job exists to stop
-      # continue in the corners it does not look at.
+      # its tests: `Examples/*` are real build targets (the unit job above builds
+      # them) and the manifests are checked-in Swift too, so leaving them out
+      # would let exactly the drift this job exists to stop continue in the
+      # corners it does not look at. `IntegrationTests` brings the nested
+      # package's manifest and suite into the same gate.
       - name: swift format lint
-        run: swift format lint -r --strict Sources Tests Examples Package.swift
+        run: swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift

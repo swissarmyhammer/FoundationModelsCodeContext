@@ -336,9 +336,10 @@ struct WatcherTests {
     /// undeliverable only after ten touches go unanswered. Sandboxed
     /// environments where fseventsd delivery is absent then get a visible
     /// skip on the integration test below (via the same `ConditionTrait`
-    /// mechanism `LiveSourceKitTests` gates with, chosen there because a
-    /// disabled trait reports a genuine *skip* rather than a vacuous pass)
-    /// instead of a spurious 15-second failure.
+    /// mechanism `LiveSourceKitTests` — in the `IntegrationTests` nested
+    /// package — gates with, chosen there because a disabled trait reports
+    /// a genuine *skip* rather than a vacuous pass) instead of a spurious
+    /// 15-second failure.
     ///
     /// The canary is re-touched repeatedly rather than written once
     /// because FSEvents delivery here is known to be intermittent and

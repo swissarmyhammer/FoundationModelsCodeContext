@@ -233,9 +233,9 @@ struct CodeContextE2ETests {
     /// *absent* so the daemon genuinely lands `.notFound` rather than starting `.running`
     /// immediately because the machine running this test happens to already have it installed.
     /// Checked via the same shared `BinaryLookup` helper `LSPDaemon`/`ServerInstaller` use for
-    /// their own real `$PATH` lookups. Mirrors `LiveSourceKitTests`' own `.enabled(if:)` gating
-    /// pattern: a genuine *skip* (not a vacuous pass) when the environment doesn't support the
-    /// scenario, in either direction.
+    /// their own real `$PATH` lookups. Mirrors the `.enabled(if:)` gating pattern of
+    /// `LiveSourceKitTests` (in the `IntegrationTests` nested package): a genuine *skip* (not a
+    /// vacuous pass) when the environment doesn't support the scenario, in either direction.
     private static var canExercisePHPAutoInstall: Bool {
         BinaryLookup.isOnPath("npm") && !BinaryLookup.isOnPath("intelephense")
     }

@@ -147,7 +147,26 @@ comments:
     - evidence: 58 files — `.swift-format` (new), `Tests/FoundationModelsCodeContextTests/Support/.swift-format-ignore` (new), `.github/workflows/ci.yml`, and 55 Swift files reformatted by one `swift format -i -r Sources Tests Examples Package.swift` pass. `swift format lint -r --strict Sources Tests Examples Package.swift` → exit 0. `swift build` → Build complete, no new warnings; both example targets build. `swift test` → 562 tests in 48 suites passed, 0 failures, test-name and suite-name sets byte-identical to the pre-pass baseline. Second format pass produces an identical diff (idempotent). Behavior neutrality checked mechanically: 93 multiline string literal values identical; 28 files whitespace-only and 27 with token-level rewrites of only four behavior-identical kinds.
     - next: `/review`, then commit — the pass must land as its own commit so it can be skipped in `git blame`.
   timestamp: 2026-08-04T13:46:25.985122+00:00
-position_column: doing
+- actor: claude-code
+  id: 01kz6m9t665cx0w9znvx3vq2jv
+  text: |
+    ### review — stuck
+    - evidence: `{"op": "review sha", "sha": "HEAD~1..HEAD"}` → `attempted: 0, failed: 0, skipped: 55`, findings 0. Every changed Swift file reported `over the 0-byte batch budget`; no validator pair ran, so the zero count is not a clean verdict. Reproduced identically with `batch_size: 262144`, with `validators: ["swift"]` (skip list still named all nine validators), and with `backend: "local"`. Narrowed scopes do run — `review file` on a single file attempted 9 pairs and on a 5-file glob attempted 18 — so the defect is the batch-budget computation collapsing to 0 for a large file set, not the files themselves.
+    - why not worked around: the only functioning op, `review file`, reviews whole files at HEAD rather than the commit delta, which is a different scope than the one assigned. Demonstrated concretely — `review file Sources/FoundationModelsCodeContext/LSP/*.swift` pulled in `Wire.swift`, `ProcessLanguageServerConnection.swift` and `ServerInstaller.swift`, none of which this commit touches, and returned 29 confirmed findings about pre-existing access-control levels in `Wire.swift`. Recording those on a formatting card would be attributing another commit's code to this one, against the explicit instruction to review only the `HEAD~1..HEAD` delta, so they were not written to the description. Glob scoping cannot be constrained to the delta, and filtering engine findings by my own judgement is not mine to do.
+    - coverage gap, separate from the defect: `.swift-format`, `Tests/FoundationModelsCodeContextTests/Support/.swift-format-ignore`, and `.github/workflows/ci.yml` are absent from every skip list, and `review file .github/workflows/ci.yml` returns `Nothing in scope to review`. The engine reviews Swift sources only, so the config, the ignore file, and the CI gate — the substance of this change — got no validator coverage at all.
+    - next: a human decides. Either fix the engine's batch-budget computation so `review sha HEAD~1..HEAD` can run over 55 files, or authorize reviewing this commit at a scope the engine can serve. Task stays in `review`; both blockers are recorded as unchecked items in the dated section.
+  timestamp: 2026-08-04T14:54:33.158253+00:00
+- actor: claude-code
+  id: 01kz6mavbnwzdr8gbfvqadydbt
+  text: |-
+    ### finish iteration 1 — stuck
+    - implement: changed — 58 files; .swift-format (4-space, lineLength 400), .swift-format-ignore for the shebang script, format job in ci.yml using `swift format lint --strict` (plain lint exits 0 even with findings), one pass over 55 Swift files
+    - test: green — swift test, 562 passed in 48 suites, 0 failures, identical to baseline; swift build clean; `swift format lint -r --strict Sources Tests Examples Package.swift` exit 0
+    - commit: b2b0977 chore(format): check in .swift-format, reformat once, gate CI on it
+    - review: stuck — `review sha HEAD~1..HEAD` executed no validator pair (attempted 0, skipped 55, every file "over the 0-byte batch budget"); batch_size/validators/backend passthroughs all ignored; single-file and 5-file scopes do run, so the defect is the batch-budget computation collapsing to 0 for a large file set
+    - next: human decision — fix the batch-budget computation so `review sha` runs over 55 files, or authorize a scope the engine can serve. Task stays in `review`; NOT forced to done.
+  timestamp: 2026-08-04T14:55:07.125425+00:00
+position_column: review
 position_ordinal: '80'
 title: Check in a .swift-format describing the style the repo actually uses, then format once
 ---
@@ -204,3 +223,8 @@ both recorded in full in the comments:
   the flag the gate could never fail.
 
 #chore
+
+## Review Findings (2026-08-04 09:42) — BLOCKED, review not performed
+
+- [ ] The review engine cannot review this task's assigned scope. `{"op": "review sha", "sha": "HEAD~1..HEAD"}` returns `attempted: 0, skipped: 55` — every one of the 55 changed Swift files is reported as `not reviewed — the rendered prompt would exceed the agent's prompt cap`, each `over the 0-byte batch budget`. Zero validator pairs ran, so the zero finding count is not a clean result and must not be read as one. All three documented passthrough modifiers fail to change the outcome: `batch_size: 262144`, `validators: ["swift"]`, and `backend: "local"` each reproduce `attempted: 0, skipped: 55`, with all nine validators still named in the skip list even when a single validator was requested. Narrowed `review file` scopes do run (a 1-file scope attempts 9 pairs, a 5-file scope attempts 18), which localizes the defect to the batch-budget computation collapsing to 0 bytes for a large file set. A human must fix that computation or authorize a different review scope for this commit.
+- [ ] The three files this change actually turns on — `.swift-format`, `Tests/FoundationModelsCodeContextTests/Support/.swift-format-ignore`, and the new `format` job in `.github/workflows/ci.yml` — are outside the engine's reviewable set entirely. They appear in none of the engine's skip lists, and `{"op": "review file", "path": ".github/workflows/ci.yml"}` returns `Nothing in scope to review` with `attempted: 0`. The config, the ignore file, and the CI gate therefore received no validator coverage of any kind, and no engine run can currently supply it. A human must decide how these are to be reviewed.

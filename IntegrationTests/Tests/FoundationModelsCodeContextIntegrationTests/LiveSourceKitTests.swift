@@ -4,24 +4,23 @@ import Testing
 
 @testable import FoundationModelsCodeContext
 
-/// Gated, real-`sourcekit-lsp` end-to-end smoke test, per plan.md's testing strategy: spawn a real
+/// Real-`sourcekit-lsp` end-to-end smoke test, per plan.md's testing strategy: spawn a real
 /// daemon against a temp Swift package fixture, confirm a live `definition` answer, `kill -9` the
 /// daemon's child process, and assert the supervisor auto-restarts it (state evidence, not log
 /// scraping) before a fresh `definition` succeeds again.
 ///
-/// Skipped whenever `CCK_LIVE_LSP` isn't `"1"` (the suite-level trait below), and skipped again —
-/// this time per-test, since the suite-level gate might legitimately be on for a machine that
-/// still lacks a Swift toolchain — whenever `sourcekit-lsp` isn't resolvable on `$PATH`. Both use
-/// Swift Testing's `.enabled(if:)` trait rather than an in-body early return: unlike a test that
-/// merely returns having made no assertions (which reports as a vacuous *pass*), a disabled
-/// `ConditionTrait` reports the test as genuinely *skipped*, matching this task's acceptance
-/// criteria ("the suite reports skipped, exit 0") precisely.
+/// This suite lives in the `IntegrationTests` nested package, not in the root unit target, so a
+/// root `swift test` never reaches it and no environment variable selects it. Run it with
+/// `swift test --package-path IntegrationTests`. The one remaining `.enabled(if:)` trait below is
+/// a capability gate — it skips the test when `sourcekit-lsp` is not resolvable on `$PATH` —
+/// rather than an in-body early return: unlike a test that merely returns having made no
+/// assertions (which reports as a vacuous *pass*), a disabled `ConditionTrait` reports the test
+/// as genuinely *skipped*.
 ///
 /// `.serialized`-style isolation isn't declared here (there is exactly one `@Test` in this suite),
 /// but every real subprocess this test spawns is guaranteed torn down on every exit path via
 /// `withLiveContext`, mirroring `ConnectionTests.swift`'s `withConnection` helper — see that type's
 /// doc comment for the leaked-process/leaked-thread incident this pattern exists to prevent.
-@Suite(.enabled(if: ProcessInfo.processInfo.environment["CCK_LIVE_LSP"] == "1", "gated behind CCK_LIVE_LSP=1"))
 struct LiveSourceKitTests {
     /// The fixture's only source file, relative to the fixture's root — the path every
     /// `context.definition(filePath:...)` call in this suite targets.
