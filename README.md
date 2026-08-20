@@ -2,139 +2,44 @@
 
 [![CI](https://github.com/swissarmyhammer/FoundationModelsCodeContext/actions/workflows/ci.yml/badge.svg)](https://github.com/swissarmyhammer/FoundationModelsCodeContext/actions/workflows/ci.yml)
 
-In-process code intelligence for Swift: one actor that indexes a workspace,
-supervises its language servers, and answers questions about the code.
+In-process code intelligence for Swift: one actor that indexes a repository,
+controls its language servers, and answers questions about the code.
 
-`CodeContext` opens a repository, indexes it with tree-sitter (Swift, Rust,
-Python, TypeScript, Go, and a dozen more languages), embeds code chunks for
-semantic search, watches for file changes, and spawns real LSP daemons — all
-inside your process, with no server, CLI, or IPC. Every operation returns a
-plain `Codable & Sendable` value, so wrapping ops as FoundationModels `Tool`s
-for an in-process agent harness is a thin shim over one async method.
+`CodeContext` opens a repository and indexes it with tree-sitter (Swift,
+Rust, Python, TypeScript, Go, and ten more languages). It embeds code chunks
+for semantic search, monitors file changes, and starts real LSP daemons —
+all in your process, with no server, CLI, or IPC. Each operation returns a
+plain `Codable & Sendable` value, so a FoundationModels `Tool` for an
+in-process agent is a thin layer over one async method.
 
 ```swift
 import FoundationModelsCodeContext
 
-// `embedder` is any `TextEmbedding`; `RoutedEmbedderAdapter` wraps a
+// `embedder` is a `TextEmbedding`. `RoutedEmbedderAdapter` wraps a
 // FoundationModelsRouter embedding model.
 let context = try await CodeContext(
-    rootDirectory: URL(filePath: "/path/to/repo"),
+    rootDirectory: URL(fileURLWithPath: "/path/to/repo", isDirectory: true),
     embedder: embedder
 )
-try await context.start()   // walk, index, watch files, spawn LSP servers
+try await context.start()  // walk, index, monitor files, start LSP servers
 
 let symbols = try await context.searchSymbol(query: "parseConfig")
-let callers = try await context.callGraph(of: "handleRequest", direction: .inbound)
-let radius  = try await context.blastRadius(file: "Sources/App/Server.swift")
-let hits    = try await context.searchCode(query: "retry with backoff", topK: 20)
-let report  = try await context.diagnostics(scope: .workingTree)
+let hits = try await context.searchCode(query: "retry with backoff")
 
 await context.stop()
 ```
 
-Beyond the indexed layer, `CodeContext` exposes live LSP ops — `definition`,
-`hover`, `references`, `implementations`, `renameEdits`, `codeActions` — and
-publishes an `@Observable` `CodeContextState` (server status, index progress,
-diagnostics) that SwiftUI views can bind to directly.
-
-## Two ways in
-
-**One repo — `CodeContext`.** The snippet above opens a single workspace
-directly; see [`Examples/CodeContextExample`](Examples/CodeContextExample)
-for the full, compile-verified program (embedder resolution → init → start →
-queries → stop).
-
-**Several repos — `CodeContextManager`.** For a workspace holding multiple
-repositories, `CodeContextManager` owns one `CodeContext` per open root,
-enforces a non-overlapping-roots invariant, and adds workspace-wide fan-out
-queries whose results are tagged with the root that produced them.
-[`Examples/ManagerExample`](Examples/ManagerExample) is the compile-verified
-twin of this snippet:
-
-```swift
-import FoundationModelsCodeContext
-
-// `embedder` is the same `TextEmbedding` used above, shared by every repo
-// the manager opens.
-let manager = await CodeContextManager(embedder: embedder)
-
-let roots = try RootDiscovery.discoverRoots(under: URL(filePath: "/path/to/workspace"))
-for root in roots {
-    _ = try await manager.context(for: root)   // opens (and starts) each repo
-}
-
-// Lazy routing: resolve whichever open root covers an arbitrary file,
-// discovering and opening its enclosing git repo on demand if none is open
-// yet. Returns nil if no open root covers it and none can be discovered.
-let owner = try await manager.context(containing: someFile)
-
-// Fan out across every open root; each hit is root-qualified via `Rooted`.
-// Scores are normalized per root, so never compare `hit.value.hit.score`
-// across two different `hit.root`s.
-let (hits, failures) = await manager.searchCode(query: "retry with backoff")
-for hit in hits {
-    print(hit.root.path, hit.value.filePath, hit.value.hit.score)
-}
-
-await manager.shutdown()
-```
-
-## Language servers
-
-`start()` detects which languages live under the root, maps each to its
-language server, and spawns one daemon per server binary. When a server's
-binary is missing from `$PATH`, `CodeContext` **auto-installs it by default**
-— it runs the ecosystem's own native global installer (`rustup`, `go`,
-`pipx`, `npm`, or `brew`), each gated on that installer tool itself being
-present, then re-checks and starts the server. A server whose binary is
-mid-install reports as `.installing` in `CodeContextState.servers` until the
-install finishes, at which point it lands `.running` (installed) or
-`.notFound` (still missing) — and each command is attempted at most once, so
-a failed install never loops.
-
-| Language(s) | Server | Auto-install command | Installer tool |
-|---|---|---|---|
-| Rust | `rust-analyzer` | `rustup component add rust-analyzer` | `rustup` |
-| Go | `gopls` | `go install golang.org/x/tools/gopls@latest` | `go` |
-| Python | `pylsp` | `pipx install python-lsp-server` | `pipx` |
-| TypeScript / JavaScript / TSX | `typescript-language-server` | `npm install -g typescript-language-server typescript` | `npm` |
-| PHP | `intelephense` | `npm install -g intelephense` | `npm` |
-| Java | `jdtls` | `brew install jdtls` | `brew` |
-| Swift | `sourcekit-lsp` | hint only — install Xcode or a Swift toolchain | — |
-| C / C++ | `clangd` | hint only — install via your package manager | — |
-| C# | `omnisharp` | hint only — install OmniSharp | — |
-
-The last three are **hint-only**: no automatic installer ships for them (they
-depend on a full toolchain or have unreliable installs), so a missing binary
-stays `.notFound` with its install hint, exactly as every server behaved
-before auto-install existed.
-
-**Opting out.** Pass an `LspAutoInstall` when constructing a `CodeContext` or
-`CodeContextManager` to disable auto-install or change how long an install may
-run before it is treated as failed:
-
-```swift
-// Never auto-install; fall back to install-hint-only guidance for every server.
-let context = try await CodeContext(
-    rootDirectory: repoURL,
-    embedder: embedder,
-    autoInstall: LspAutoInstall(isEnabled: false)
-)
-
-// Keep auto-install on, but bound each install command at 120 seconds
-// (the default is 300).
-let manager = await CodeContextManager(
-    embedder: embedder,
-    autoInstall: LspAutoInstall(timeout: .seconds(120))
-)
-```
-
-The default `LspAutoInstall()` is enabled with a 300-second per-install
-timeout, so existing callers get auto-install without changing any code.
+Above the indexed layer, `CodeContext` gives live LSP operations —
+`definition`, `hover`, `references`, `renameEdits`, and `codeActions` — and
+an `@Observable` `CodeContextState` (server status, index progress,
+diagnostics) that SwiftUI views can bind to. When a language server binary
+is missing, `CodeContext` installs it automatically by default; see
+[docs/language-servers.md](docs/language-servers.md).
 
 ## Install
 
-Add to your `Package.swift` dependencies (requires macOS 27):
+Add the package to your `Package.swift` dependencies (macOS 27 is
+necessary):
 
 ```swift
 .package(url: "https://github.com/swissarmyhammer/FoundationModelsCodeContext", branch: "main")
@@ -142,7 +47,15 @@ Add to your `Package.swift` dependencies (requires macOS 27):
 
 ## Documentation
 
-Design and porting notes live in [plan.md](plan.md). Hybrid search ranking
-(BM25 + trigram + cosine, fused with RRF) comes from the sibling
-[FoundationModelsRanker](https://github.com/swissarmyhammer/FoundationModelsRanker) package, and embeddings
-from [FoundationModelsRouter](https://github.com/swissarmyhammer/FoundationModelsRouter).
+- [Examples/CodeContextExample](Examples/CodeContextExample) — the full,
+  compile-verified program for one repository.
+- [docs/multiple-repos.md](docs/multiple-repos.md) — `CodeContextManager`
+  for a workspace with many repositories.
+- [docs/language-servers.md](docs/language-servers.md) — the server table
+  and the auto-install controls.
+- [plan.md](plan.md) — design and porting notes.
+
+Hybrid search ranking (BM25 + trigram + cosine, fused with RRF) comes from
+[FoundationModelsRanker](https://github.com/swissarmyhammer/FoundationModelsRanker),
+and embeddings come from
+[FoundationModelsRouter](https://github.com/swissarmyhammer/FoundationModelsRouter).

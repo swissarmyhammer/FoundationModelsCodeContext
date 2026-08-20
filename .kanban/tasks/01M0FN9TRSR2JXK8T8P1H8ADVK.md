@@ -1,8 +1,20 @@
 ---
 assignees:
 - claude-code
-position_column: doing
-position_ordinal: '80'
+comments:
+- actor: claude-code
+  id: 01m0fp30y43ech52mqjykank8m
+  text: |-
+    ### commit — changed
+    - evidence: 9cbb76a ci: replace the repo-local unit/integration jobs with one shared swift-ci.yaml call; pushed to main (44a88e9..9cbb76a)
+    - CI evidence: run https://github.com/swissarmyhammer/FoundationModelsCodeContext/actions/runs/32374223273 — conclusion success
+      - Format lint: success (13:25–13:26, repo-local, unchanged)
+      - ci / Build & test: success (13:26–13:30) — root swift test 561 tests in 47 suites, all green
+      - ci / Integration (opt-in, real dependencies): success (13:30–13:33), needs: test — liveSourceKitSurvivesACrashAndAutoRestarts() passed after 63.237s against a real sourcekit-lsp, not skipped
+    - next: none. FoundationModelsCodeContext is now on the shared swift-ci.yaml for both unit and integration.
+  timestamp: 2026-08-20T13:34:39.556639+00:00
+position_column: done
+position_ordinal: b980
 title: Convert ci.yml to one shared swift-ci.yaml call when integration-package-path lands
 ---
 Will's unified-CI directive: each sibling package calls the shared workflow.
