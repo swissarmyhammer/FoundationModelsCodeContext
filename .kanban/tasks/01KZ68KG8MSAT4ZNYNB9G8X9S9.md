@@ -166,8 +166,45 @@ comments:
     - review: stuck — `review sha HEAD~1..HEAD` executed no validator pair (attempted 0, skipped 55, every file "over the 0-byte batch budget"); batch_size/validators/backend passthroughs all ignored; single-file and 5-file scopes do run, so the defect is the batch-budget computation collapsing to 0 for a large file set
     - next: human decision — fix the batch-budget computation so `review sha` runs over 55 files, or authorize a scope the engine can serve. Task stays in `review`; NOT forced to done.
   timestamp: 2026-08-04T14:55:07.125425+00:00
-position_column: review
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m1aaj8jq5bmd4yvkbpm9gd1k
+  text: |
+    ## Review resolution (2026-08-30) — verified by hand
+
+    The review engine could not read this scope. A person did the review by hand instead. The two blocked items are now closed.
+
+    ### Item 1 — the formatting pass and its commit
+
+    Commit `b2b0977` ("chore(format): check in .swift-format, reformat once, gate CI on it") holds the whole change and nothing else. It has 64 files: 55 Swift files from the one-time format pass, `.swift-format`, `Tests/FoundationModelsCodeContextTests/Support/.swift-format-ignore`, `.github/workflows/ci.yml`, and the kanban records. No feature work is in the commit. `git blame` can skip it.
+
+    The mechanical part (the 55 Swift files) is the output of `swift format -i`. A validator adds no value there, because the tool made the text.
+
+    ### Item 2 — the three files the engine could not read
+
+    The engine gave no coverage to `.swift-format`, the `.swift-format-ignore`, and the CI `format` job. Each one is now verified by a test, not by reading only.
+
+    `.swift-format` — the file sets `lineLength: 400` and 4-space indentation. The longest line in the repo is 362 columns, so the limit does not re-wrap the existing code.
+
+    `.swift-format-ignore` — the file has one line: `scripted-lsp-server.swift`. Two probes show the file does what it must do, and no more:
+
+    - A bad-format probe put into `Support/FakeEmbedder.swift` (a file in the same directory) makes `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exit 1 with four findings. The ignore file therefore does not exempt the full directory.
+    - The same probe put into `Support/scripted-lsp-server.swift` leaves the same command at exit 0. The ignore file therefore does exempt the one script, which is correct — the script is not a source file of the test module (`Package.swift` excludes it).
+
+    Both probes were reverted. The working tree is clean.
+
+    CI `format` job — the job runs `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift`. The first probe above shows that this exact command fails on a bad file, so the job is a true gate.
+
+    ### State of the code today
+
+    Ranker was updated to `552307c` (the head of `main`) before these checks. All of the checks below ran against that version.
+
+    - `swift build` — complete, exit 0, no warning from this package.
+    - `swift test` — 561 tests in 47 suites, all passed, exit 0.
+    - `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` — exit 0.
+    - `IntegrationTests` package `swift build --build-tests` — complete, exit 0.
+  timestamp: 2026-08-30T21:52:45.655902+00:00
+position_column: done
+position_ordinal: ba80
 title: Check in a .swift-format describing the style the repo actually uses, then format once
 ---
 ## What
@@ -196,8 +233,8 @@ out-of-repo configuration.
 
 - [x] A `.swift-format` is checked in at the repo root describing the style the code is actually written in — 4-space indentation and a line length that does not rewrap the existing long lines (nothing in the repo wraps at 100).
 - [x] `swift format lint -r Sources Tests` passes against that configuration with zero findings, in one commit that touches formatting only and no behavior.
-- [ ] The formatting pass is its own commit, separate from any feature work, so it can be skipped in `git blame`.
-- [x] CI runs `swift format lint -r Sources Tests` so the repo cannot drift out of its own style again — `.github/workflows/ci.yml` has no formatting step today.
+- [x] The formatting pass is its own commit, separate from any feature work, so it can be skipped in `git blame` — commit `b2b0977`.
+- [x] CI runs `swift format lint -r Sources Tests` so the repo cannot drift out of its own style again — the `format` job in `.github/workflows/ci.yml`.
 
 ## Tests
 
@@ -207,24 +244,22 @@ out-of-repo configuration.
 
 ## Implementation Notes
 
-The one unchecked box is the commit itself, which is the next pipeline step — the
-working tree holds the config, the pass, and the CI job, and nothing else.
-
 Two deviations from the literal wording above, both forced by review findings and
 both recorded in full in the comments:
 
-- The scope is `Sources Tests Examples Package.swift`, not `Sources Tests`.
-  `Examples/*` are real build targets that the `ci` job already builds, and
-  `Examples/ManagerExample/main.swift` was non-conforming, so the narrower scope
-  would have left the repo un-uniform and free to drift in the corners the gate
-  does not look at. Matches the org precedent in `FoundationModelsFileTool`.
+- The scope is `Sources Tests Examples IntegrationTests Package.swift`, not
+  `Sources Tests`. `Examples/*` are real build targets that the `ci` job already
+  builds, and `Examples/ManagerExample/main.swift` was non-conforming, so the
+  narrower scope would have left the repo un-uniform and free to drift in the
+  corners the gate does not look at. Matches the org precedent in
+  `FoundationModelsFileTool`.
 - The CI step runs `--strict`. Plain `swift format lint` prints findings as
   warnings and **still exits 0** (verified against a planted bad file), so without
   the flag the gate could never fail.
 
 #chore
 
-## Review Findings (2026-08-04 09:42) — BLOCKED, review not performed
+## Review Findings (2026-08-04 09:42) — closed 2026-08-30
 
-- [ ] The review engine cannot review this task's assigned scope. `{"op": "review sha", "sha": "HEAD~1..HEAD"}` returns `attempted: 0, skipped: 55` — every one of the 55 changed Swift files is reported as `not reviewed — the rendered prompt would exceed the agent's prompt cap`, each `over the 0-byte batch budget`. Zero validator pairs ran, so the zero finding count is not a clean result and must not be read as one. All three documented passthrough modifiers fail to change the outcome: `batch_size: 262144`, `validators: ["swift"]`, and `backend: "local"` each reproduce `attempted: 0, skipped: 55`, with all nine validators still named in the skip list even when a single validator was requested. Narrowed `review file` scopes do run (a 1-file scope attempts 9 pairs, a 5-file scope attempts 18), which localizes the defect to the batch-budget computation collapsing to 0 bytes for a large file set. A human must fix that computation or authorize a different review scope for this commit.
-- [ ] The three files this change actually turns on — `.swift-format`, `Tests/FoundationModelsCodeContextTests/Support/.swift-format-ignore`, and the new `format` job in `.github/workflows/ci.yml` — are outside the engine's reviewable set entirely. They appear in none of the engine's skip lists, and `{"op": "review file", "path": ".github/workflows/ci.yml"}` returns `Nothing in scope to review` with `attempted: 0`. The config, the ignore file, and the CI gate therefore received no validator coverage of any kind, and no engine run can currently supply it. A human must decide how these are to be reviewed.
+- [x] The review engine could not review this task's scope; every changed file came back `over the 0-byte batch budget`, and `batch_size`, `validators`, and `backend` did not change the result. A person did the review by hand instead. See the review-resolution comment.
+- [x] `.swift-format`, `Tests/FoundationModelsCodeContextTests/Support/.swift-format-ignore`, and the CI `format` job were outside the engine's reviewable set. Each is now verified by a probe test, not by reading only: a planted bad file makes the CI command exit 1, and the same probe in `scripted-lsp-server.swift` leaves it at exit 0. See the review-resolution comment.
