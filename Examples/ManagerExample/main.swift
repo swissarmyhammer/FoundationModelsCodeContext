@@ -119,8 +119,10 @@ for failure in searchFailures {
 
 // MARK: - Shutdown
 
+// Shutting the manager down ends this file's own work. The resolved profile needs no matching
+// teardown call: `FoundationModelsRouter` owns residency through ARC, so the profile frees its
+// resident models when the last reference to it goes away.
 await manager.shutdown()
-await profile.release()
 
 // MARK: - Helpers
 

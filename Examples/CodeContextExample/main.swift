@@ -7,7 +7,9 @@ import FoundationModelsRouter
 /// The standalone "way in" to this package (see plan.md's Goal): point it at
 /// one repository root and it walks the public API end to end — resolve an
 /// embedder, open a `CodeContext`, start it, run a couple of read-only
-/// queries, then tear both the context and the resolved profile down.
+/// queries, then stop the context. The resolved profile needs no matching
+/// teardown call: `FoundationModelsRouter` owns residency through ARC, so the
+/// profile frees its resident models when the last reference to it goes away.
 ///
 /// ## Why this resolves through `FoundationModelsRouter` directly
 ///
@@ -96,4 +98,3 @@ let codeHits = try await context.searchCode(query: query)
 print("searchCode(\"\(query)\") hits: \(codeHits)")
 
 await context.stop()
-await profile.release()

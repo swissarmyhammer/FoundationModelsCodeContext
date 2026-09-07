@@ -1,0 +1,1 @@
+{"id":"01M1Y71GX2KPQCNNAE1Z3G2ZHS","timestamp":"2026-09-07T15:16:00.034381Z","op":"create","item_id":"01M1Y71GX1RS6M318H6SHKZM5D","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 006b75\n+tag_name: router\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 006b75\n-tag_name: router\n","transaction_id":null}

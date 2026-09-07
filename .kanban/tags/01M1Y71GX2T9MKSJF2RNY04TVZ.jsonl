@@ -1,0 +1,1 @@
+{"id":"01M1Y71GX34HBEH03G45M0STEM","timestamp":"2026-09-07T15:16:00.035053Z","op":"create","item_id":"01M1Y71GX2T9MKSJF2RNY04TVZ","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 0075ca\n+tag_name: tech-debt\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 0075ca\n-tag_name: tech-debt\n","transaction_id":null}
