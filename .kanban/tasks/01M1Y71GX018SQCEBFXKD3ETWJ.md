@@ -49,8 +49,25 @@ comments:
     - evidence: 2 files — Examples/CodeContextExample/main.swift, Examples/ManagerExample/main.swift. Both `await profile.release()` calls deleted; stale teardown prose corrected in each. `swift build --build-tests` complete with no source warning; `swift test` 561 tests in 47 suites passed; `swift format lint --strict --recursive Examples` exit 0.
     - next: review
   timestamp: 2026-09-07T17:38:36.776971+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m1yfqnpzvj6v8dxnr2exk1v6
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD — 0 findings, 0 confirmed, 0 refuted; 2 files reviewed, 6 files skipped by .reviewignore (.kanban/)
+    - next: task moved to done
+  timestamp: 2026-09-07T17:47:54.463596+00:00
+- actor: claude-code
+  id: 01m1yfr9dnb3gm10sv3szwbzvw
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — Examples/CodeContextExample/main.swift, Examples/ManagerExample/main.swift
+    - test: green — swift test, 561 passed in 47 suites, 0 failed, 0 skipped
+    - commit: 6fb1006 refactor(examples): drop profile.release() calls, ARC owns residency
+    - review: clean — 0 findings over HEAD~1..HEAD, 2 source files
+    - verify: grep for `profile.release()` in Examples returns nothing; task is in `done`
+  timestamp: 2026-09-07T17:48:14.645903+00:00
+position_column: done
+position_ordinal: bb80
 title: Drop the profile.release() calls in the two examples once router residency is ARC-owned
 ---
 ## What
