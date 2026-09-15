@@ -48,7 +48,9 @@ public struct SearchWeights: Sendable, Equatable {
 /// `embeddedChunks == 0` — and `nil` once every indexed chunk is embedded.
 /// See plan.md "Search": "No embeddings at all → keyword-only results plus
 /// an `IndexingProgress` note, same graceful degradation as Rust."
-public struct IndexingProgress: Sendable, Equatable {
+///
+/// The JSON keys are the property names.
+public struct IndexingProgress: Sendable, Equatable, Encodable {
     /// The total number of chunks in the corpus at the time of this search.
     public let totalChunks: Int
 
@@ -75,6 +77,12 @@ public struct IndexingProgress: Sendable, Equatable {
 
 /// One `SearchCode.run(corpus:embedder:query:topK:weights:)` result: a fused
 /// `Hit` plus the `ts_chunks` metadata needed to locate and display it.
+///
+/// The JSON form comes from a custom `encode(to:)`, because the Ranker `Hit`
+/// type is not `Encodable`. The `hit` key holds an object with the `id`
+/// string, the `score` number and a `signals` object. The `signals` object
+/// holds the `bm25`, `trigram` and `cosine` numbers. All other keys are the
+/// property names, and `kind` is the `SymbolMetaType` raw value.
 public struct SearchCodeMatch: Sendable, Equatable {
     /// The fused score and per-signal `Signals` for this chunk.
     public let hit: Hit
@@ -126,9 +134,71 @@ public struct SearchCodeMatch: Sendable, Equatable {
     }
 }
 
+extension SearchCodeMatch: Encodable {
+    /// The JSON keys of a search-code match. Each key is a property name.
+    private enum CodingKeys: String, CodingKey {
+        case hit
+        case filePath
+        case symbolPath
+        case kind
+        case startLine
+        case endLine
+        case text
+    }
+
+    /// The JSON keys of the `hit` object. Each key is a `Hit` property name.
+    private enum HitCodingKeys: String, CodingKey {
+        case id
+        case score
+        case signals
+    }
+
+    /// The JSON keys of the `signals` object in the `hit` object. Each key is
+    /// a `Signals` property name.
+    private enum SignalsCodingKeys: String, CodingKey {
+        case bm25
+        case trigram
+        case cosine
+    }
+
+    /// Encodes this match in the JSON form that the type documentation
+    /// gives.
+    ///
+    /// - Parameter encoder: The encoder that receives the JSON object.
+    /// - Throws: An `EncodingError` when the encoder cannot write a value.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        var hitContainer = container.nestedContainer(keyedBy: HitCodingKeys.self, forKey: .hit)
+        try encodeHit(into: &hitContainer)
+        try container.encode(filePath, forKey: .filePath)
+        try container.encode(symbolPath, forKey: .symbolPath)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(startLine, forKey: .startLine)
+        try container.encode(endLine, forKey: .endLine)
+        try container.encode(text, forKey: .text)
+    }
+
+    /// Encodes the `id`, the `score` and the `signals` of `hit` as plain
+    /// values.
+    ///
+    /// - Parameter container: The container of the `hit` object.
+    /// - Throws: An `EncodingError` when the encoder cannot write a value.
+    private func encodeHit(into container: inout KeyedEncodingContainer<HitCodingKeys>) throws {
+        try container.encode(hit.id, forKey: .id)
+        try container.encode(hit.score, forKey: .score)
+        var signalsContainer = container.nestedContainer(keyedBy: SignalsCodingKeys.self, forKey: .signals)
+        try signalsContainer.encode(hit.signals.bm25, forKey: .bm25)
+        try signalsContainer.encode(hit.signals.trigram, forKey: .trigram)
+        try signalsContainer.encode(hit.signals.cosine, forKey: .cosine)
+    }
+}
+
 /// The result of a `SearchCode.run(corpus:embedder:query:topK:weights:)`
 /// call.
-public struct SearchCodeResult: Sendable, Equatable {
+///
+/// The JSON keys are the property names. When `indexingProgress` is `nil`,
+/// the JSON does not include the `indexingProgress` key.
+public struct SearchCodeResult: Sendable, Equatable, Encodable {
     /// The original query string.
     public let query: String
 

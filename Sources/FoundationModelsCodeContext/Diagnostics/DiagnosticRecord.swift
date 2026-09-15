@@ -9,7 +9,11 @@ import Foundation
 /// Swift port reuses `LSPRange` (already `Codable`/`Sendable`/`Equatable` in
 /// this same module — see `LSPTypes.swift`) rather than introducing an
 /// equivalent wrapper with nothing left to convert from.
-public struct DiagnosticRecord: Sendable, Equatable {
+///
+/// The JSON keys are the property names. `severity` is the LSP number, 1 to
+/// 4. When `code`, `source` or `containingSymbol` is `nil`, the JSON does not
+/// include that key.
+public struct DiagnosticRecord: Sendable, Equatable, Encodable {
     /// The file this diagnostic applies to, relative to the workspace root.
     public let path: String
 
@@ -93,7 +97,9 @@ public struct DiagnosticRecord: Sendable, Equatable {
 /// counts only `.error`/`.warning`, matching the Rust reference and this
 /// task's "broken" definition (`errors + warnings > 0`) used to decide
 /// whether a dependent folds into a report.
-public struct Counts: Sendable, Equatable {
+///
+/// The JSON keys are the property names.
+public struct Counts: Sendable, Equatable, Encodable {
     /// The number of `.error`-severity records.
     public let errors: Int
 
@@ -132,7 +138,9 @@ public struct Counts: Sendable, Equatable {
 /// all `public` so a downstream module can read a report returned across the
 /// package boundary — e.g. via `CodeContext.diagnostics(...)` — with a plain
 /// `import FoundationModelsCodeContext`, no `@testable` required.
-public struct DiagnosticsReport: Sendable, Equatable {
+///
+/// The JSON keys are the property names.
+public struct DiagnosticsReport: Sendable, Equatable, Encodable {
     /// Every diagnostic record in this report, targets first (in query
     /// order), then folded-in broken dependents (ranked errors-then-warnings),
     /// truncated to the per-report cap.

@@ -3,7 +3,10 @@ import FoundationModelsRanker
 
 /// One chunk's location and text, referenced from a `FindDuplicatesResult`
 /// either as a group's source or as one of its duplicate matches.
-public struct DuplicateChunkRef: Sendable, Equatable {
+///
+/// The JSON keys are the property names. `kind` is the `SymbolMetaType` raw
+/// value.
+public struct DuplicateChunkRef: Sendable, Equatable, Encodable {
     /// The path of the file containing this chunk.
     public let filePath: String
 
@@ -42,7 +45,9 @@ public struct DuplicateChunkRef: Sendable, Equatable {
 }
 
 /// One chunk found to be a near-duplicate of a `DuplicateGroup`'s source chunk.
-public struct DuplicateMatch: Sendable, Equatable {
+///
+/// The JSON keys are the property names.
+public struct DuplicateMatch: Sendable, Equatable, Encodable {
     /// The similar chunk found elsewhere in the corpus.
     public let chunk: DuplicateChunkRef
 
@@ -66,7 +71,9 @@ public struct DuplicateMatch: Sendable, Equatable {
 
 /// A source chunk and every near-duplicate `FindDuplicatesOps.findDuplicates(corpus:file:minSimilarity:minChunkBytes:maxPerChunk:)`
 /// found for it.
-public struct DuplicateGroup: Sendable, Equatable {
+///
+/// The JSON keys are the property names.
+public struct DuplicateGroup: Sendable, Equatable, Encodable {
     /// The chunk every entry in `duplicates` was compared against.
     public let source: DuplicateChunkRef
 
@@ -88,6 +95,9 @@ public struct DuplicateGroup: Sendable, Equatable {
 
 /// Which chunks `FindDuplicatesOps.findDuplicates(corpus:file:minSimilarity:minChunkBytes:maxPerChunk:)`
 /// treated as candidate source chunks.
+///
+/// The JSON form comes from a custom `encode(to:)`: `{"kind":"workspace"}`
+/// for `workspace`, and `{"kind":"file","path":"<path>"}` for `file`.
 public enum FindDuplicatesScope: Sendable, Equatable {
     /// Every eligible chunk in the corpus was a candidate source.
     case workspace
@@ -98,9 +108,36 @@ public enum FindDuplicatesScope: Sendable, Equatable {
     case file(String)
 }
 
+extension FindDuplicatesScope: Encodable {
+    /// The JSON keys of a scope object.
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case path
+    }
+
+    /// Encodes this scope as `{"kind":"workspace"}` or as
+    /// `{"kind":"file","path":"<path>"}`.
+    ///
+    /// - Parameter encoder: The encoder that receives the JSON object.
+    /// - Throws: An `EncodingError` when the encoder cannot write a value.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .workspace:
+            try container.encode("workspace", forKey: .kind)
+        case .file(let path):
+            try container.encode("file", forKey: .kind)
+            try container.encode(path, forKey: .path)
+        }
+    }
+}
+
 /// The result of a `FindDuplicatesOps.findDuplicates(corpus:file:minSimilarity:minChunkBytes:maxPerChunk:)`
 /// call.
-public struct FindDuplicatesResult: Sendable, Equatable {
+///
+/// The JSON keys are the property names. `scope` uses the JSON form that
+/// `FindDuplicatesScope` gives.
+public struct FindDuplicatesResult: Sendable, Equatable, Encodable {
     /// Which chunks were treated as candidate source chunks.
     public let scope: FindDuplicatesScope
 

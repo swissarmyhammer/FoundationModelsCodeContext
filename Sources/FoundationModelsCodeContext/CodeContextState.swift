@@ -8,7 +8,10 @@ import Observation
 /// walk/reconcile pass discovered, and each remaining count is how many of those files have
 /// finished that layer. `CodeContextState.isReady` treats a layer as drained once its count has
 /// caught up to `filesWalked` (see `isDrained`).
-public struct IndexProgress: Sendable, Equatable {
+///
+/// The JSON keys are the four stored property names. `isDrained` is a
+/// computed value, so the JSON does not include it.
+public struct IndexProgress: Sendable, Equatable, Encodable {
     /// The number of files discovered by the startup walk/reconcile pass.
     public let filesWalked: Int
 

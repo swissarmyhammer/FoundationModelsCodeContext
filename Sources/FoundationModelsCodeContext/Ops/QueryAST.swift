@@ -16,7 +16,9 @@ public struct QueryASTOptions: Sendable, Equatable {
 }
 
 /// One captured node from a tree-sitter query match.
-public struct ASTCapture: Sendable, Equatable {
+///
+/// The JSON keys are the property names.
+public struct ASTCapture: Sendable, Equatable, Encodable {
     /// The capture's name, e.g. `"name"` for a `@name` capture.
     public let name: String
 
@@ -68,7 +70,9 @@ public struct ASTCapture: Sendable, Equatable {
 }
 
 /// One match from a query, with every capture it produced.
-public struct ASTMatch: Sendable, Equatable {
+///
+/// The JSON keys are the property names.
+public struct ASTMatch: Sendable, Equatable, Encodable {
     /// The matched file's path, relative to the query's root directory.
     public let file: String
 
@@ -88,7 +92,9 @@ public struct ASTMatch: Sendable, Equatable {
 }
 
 /// The result of a `QueryAST.run(rootDirectory:language:query:options:)` invocation.
-public struct QueryASTResult: Sendable, Equatable {
+///
+/// The JSON keys are the property names.
+public struct QueryASTResult: Sendable, Equatable, Encodable {
     /// The matches found, in file-then-match order, capped at `QueryASTOptions.maxResults`.
     public let matches: [ASTMatch]
 

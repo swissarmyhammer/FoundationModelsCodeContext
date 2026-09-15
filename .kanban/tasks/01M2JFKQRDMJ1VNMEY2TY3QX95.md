@@ -19,10 +19,26 @@ comments:
   id: 01m2jtgfd2rc94ee0xsz2pa19f
   text: 'Correction to the step record: the counts are for matching lines in the red-step output. The first check matched 5 lines, not 6 (README.md:18; plan.md:94, 285, 286, 556). The second check matched 11 lines, not 10 (README.md:19, 61; plan.md:47, 72, 85, 92, 105, 285, 466, 544, 588). The outcome does not change: after the change, both checks give no output.'
   timestamp: 2026-09-15T15:21:01.602166+00:00
+- actor: claude-code
+  id: 01m2jtp285etq4mm340fzmrqww
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` gave 0 findings (0 confirmed, 0 refuted). The engine did not review README.md and plan.md, because no validator matches these files. The .kanban files are excluded by .reviewignore. Manual checks: both acceptance `rg` commands give no output. Package.swift and Package.resolved have no Router text. Sources/FoundationModelsCodeContext/Embedding/TextEmbedding.swift is the typealias to `FoundationModelsRanker.TextEmbedding`. Both examples declare a file-local `HashingEmbedder`. Ranker `Searcher` takes `embedder:` and `session:`, and `LanguageModelSession` conforms to `AgentSession`. Thus the doc statements agree with the code.
+    - next: none. The task moved to done.
+  timestamp: 2026-09-15T15:24:04.741212+00:00
+- actor: claude-code
+  id: 01m2jtpkwxczcte8xbyxdz24k5
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — README.md, plan.md; red step: the RoutedEmbedder check found 5 lines and the FoundationModelsRouter check found 11 lines, then both gave no output
+    - test: green — swift build, IntegrationTests build-tests, swift format lint --strict, swift test 563 passed in 49 suites, 0 failed, 0 skipped; the whole-repo search (not .build, not .kanban) found no Router text
+    - commit: 16a51cb
+    - review: clean — 0 findings; no validator applies to .md files, so the reviewer compared the doc statements with the code by hand
+  timestamp: 2026-09-15T15:24:22.813167+00:00
 depends_on:
 - 01M2JFQ6YZ3FM3G0CY3040SMDS
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: c080
 title: 'Docs: embedding model is caller-supplied, no Router'
 ---
 ## What
