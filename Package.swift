@@ -3,9 +3,8 @@
 
 import PackageDescription
 
-// Repeated identifiers extracted to named constants so the manifest has a
-// single source of truth, following the pattern established by the sibling
-// FoundationModelsRouter package.
+// Repeated identifiers are named constants, so the manifest has a single
+// source of truth for each identifier.
 let packageName = "FoundationModelsCodeContext"
 
 // Per-language tree-sitter grammar packages. `alex-pinkus/tree-sitter-swift`
@@ -83,8 +82,8 @@ let grammarProducts: [Target.Dependency] = [
 
 let package = Package(
     name: packageName,
-    // Commit to macOS 27 / FoundationModels v2; floor inherited from
-    // FoundationModelsRouter, whose RoutedEmbedder backs text embedding.
+    // Commit to macOS 27. FoundationModels v2 and FoundationModelsRanker
+    // need this floor.
     platforms: [
         .macOS("27.0")
     ],
@@ -95,21 +94,9 @@ let package = Package(
         )
     ],
     dependencies: [
-        // Referenced by URL rather than local path deliberately: FoundationModelsRanker (the
-        // dependency below) also depends on FoundationModelsRouter by
-        // this exact URL — by CI necessity, see FoundationModelsRanker's Package.swift — and
-        // SwiftPM rejects one package identity ('foundationmodelsrouter')
-        // reached through two different origins (URL vs. path); today it's a
-        // "Conflicting identity" warning, escalating to an error in future
-        // SwiftPM versions. Keep the URL + branch spelling identical to
-        // FoundationModelsRanker's so both chains resolve to a single origin. For local
-        // co-development of the sibling checkout, use
-        // `swift package edit foundationmodelsrouter --path ../FoundationModelsRouter`.
-        .package(url: "git@github.com:swissarmyhammer/FoundationModelsRouter.git", branch: "main"),
-        // Referenced by URL for the same reason as FoundationModelsRouter
-        // above (the family CI convention: the shared workflow only checks
-        // out the calling repo, so a `../FoundationModelsRanker` path dependency would never
-        // resolve there — see FoundationModelsRanker's Package.swift). For local
+        // Referenced by URL, not by a local path. This is the CI convention of the
+        // package family: the shared workflow checks out only the calling repo, so a
+        // `../FoundationModelsRanker` path dependency does not resolve there. For local
         // co-development of the sibling checkout, use
         // `swift package edit foundationmodelsranker --path ../FoundationModelsRanker`.
         .package(url: "git@github.com:swissarmyhammer/FoundationModelsRanker.git", branch: "main"),
@@ -158,7 +145,6 @@ let package = Package(
         .target(
             name: packageName,
             dependencies: [
-                .product(name: "FoundationModelsRouter", package: "FoundationModelsRouter"),
                 .product(name: "FoundationModelsRanker", package: "FoundationModelsRanker"),
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
                 .product(name: "GRDB", package: "GRDB.swift"),

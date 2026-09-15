@@ -2,9 +2,9 @@
 ///
 /// Abstracts over the concrete embedding backend so callers — chiefly
 /// `TreeSitterWorker`'s embedding step — depend on this narrow protocol
-/// rather than a specific implementation. `RoutedEmbedderAdapter` wraps
-/// FoundationModelsRouter's `RoutedEmbedder` for production use; tests
-/// substitute `FakeEmbedder`, a deterministic, GPU-free double.
+/// rather than a specific implementation. The caller supplies the
+/// implementation. Tests substitute `FakeEmbedder`, a deterministic,
+/// GPU-free double.
 public protocol TextEmbedding: Sendable {
     /// The length of every embedding vector this embedder produces.
     var dimension: Int { get }

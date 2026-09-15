@@ -10,7 +10,7 @@ import os
 /// implementations during the port.
 ///
 /// `os.Logger` is used directly rather than the `swift-log` facade: the
-/// macOS 27 floor (inherited from FoundationModelsRouter) makes this an
+/// macOS 27 floor (from FoundationModels v2 and FoundationModelsRanker) makes this an
 /// Apple-only package, so `swift-log`'s cross-platform backend story doesn't
 /// apply, and unified logging gives structured, near-zero-cost-when-not-
 /// captured logging with built-in privacy redaction for free.

@@ -26,8 +26,24 @@ comments:
       - `swift test` exit 0: 561 tests in 47 suites passed, 0 failed.
     - next: /review. A commit step will find no tracked change, because git ignores Package.resolved.
   timestamp: 2026-09-15T14:43:34.723288+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2jrjq31hgqjf3h9bh544v3w
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` gives 0 findings. The commit 91d8361 has only the 10 kanban card files, and `.reviewignore` excludes `.kanban/`. Direct checks: `rg -c Router .build/checkouts/FoundationModelsRanker/Package.swift` gives no output (exit 1). `rg -c Router IntegrationTests/.build/checkouts/FoundationModelsRanker/Package.swift` gives no output (exit 1). Both `Package.resolved` and `IntegrationTests/Package.resolved` pin FoundationModelsRanker revision 545cb0606852a2a1b53340d0f76f6871ab56c13f. `.gitignore` (line 7) ignores both files. No prior review findings are open.
+    - next: The task moves to done. Task ^jpqwgmw removes the Router dependency in Package.swift.
+  timestamp: 2026-09-15T14:47:17.857484+00:00
+- actor: claude-code
+  id: 01m2jrkckh6730g78rpqj3nnds
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — Package.resolved and IntegrationTests/Package.resolved (both ignored by git) now pin FoundationModelsRanker 545cb06; 0 tracked source files changed
+    - test: green — swift build, swift build --package-path IntegrationTests --build-tests, swift format lint --strict, swift test 561 passed in 47 suites, 0 failed, 0 skipped
+    - commit: 91d8361 (kanban cards only)
+    - review: clean — 0 findings; rg -c Router on both Ranker checkouts gives no output
+  timestamp: 2026-09-15T14:47:39.889243+00:00
+position_column: done
+position_ordinal: bc80
 title: Move this repo to the Router-free FoundationModelsRanker main
 ---
 ## What

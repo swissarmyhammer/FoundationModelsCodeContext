@@ -21,8 +21,24 @@ comments:
     - note: the library target and the top-level FoundationModelsRouter `.package(url:)` entry did not change (task ^jpqwgmw removes them). The comment on `platforms` in Package.swift still names FoundationModelsRouter; it is on the library side, so that task owns it.
     - next: /review
   timestamp: 2026-09-15T14:53:13.333117+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2js6s2h4w290eqpnz8baqzj
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit a88142f). 0 findings, 0 confirmed, 0 refuted. 7 validator runs attempted, 0 failed. The engine reviewed 3 files. The .reviewignore rule excluded 2 .kanban files.
+    - next: The task is in done. Task ^jpqwgmw can start.
+  timestamp: 2026-09-15T14:58:15.249329+00:00
+- actor: claude-code
+  id: 01m2js75748t41ypt3mh45xrn5
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — Examples/CodeContextExample/main.swift, Examples/ManagerExample/main.swift, Package.swift; rg red step 22 matches, then 0
+    - test: green — swift build, both example targets, IntegrationTests build-tests, swift format lint --strict, swift test 561 passed in 47 suites, 0 failed, 0 skipped
+    - commit: a88142f
+    - review: clean — 0 findings (3 files, 7 validator runs)
+  timestamp: 2026-09-15T14:58:27.684129+00:00
+position_column: done
+position_ordinal: bd80
 title: 'Examples: pass a caller-defined TextEmbedding, not a Router profile'
 ---
 ## What
