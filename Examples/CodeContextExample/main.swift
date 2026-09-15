@@ -1,84 +1,53 @@
 import Foundation
 import FoundationModelsCodeContext
-import FoundationModelsRouter
 
 /// # Runnable demo: standalone, single-root `CodeContext`.
 ///
-/// The standalone "way in" to this package (see plan.md's Goal): point it at
-/// one repository root and it walks the public API end to end — resolve an
-/// embedder, open a `CodeContext`, start it, run a couple of read-only
-/// queries, then stop the context. The resolved profile needs no matching
-/// teardown call: `FoundationModelsRouter` owns residency through ARC, so the
-/// profile frees its resident models when the last reference to it goes away.
+/// This is the standalone "way in" to this package (see plan.md's Goal). Point
+/// it at one repository root. It then uses the public API from start to end: it
+/// makes an embedder, opens a `CodeContext`, starts it, runs two read-only
+/// queries, and stops the context.
 ///
-/// ## Why this resolves through `FoundationModelsRouter` directly
+/// ## The caller supplies the embedding model
 ///
-/// This package ships no embedder factory — `RoutedEmbedderAdapter`'s public
-/// initializer takes an already-resolved `RoutedEmbedder` handle, and
-/// plan.md's "Embeddings" section records why: resolving a
-/// `FoundationModelsRouter` profile loads two generation models alongside the
-/// embedding model and allows only one resident profile at a time, so owning
-/// that lifecycle is a host-app decision, not something a library that only
-/// consumes vectors should make. This example plays the host app's part
-/// itself, calling `Router.resolve(profile:reporting:)` — the *only* public
-/// resolution entry point FoundationModelsRouter exposes — to obtain the
-/// `RoutedEmbedder` this file wraps.
+/// This package loads no embedding model. The caller gives any `TextEmbedding`
+/// value to `CodeContext(rootDirectory:embedder:)`. The protocol has two
+/// members: `dimension`, and `embed(_:)`, which returns one unit-length vector
+/// for each text. A production host wraps its real model (for example an MLX
+/// embedder) in a small conformance with these two members.
+///
+/// This file defines `HashingEmbedder`, a conformance that needs no model and
+/// no network. It counts hashed tokens, so `searchCode` finds texts that share
+/// words, not texts that share meaning. Put a real model behind the same two
+/// members to get semantic search.
 ///
 /// ## What this file does and does not exercise
 ///
-/// This target links nothing beyond `FoundationModelsCodeContext` and
-/// `FoundationModelsRouter` themselves — no Hugging Face Hub client, no MLX
-/// weight loader — so `swift build` stays fast and dependency-light. That is
-/// this file's actual job: compile-verifying and documenting the public
-/// surface of both packages (mirroring the package README's example), not
-/// holding logic. It means a real, weight-downloading `swift run
-/// CodeContextExample` needs more than this file alone provides:
+/// This target links only `FoundationModelsCodeContext`, so `swift build` stays
+/// fast and has few dependencies. The job of this file is to compile-verify and
+/// document the public surface of the package. It holds no library logic.
 ///
-///   - `Router.resolve` still reaches out over the network to size the
-///     profile's candidates against Hugging Face repo metadata.
-///   - Actually downloading and loading the chosen trio needs a configured
-///     `LiveModelLoader` (a `Downloader` + `TokenizerLoader`, e.g. via
-///     `MLXHuggingFace`'s `#hubDownloader()` / `#huggingFaceTokenizerLoader()`
-///     macros) — see FoundationModelsRouter's own
-///     `Examples/MultiModelGeneration` for the fully-wired version of this
-///     same resolve-then-drive call pattern.
-///   - Live LSP-backed ops and full indexing need the workspace's language
-///     servers actually installed and on `PATH`. By default `CodeContext`
-///     auto-installs a missing server for a detected language (opt out with
+///   - Live LSP-backed ops and full indexing need the language servers of the
+///     workspace on `PATH`. By default `CodeContext` auto-installs a missing
+///     server for a detected language (opt out with
 ///     `CodeContext(..., autoInstall: LspAutoInstall(isEnabled: false))`; see
-///     the package README's "Language servers" section) — so this example
-///     needs no extra code to benefit, and passes no `autoInstall:` argument.
+///     the "Language servers" section of the package README). Thus this example
+///     needs no extra code for this, and gives no `autoInstall:` argument.
 ///
 /// Run with `swift run CodeContextExample [root] [query]` as a local smoke
-/// step once those pieces are wired up; it is not part of this package's
-/// automated verification (`swift build` / `swift test` are).
+/// step. It is not part of the automated verification of this package
+/// (`swift build` and `swift test` are).
 
 let arguments = CommandLine.arguments
 let rootPath = arguments.count > 1 ? arguments[1] : FileManager.default.currentDirectoryPath
 let rootDirectory = URL(fileURLWithPath: rootPath, isDirectory: true)
 let query = arguments.count > 2 ? arguments[2] : "TODO"
 
-// MARK: - Resolve a RoutedEmbedder
+// MARK: - Make the caller-defined embedder
 
-// A profile resolves its `standard`/`flash`/`embedding` slots together —
-// there is no embedding-only shape for `ProfileDefinition` (see plan.md) —
-// so the generation slots still need plausible candidates to size against,
-// even though only `embedding` is used below.
-let profileDefinition = ProfileDefinition(
-    name: "code-context-example",
-    description: "Standalone CodeContext example: resolves an embedder to index one repo root.",
-    standard: ["mlx-community/Qwen2.5-3B-Instruct-4bit"],
-    flash: ["mlx-community/SmolLM-135M-Instruct-4bit"],
-    embedding: ["mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"]
-)
-
-let router = Router(
-    recordingsDir: FileManager.default.temporaryDirectory
-        .appendingPathComponent("CodeContextExample-\(UUID().uuidString)", isDirectory: true)
-)
-
-let profile = try await router.resolve(profile: profileDefinition, reporting: ResolutionProgress())
-let embedder = RoutedEmbedderAdapter(routedEmbedder: profile.embedding)
+// The number of hash buckets, thus the length of each embedding vector.
+let embeddingDimension = 256
+private let embedder = HashingEmbedder(dimension: embeddingDimension)
 
 // MARK: - Open, start, query, and stop a CodeContext
 
@@ -98,3 +67,89 @@ let codeHits = try await context.searchCode(query: query)
 print("searchCode(\"\(query)\") hits: \(codeHits)")
 
 await context.stop()
+
+// MARK: - A caller-defined TextEmbedding
+
+// Each example keeps its own copy of `HashingEmbedder`. An executable target
+// cannot share source with a different executable target, and a shared target
+// for approximately 20 lines costs more than it gives.
+
+/// A `TextEmbedding` that needs no model: it counts hashed tokens.
+///
+/// This type shows all of the contract that a caller supplies: a `dimension`,
+/// and an `embed(_:)` that returns one unit-length vector for each text. A
+/// production host puts its real model (for example an MLX embedder) behind
+/// the same two members.
+///
+/// The vectors are the same in each process. The bucket of a token is the
+/// 64-bit FNV-1a hash of its UTF-8 bytes. Do not use `Hasher` or `hashValue`
+/// here: their seed changes in each process, and the index stays on disk in
+/// `<root>/.code-context`, so vectors from two runs would not match.
+private struct HashingEmbedder: TextEmbedding {
+    /// The 64-bit FNV-1a offset basis, the start value of each hash.
+    private static let fnvOffsetBasis: UInt64 = 0xCBF2_9CE4_8422_2325
+
+    /// The 64-bit FNV-1a prime, the multiplier for each byte.
+    private static let fnvPrime: UInt64 = 0x0000_0100_0000_01B3
+
+    /// The length of each vector that `embed(_:)` returns.
+    let dimension: Int
+
+    /// Makes an embedder that returns vectors of `dimension` length.
+    ///
+    /// - Parameter dimension: The number of hash buckets. It must be more than 0.
+    init(dimension: Int) {
+        precondition(dimension > 0, "HashingEmbedder needs a dimension that is more than 0")
+        self.dimension = dimension
+    }
+
+    /// Returns one L2-normalized vector of bucket counts for each text, in order.
+    ///
+    /// - Parameter texts: The texts to embed.
+    /// - Returns: One `dimension`-length vector for each text, in the order of `texts`.
+    func embed(_ texts: [String]) async throws -> [[Float]] {
+        texts.map(vector(for:))
+    }
+
+    /// Adds 1 to the bucket of each token in `text`, then scales the counts to unit length.
+    ///
+    /// - Parameter text: The text to embed.
+    /// - Returns: A unit-length vector. When `text` has no tokens, the zero vector, unchanged.
+    private func vector(for text: String) -> [Float] {
+        let counts = Self.tokens(in: text).reduce(into: [Float](repeating: 0, count: dimension)) { counts, token in
+            counts[bucket(for: token)] += 1
+        }
+        let magnitude = counts.reduce(0) { sum, count in sum + count * count }.squareRoot()
+        guard magnitude > 0 else {
+            return counts
+        }
+        return counts.map { count in count / magnitude }
+    }
+
+    /// The bucket of `token`: the 64-bit FNV-1a hash of its UTF-8 bytes, modulo `dimension`.
+    ///
+    /// - Parameter token: One token from `tokens(in:)`.
+    /// - Returns: An index in `0..<dimension`.
+    private func bucket(for token: String) -> Int {
+        let hash = token.utf8.reduce(Self.fnvOffsetBasis) { hash, byte in
+            (hash ^ UInt64(byte)) &* Self.fnvPrime
+        }
+        return Int(hash % UInt64(dimension))
+    }
+
+    /// Splits `text` on each character that is not a letter, a digit or `_`, and makes each token lowercase.
+    ///
+    /// - Parameter text: The text to split.
+    /// - Returns: The lowercase tokens, in order. Empty when `text` has no letters, digits or `_`.
+    private static func tokens(in text: String) -> [String] {
+        text.split { character in !isTokenCharacter(character) }.map { token in token.lowercased() }
+    }
+
+    /// Tells if `character` is part of a token: a letter, a digit or `_`.
+    ///
+    /// - Parameter character: The character to examine.
+    /// - Returns: `true` for a letter, a digit or `_`; `false` for each other character.
+    private static func isTokenCharacter(_ character: Character) -> Bool {
+        character.isLetter || character.isWholeNumber || character == "_"
+    }
+}

@@ -1,61 +1,45 @@
 import Foundation
 import FoundationModelsCodeContext
-import FoundationModelsRouter
 
 /// A runnable executable demonstrating multi-root `CodeContextManager` lifecycle and fan-out queries.
 ///
-/// The second "way in" to this package (see plan.md's Goal, and the sibling `CodeContextExample`'s
-/// single-root walkthrough): point it at a *parent* directory holding several repositories and it
-/// exercises `CodeContextManager`'s workspace-wide surface end to end — discover every repo root
-/// beneath the parent, open each explicitly, resolve one file's covering root lazily, fan a search
-/// out across every open root with root-qualified results, then shut every context down together.
+/// The second "way in" to this package (see plan.md's Goal, and the single-root walkthrough in the sibling
+/// `CodeContextExample`). Point it at a *parent* directory that holds several repositories. It then uses the
+/// workspace-wide surface of `CodeContextManager` from start to end: it finds each repo root below the parent,
+/// opens each root explicitly, finds the root that covers one file lazily, sends a search to each open root with
+/// root-qualified results, then shuts down all contexts together.
 ///
-/// ## Why this resolves through `FoundationModelsRouter` directly
+/// ## The caller supplies the embedding model
 ///
-/// See `CodeContextExample/main.swift`'s doc comment for the full rationale: this package ships no
-/// embedder factory — `RoutedEmbedderAdapter`'s public initializer takes an already-resolved
-/// `RoutedEmbedder` handle, so a host resolves a `FoundationModelsRouter` profile and injects the
-/// embedder rather than the library owning that lifecycle itself. This file plays that host's part,
-/// calling `Router.resolve(profile:reporting:)` directly and handing the single resulting embedder
-/// to every root `CodeContextManager` opens.
+/// This package loads no embedding model. The caller gives any `TextEmbedding` value to
+/// `CodeContextManager(embedder:)`, and the manager gives that one embedder to each root it opens. The protocol has
+/// two members: `dimension`, and `embed(_:)`, which returns one unit-length vector for each text. A production host
+/// wraps its real model (for example an MLX embedder) in a small conformance with these two members. This file
+/// defines `HashingEmbedder`, a conformance that needs no model and no network (see `CodeContextExample` for more).
 ///
 /// ## What this file does and does not exercise
 ///
-/// Same dependency-light, compile-verifying intent as `CodeContextExample`: this target links
-/// nothing beyond `FoundationModelsCodeContext` and `FoundationModelsRouter` themselves — no
-/// Hugging Face Hub client, no MLX weight loader, no live LSP daemons — so `swift build` stays fast.
-/// `swift build` / `swift test` are this package's automated verification; a real, weight-
-/// downloading `swift run ManagerExample [parent] [query]` needs the pieces `CodeContextExample`'s
-/// header documents (a configured `LiveModelLoader`, installed language servers on `PATH`), and is
-/// a local smoke step only, not part of automated verification. Like `CodeContext`,
-/// `CodeContextManager` auto-installs a detected language's missing server by default and hands the
-/// same policy to every root it opens — pass `autoInstall: LspAutoInstall(isEnabled: false)` to opt
-/// out (see the package README's "Language servers" section); this example relies on the default.
+/// The intent is the same as `CodeContextExample`: few dependencies, and compile verification. This target links
+/// only `FoundationModelsCodeContext`, and starts no live LSP daemons, so `swift build` stays fast.
+/// `swift build` and `swift test` are the automated verification of this package. A real
+/// `swift run ManagerExample [parent] [query]` needs language servers on `PATH`, and is a local smoke step only, not
+/// part of automated verification. Like `CodeContext`, `CodeContextManager` auto-installs the missing server of a
+/// detected language by default and gives the same policy to each root it opens. Give
+/// `autoInstall: LspAutoInstall(isEnabled: false)` to opt out (see the "Language servers" section of the package
+/// README). This example uses the default.
 
 let arguments = CommandLine.arguments
 let parentPath = arguments.count > 1 ? arguments[1] : FileManager.default.currentDirectoryPath
 let parentDirectory = URL(fileURLWithPath: parentPath, isDirectory: true)
 let query = arguments.count > 2 ? arguments[2] : "TODO"
 
-// MARK: - Resolve a RoutedEmbedder
+// MARK: - Make the caller-defined embedder
 
-// One embedder, shared by every `CodeContext` the manager opens below — mirrors
-// `CodeContextExample`'s single-root resolve, just handed to a manager instead of one context.
-let profileDefinition = ProfileDefinition(
-    name: "manager-example",
-    description: "Multi-root CodeContextManager example: resolves an embedder shared by every open root.",
-    standard: ["mlx-community/Qwen2.5-3B-Instruct-4bit"],
-    flash: ["mlx-community/SmolLM-135M-Instruct-4bit"],
-    embedding: ["mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"]
-)
-
-let router = Router(
-    recordingsDir: FileManager.default.temporaryDirectory
-        .appendingPathComponent("ManagerExample-\(UUID().uuidString)", isDirectory: true)
-)
-
-let profile = try await router.resolve(profile: profileDefinition, reporting: ResolutionProgress())
-let embedder = RoutedEmbedderAdapter(routedEmbedder: profile.embedding)
+// One embedder, shared by each `CodeContext` that the manager opens below. It is the same embedder as in
+// `CodeContextExample`, but this file gives it to a manager, not to one context.
+// The number of hash buckets, thus the length of each embedding vector.
+let embeddingDimension = 256
+private let embedder = HashingEmbedder(dimension: embeddingDimension)
 
 // MARK: - Create the manager and discover every repo root under the parent directory
 
@@ -119,9 +103,8 @@ for failure in searchFailures {
 
 // MARK: - Shutdown
 
-// Shutting the manager down ends this file's own work. The resolved profile needs no matching
-// teardown call: `FoundationModelsRouter` owns residency through ARC, so the profile frees its
-// resident models when the last reference to it goes away.
+// Shut down the manager. This stops each context that it opened. The embedder holds no resources, so it needs no
+// teardown.
 await manager.shutdown()
 
 // MARK: - Helpers
@@ -150,4 +133,90 @@ func firstRegularFile(under directory: URL) -> URL? {
         }
     }
     return nil
+}
+
+// MARK: - A caller-defined TextEmbedding
+
+// Each example keeps its own copy of `HashingEmbedder`. An executable target
+// cannot share source with a different executable target, and a shared target
+// for approximately 20 lines costs more than it gives.
+
+/// A `TextEmbedding` that needs no model: it counts hashed tokens.
+///
+/// This type shows all of the contract that a caller supplies: a `dimension`,
+/// and an `embed(_:)` that returns one unit-length vector for each text. A
+/// production host puts its real model (for example an MLX embedder) behind
+/// the same two members.
+///
+/// The vectors are the same in each process. The bucket of a token is the
+/// 64-bit FNV-1a hash of its UTF-8 bytes. Do not use `Hasher` or `hashValue`
+/// here: their seed changes in each process, and the index stays on disk in
+/// `<root>/.code-context`, so vectors from two runs would not match.
+private struct HashingEmbedder: TextEmbedding {
+    /// The 64-bit FNV-1a offset basis, the start value of each hash.
+    private static let fnvOffsetBasis: UInt64 = 0xCBF2_9CE4_8422_2325
+
+    /// The 64-bit FNV-1a prime, the multiplier for each byte.
+    private static let fnvPrime: UInt64 = 0x0000_0100_0000_01B3
+
+    /// The length of each vector that `embed(_:)` returns.
+    let dimension: Int
+
+    /// Makes an embedder that returns vectors of `dimension` length.
+    ///
+    /// - Parameter dimension: The number of hash buckets. It must be more than 0.
+    init(dimension: Int) {
+        precondition(dimension > 0, "HashingEmbedder needs a dimension that is more than 0")
+        self.dimension = dimension
+    }
+
+    /// Returns one L2-normalized vector of bucket counts for each text, in order.
+    ///
+    /// - Parameter texts: The texts to embed.
+    /// - Returns: One `dimension`-length vector for each text, in the order of `texts`.
+    func embed(_ texts: [String]) async throws -> [[Float]] {
+        texts.map(vector(for:))
+    }
+
+    /// Adds 1 to the bucket of each token in `text`, then scales the counts to unit length.
+    ///
+    /// - Parameter text: The text to embed.
+    /// - Returns: A unit-length vector. When `text` has no tokens, the zero vector, unchanged.
+    private func vector(for text: String) -> [Float] {
+        let counts = Self.tokens(in: text).reduce(into: [Float](repeating: 0, count: dimension)) { counts, token in
+            counts[bucket(for: token)] += 1
+        }
+        let magnitude = counts.reduce(0) { sum, count in sum + count * count }.squareRoot()
+        guard magnitude > 0 else {
+            return counts
+        }
+        return counts.map { count in count / magnitude }
+    }
+
+    /// The bucket of `token`: the 64-bit FNV-1a hash of its UTF-8 bytes, modulo `dimension`.
+    ///
+    /// - Parameter token: One token from `tokens(in:)`.
+    /// - Returns: An index in `0..<dimension`.
+    private func bucket(for token: String) -> Int {
+        let hash = token.utf8.reduce(Self.fnvOffsetBasis) { hash, byte in
+            (hash ^ UInt64(byte)) &* Self.fnvPrime
+        }
+        return Int(hash % UInt64(dimension))
+    }
+
+    /// Splits `text` on each character that is not a letter, a digit or `_`, and makes each token lowercase.
+    ///
+    /// - Parameter text: The text to split.
+    /// - Returns: The lowercase tokens, in order. Empty when `text` has no letters, digits or `_`.
+    private static func tokens(in text: String) -> [String] {
+        text.split { character in !isTokenCharacter(character) }.map { token in token.lowercased() }
+    }
+
+    /// Tells if `character` is part of a token: a letter, a digit or `_`.
+    ///
+    /// - Parameter character: The character to examine.
+    /// - Returns: `true` for a letter, a digit or `_`; `false` for each other character.
+    private static func isTokenCharacter(_ character: Character) -> Bool {
+        character.isLetter || character.isWholeNumber || character == "_"
+    }
 }

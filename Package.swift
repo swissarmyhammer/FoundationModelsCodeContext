@@ -182,29 +182,26 @@ let package = Package(
             exclude: ["Support/scripted-lsp-server.swift"]
         ),
         // Standalone, single-root "way in" example (see plan.md's Goal and the
-        // package README): a thin script over the public API of this package
-        // and FoundationModelsRouter, not part of the library product. This
-        // package deliberately ships no embedder factory (see
-        // `RoutedEmbedderAdapter`'s doc comment) — the host app resolves the
-        // Router profile and injects the embedder — so the Router product is
-        // a required dependency here, not merely a test-only one.
+        // package README). It is a thin script over the public API of this
+        // package, and it is not part of the library product. The caller
+        // supplies the embedding model: the example defines its own small
+        // `TextEmbedding` conformance and gives it to `CodeContext`. Thus it
+        // needs only the library target.
         .executableTarget(
             name: "CodeContextExample",
             dependencies: [
-                .target(name: packageName),
-                .product(name: "FoundationModelsRouter", package: "FoundationModelsRouter"),
+                .target(name: packageName)
             ],
             path: "Examples/CodeContextExample"
         ),
-        // Second "way in" example, over `CodeContextManager` instead of a single `CodeContext`:
-        // same rationale as `CodeContextExample` above for depending on the Router product
-        // directly (this package ships no embedder factory), just fanned out across every
-        // repo root discovered beneath a parent directory instead of one fixed root.
+        // Second "way in" example, over `CodeContextManager` instead of one `CodeContext`.
+        // It opens each repo root below a parent directory, not one fixed root. Like
+        // `CodeContextExample` above, it defines its own `TextEmbedding` conformance and
+        // gives it to the manager. Thus it needs only the library target.
         .executableTarget(
             name: "ManagerExample",
             dependencies: [
-                .target(name: packageName),
-                .product(name: "FoundationModelsRouter", package: "FoundationModelsRouter"),
+                .target(name: packageName)
             ],
             path: "Examples/ManagerExample"
         ),
