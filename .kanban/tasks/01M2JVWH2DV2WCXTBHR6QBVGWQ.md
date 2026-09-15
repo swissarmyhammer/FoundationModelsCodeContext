@@ -33,6 +33,30 @@ comments:
     - `swift build` exit 0; `swift build --package-path IntegrationTests --build-tests` exit 0; `swift format lint -r --strict ...` exit 0; `swift test --filter ToolSupportTests` 8/8 pass.
     - next: /test (full suite).
   timestamp: 2026-09-15T21:20:55.777373+00:00
+- actor: claude-code
+  id: 01m2kg4c6bpraw3amk8aj981zh
+  text: |-
+    ### review — findings
+    - evidence: `review sha HEAD~1..HEAD` — 3 findings (3 confirmed, 0 refuted): Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift:66, Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift:69, Sources/FoundationModelsCodeContext/Tools/CodeContextOperating.swift:16
+    - next: implement the 3 findings (iteration 2).
+  timestamp: 2026-09-15T21:38:53.771302+00:00
+- actor: claude-code
+  id: 01m2kg4hd8n16xba8etdmex0wj
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — Package.swift (tools 6.2, Extras `Operations` on the main and test targets), 4 new files in Sources/FoundationModelsCodeContext/Tools, ToolSupportTests.swift, engine defaults moved to `CodeContextDefaults` in CodeContext.swift, Ops/* and Diagnostics/*.
+    - test: green — `swift test` 580 tests in 51 suites passed, 0 failed, 0 skipped, 0 warnings; `swift format lint -r --strict` exit 0; `swift build --package-path IntegrationTests --build-tests` exit 0.
+    - commit: 0dc724b
+    - review: findings — 3: `Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift:66` code-hygiene/magic-numbers-swift "Magic numbers should be replaced by named constants."; `Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift:69` code-hygiene/magic-numbers-swift "Magic numbers should be replaced by named constants."; `Sources/FoundationModelsCodeContext/Tools/CodeContextOperating.swift:16` code-hygiene/dead-code-swift "protocol `CodeContextOperating` is superfluousIgnoreCommand."
+  timestamp: 2026-09-15T21:38:59.112635+00:00
+- actor: claude-code
+  id: 01m2kg92k9mbqe0eshsgyr2ba8
+  text: |-
+    ### implement — changed
+    - evidence: 2 files. Tools/CodeContextDefaults.swift: the literals `300` and `5` are now the named `private static let diagnosticsSettleWindowMilliseconds` and `diagnosticsHardTimeoutSeconds`; `diagnosticsSettleWindow` and `diagnosticsHardTimeout` use them (findings :66 and :69). Tools/CodeContextOperating.swift: removed the superfluous `// periphery:ignore` marker and its reason line, because the protocol has a reference (finding :16). `CodeContextToolContext` keeps its marker, because it has no caller yet.
+    - `swift build` exit 0, no warnings; `swift format lint -r --strict ...` exit 0.
+    - next: /test (full suite).
+  timestamp: 2026-09-15T21:41:27.785320+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'Tool foundation: add Extras Operations, the tool context and corrective output'
@@ -68,3 +92,14 @@ Framework facts (FoundationModelsExtras, product `Operations`): operations are `
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass. #tools #feature
+
+## Review Findings (2026-09-15 16:23)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 18 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [ ] `Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift:66` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [ ] `Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift:69` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [ ] `Sources/FoundationModelsCodeContext/Tools/CodeContextOperating.swift:16` `code-hygiene/dead-code-swift` — protocol `CodeContextOperating` is superfluousIgnoreCommand.

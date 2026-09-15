@@ -62,11 +62,19 @@ internal enum CodeContextDefaults {
     /// Whether `diagnostics` also reports the dependents that the change broke.
     @usableFromInline static let diagnosticsIncludeDependents = true
 
+    /// The quiet time, in milliseconds, that `diagnostics` waits for before it
+    /// reads a report.
+    private static let diagnosticsSettleWindowMilliseconds = 300
+
     /// The quiet time that `diagnostics` waits for before it reads a report.
-    @usableFromInline static let diagnosticsSettleWindow = Duration.milliseconds(300)
+    @usableFromInline static let diagnosticsSettleWindow = Duration.milliseconds(diagnosticsSettleWindowMilliseconds)
+
+    /// The maximum time, in seconds, that `diagnostics` waits for the reports
+    /// to settle.
+    private static let diagnosticsHardTimeoutSeconds = 5
 
     /// The maximum time that `diagnostics` waits for the reports to settle.
-    @usableFromInline static let diagnosticsHardTimeout = Duration.seconds(5)
+    @usableFromInline static let diagnosticsHardTimeout = Duration.seconds(diagnosticsHardTimeoutSeconds)
 
     /// The maximum number of diagnostics that `diagnostics` keeps from one report.
     @usableFromInline static let diagnosticsPerReportCap = 100

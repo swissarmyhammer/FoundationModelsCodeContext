@@ -10,9 +10,6 @@ import Foundation
 /// protocol requirement cannot have a default argument, so each tool
 /// operation gives each optional tool parameter as
 /// `value ?? CodeContextDefaults.<name>`.
-///
-/// The tool operations of the later tool tasks call these requirements.
-// periphery:ignore
 internal protocol CodeContextOperating: Sendable {
     /// See `CodeContext.detectProjects()`.
     @discardableResult
