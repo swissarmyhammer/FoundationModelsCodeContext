@@ -227,9 +227,9 @@ public enum FindDuplicatesOps {
     public static func findDuplicates(
         corpus: SearchCorpus,
         file: String? = nil,
-        minSimilarity: Double = 0.85,
-        minChunkBytes: Int = 100,
-        maxPerChunk: Int = 5
+        minSimilarity: Double = CodeContextDefaults.duplicateMinSimilarity,
+        minChunkBytes: Int = CodeContextDefaults.duplicateMinChunkBytes,
+        maxPerChunk: Int = CodeContextDefaults.duplicateMaxPerChunk
     ) async throws -> FindDuplicatesResult {
         let snapshot = try await corpus.snapshot()
         let eligibleByPartition = eligiblePartitionedIndices(snapshot: snapshot, minChunkBytes: minChunkBytes)

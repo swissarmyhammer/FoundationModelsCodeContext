@@ -355,7 +355,7 @@ public enum SymbolOps {
     /// - Returns: The first non-empty tier's matches, capped at
     ///   `maxResults`, or an empty result if no tier matches.
     /// - Throws: Rethrows `Store`'s storage errors.
-    public static func getSymbol(store: Store, query: String, maxResults: Int = 50) async throws -> GetSymbolResult {
+    public static func getSymbol(store: Store, query: String, maxResults: Int = CodeContextDefaults.maxQueryResults) async throws -> GetSymbolResult {
         let candidates = try await loadCandidateRows(store: store, filePath: nil)
 
         if let result = matchExact(candidates: candidates, query: query, maxResults: maxResults) {
@@ -489,7 +489,7 @@ public enum SymbolOps {
         store: Store,
         query: String,
         kind: SymbolMetaType? = nil,
-        maxResults: Int = 50
+        maxResults: Int = CodeContextDefaults.maxQueryResults
     ) async throws -> [SearchSymbolMatch] {
         let candidates = try await loadCandidateRows(store: store, filePath: nil)
         let filtered = kind.map { filterKind in candidates.filter { $0.kind == filterKind } } ?? candidates

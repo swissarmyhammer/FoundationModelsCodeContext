@@ -29,8 +29,31 @@ comments:
     - evidence: `swift test` — 572 tests in 50 suites passed, 0 failed, 0 skipped, 0 warnings in the build output. `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exits 0. The IntegrationTests package was not run: this change does not touch the live LSP path, so CI runs it.
     - next: commit
   timestamp: 2026-09-15T21:00:33.467571+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2kdywc7h8p5c7ccqg84p5es
+  text: |-
+    ### commit — changed
+    - evidence: f090564 feat(ops): make the five op results Encodable (local only, not pushed). Not staged: `.claude/`, `.kanban/actors/zed.*`, `.kanban/mcp.35086.log`.
+    - next: review HEAD~1..HEAD
+  timestamp: 2026-09-15T21:00:56.583217+00:00
+- actor: claude-code
+  id: 01m2ke5n88he39sbw9sn6jh1wa
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (f090564) — 0 findings, 0 confirmed, 0 refuted; 7 validator runs attempted, 0 failed, 0 skipped. 6 files reviewed; the 20 `.kanban/` files are excluded by `.reviewignore`. No prior `## Review Findings` section is on the card.
+    - next: move to done
+  timestamp: 2026-09-15T21:04:38.664237+00:00
+- actor: claude-code
+  id: 01m2ke5xr5pjsrjq2hamvfr5s8
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 source files get `Encodable` (custom `encode(to:)` on `SearchCodeMatch` and `FindDuplicatesScope`), plus the new `Tests/FoundationModelsCodeContextTests/ResultEncodingTests.swift` (9 tests).
+    - test: green — `swift test` 572 tests in 50 suites passed, 0 failed, 0 skipped, 0 warnings; `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exits 0.
+    - commit: f090564
+    - review: clean — `review sha HEAD~1..HEAD`, 0 findings (0 confirmed, 0 refuted), 7 validator runs, 0 failed. The task moved to done.
+  timestamp: 2026-09-15T21:04:47.365401+00:00
+position_column: done
+position_ordinal: c180
 title: Make the five non-Codable op results Encodable
 ---
 ## What

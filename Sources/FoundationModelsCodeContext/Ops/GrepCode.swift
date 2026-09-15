@@ -130,9 +130,9 @@ public enum GrepCode {
     public static func run(
         store: Store,
         pattern: String,
-        languages: [String] = [],
+        languages: [String] = CodeContextDefaults.grepLanguages,
         filePattern: String? = nil,
-        maxResults: Int = 50
+        maxResults: Int = CodeContextDefaults.maxQueryResults
     ) async throws -> GrepCodeResult {
         // Validated once upfront so an invalid pattern throws before any
         // work starts; each concurrent task below recompiles its own

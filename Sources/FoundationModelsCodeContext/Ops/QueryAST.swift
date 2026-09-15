@@ -10,7 +10,7 @@ public struct QueryASTOptions: Sendable, Equatable {
     ///
     /// - Parameter maxResults: The maximum number of matches to return
     ///   before truncating. Defaults to 50.
-    public init(maxResults: Int = 50) {
+    public init(maxResults: Int = CodeContextDefaults.queryASTMaxResults) {
         self.maxResults = maxResults
     }
 }

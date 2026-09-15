@@ -198,8 +198,8 @@ public enum CallGraphOps {
     public static func callGraph(
         store: Store,
         of symbol: String,
-        direction: CallGraphDirection = .outbound,
-        maxDepth: Int = 2
+        direction: CallGraphDirection = CodeContextDefaults.callGraphDirection,
+        maxDepth: Int = CodeContextDefaults.callGraphMaxDepth
     ) async throws -> CallGraph {
         let clampedMaxDepth = min(max(maxDepth, minDepth), maxDepthLimit)
         let locator = SymbolLocator.parse(identifier: symbol)

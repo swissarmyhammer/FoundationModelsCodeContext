@@ -33,11 +33,11 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
         session: LspSession<Connection>?,
         rootDirectory: URL,
         scope: DiagnosticsScope,
-        severity: DiagnosticSeverity = .warning,
-        includeDependents: Bool = true,
-        settleWindow: Duration = .milliseconds(300),
-        hardTimeout: Duration = .seconds(5),
-        perReportCap: Int = 100,
+        severity: DiagnosticSeverity = CodeContextDefaults.diagnosticsSeverity,
+        includeDependents: Bool = CodeContextDefaults.diagnosticsIncludeDependents,
+        settleWindow: Duration = CodeContextDefaults.diagnosticsSettleWindow,
+        hardTimeout: Duration = CodeContextDefaults.diagnosticsHardTimeout,
+        perReportCap: Int = CodeContextDefaults.diagnosticsPerReportCap,
         clock: any Clock<Duration> = ContinuousClock()
     ) async throws -> DiagnosticsReport {
         let targets = try await DiagnosticsScopeResolver.resolvePaths(scope: scope, rootDirectory: rootDirectory)

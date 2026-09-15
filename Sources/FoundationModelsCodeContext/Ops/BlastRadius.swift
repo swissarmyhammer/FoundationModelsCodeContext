@@ -139,7 +139,7 @@ public enum BlastRadiusOps {
         store: Store,
         file: String,
         symbol: String? = nil,
-        maxHops: Int = 3
+        maxHops: Int = CodeContextDefaults.blastRadiusMaxHops
     ) async throws -> BlastRadius {
         let clampedMaxHops = min(max(maxHops, minHops), maxHopsLimit)
 

@@ -1,4 +1,4 @@
-// swift-tools-version: 6.1
+// swift-tools-version: 6.2
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -100,6 +100,12 @@ let package = Package(
         // co-development of the sibling checkout, use
         // `swift package edit foundationmodelsranker --path ../FoundationModelsRanker`.
         .package(url: "git@github.com:swissarmyhammer/FoundationModelsRanker.git", branch: "main"),
+        // Referenced by URL for the same CI reason as the Ranker entry above. Its `Operations`
+        // product gives `@Operation` and `OperationTool`, which the FoundationModels tools of this
+        // package use. The Extras manifest declares tools version 6.2, so this manifest declares
+        // 6.2 too. For local co-development of the sibling checkout, use
+        // `swift package edit foundationmodelsextras --path ../FoundationModelsExtras`.
+        .package(url: "git@github.com:swissarmyhammer/FoundationModelsExtras.git", branch: "main"),
         // Pinned exact rather than `from:`: SwiftTreeSitter is still pre-1.0,
         // where ChimeHQ has made breaking API changes across minor versions,
         // so an open `from:` range could silently pull in a breaking update.
@@ -146,6 +152,7 @@ let package = Package(
             name: packageName,
             dependencies: [
                 .product(name: "FoundationModelsRanker", package: "FoundationModelsRanker"),
+                .product(name: "Operations", package: "FoundationModelsExtras"),
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
                 .product(name: "GRDB", package: "GRDB.swift"),
             ] + grammarProducts,
@@ -160,6 +167,10 @@ let package = Package(
                 // disjointness assertions), so the module must be an explicit
                 // dependency here, not just reachable through FoundationModelsCodeContext.
                 .product(name: "FoundationModelsRanker", package: "FoundationModelsRanker"),
+                // The tool tests use `OperationTool`, `AnyOperation` and `GeneratedContent`
+                // directly, so the `Operations` module must be an explicit dependency here, not
+                // just reachable through FoundationModelsCodeContext.
+                .product(name: "Operations", package: "FoundationModelsExtras"),
             ],
             path: "Tests/\(packageName)Tests",
             // `scripted-lsp-server.swift` is a standalone script launched via

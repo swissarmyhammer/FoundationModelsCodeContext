@@ -206,7 +206,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         filePath: String,
         line: Int,
         character: Int,
-        includeSource: Bool = false
+        includeSource: Bool = CodeContextDefaults.includeSource
     ) async throws -> DefinitionResult {
         try await cascade(
             liveLayer: {
@@ -248,7 +248,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         filePath: String,
         line: Int,
         character: Int,
-        includeSource: Bool = false
+        includeSource: Bool = CodeContextDefaults.includeSource
     ) async throws -> DefinitionResult {
         try await cascade(
             liveLayer: {
@@ -461,7 +461,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         filePath: String,
         line: Int,
         character: Int,
-        includeDeclaration: Bool = false,
+        includeDeclaration: Bool = CodeContextDefaults.referencesIncludeDeclaration,
         maxResults: Int? = nil
     ) async throws -> ReferencesResult {
         try await cascade(
@@ -632,7 +632,9 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - line: The zero-based cursor line.
     ///   - character: The zero-based cursor character offset.
     ///   - includeSource: Whether to read and include source text from disk at each location.
-    ///   - maxResults: The maximum number of results to return. Defaults to `defaultMaxImplementations`.
+    ///   - maxResults: The maximum number of results to return. Defaults to
+    ///     `CodeContextDefaults.implementationsMaxResults`, the value of the Rust reference's
+    ///     `DEFAULT_MAX_IMPLEMENTATIONS`.
     /// - Returns: The implementations result, tagged with the layer that produced it.
     /// - Throws: Rethrows `Store`'s storage errors.
     static func implementations(
@@ -642,8 +644,8 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         filePath: String,
         line: Int,
         character: Int,
-        includeSource: Bool = false,
-        maxResults: Int = defaultMaxImplementations
+        includeSource: Bool = CodeContextDefaults.includeSource,
+        maxResults: Int = CodeContextDefaults.implementationsMaxResults
     ) async throws -> ImplementationsResult {
         try await cascade(
             liveLayer: {
@@ -661,9 +663,6 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
             empty: { ImplementationsResult(implementations: [], sourceLayer: .none) }
         )
     }
-
-    /// Default cap on implementation results, mirroring the Rust reference's `DEFAULT_MAX_IMPLEMENTATIONS`.
-    private static var defaultMaxImplementations: Int { 20 }
 
     private static func liveImplementations(
         session: LspSession<Connection>?,

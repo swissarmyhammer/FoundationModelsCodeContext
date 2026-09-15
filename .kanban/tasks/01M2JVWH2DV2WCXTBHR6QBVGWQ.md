@@ -12,7 +12,28 @@ comments:
     - Extras `swift test` exit 0 (9 new OperationResolverTests).
     - next: `swift package update foundationmodelsextras` resolves to 8ec26d4 or later.
   timestamp: 2026-09-15T19:01:33.122669+00:00
-position_column: todo
+- actor: claude-code
+  id: 01m2kehc34mtbqhd5dzqwc99xp
+  text: |-
+    ### research — discoveries
+    - Extras origin/main is 8ec26d4. Its manifest declares tools 6.2 and has no Router dependency. Product `Operations`.
+    - `Package.resolved` is gitignored in this repo and in IntegrationTests, so the update does not change a tracked file.
+    - The engine defaults are also written in the op engines, not only in `CodeContext.swift`: `SymbolOps` (50 x2), `GrepCode` (`[]`, 50), `CallGraphOps` (.outbound, 2), `BlastRadiusOps` (3), `SearchCode` and `ManagerQueries` (20, .default), `FindDuplicatesOps` (0.85, 100, 5), `LiveOpsCore` (false x3, false, private `defaultMaxImplementations` 20), `Settle` (300 ms, 5 s), `Diagnose` (.warning, true, 300 ms, 5 s, 100). So that each default is written one time, these default arguments also use `CodeContextDefaults`.
+    - `CodeContextDefaults` must be `@usableFromInline`: public default arguments refer to it.
+    - Rule "a function belongs to a type" (swift immutability rule): `correctiveMessage(for:)` and `parseChoice(_:choices:parameter:)` are `static` functions on `enum ToolSupport`, not top-level functions. Later tasks call `ToolSupport.parseChoice(...)` and `ToolSupport.correctiveMessage(for:)`.
+    - `CodeContextToolContext` and `CodeContextOperating` have no caller until the later tool tasks, so each has a `// periphery:ignore` marker with the reason in the doc comment above it (dead-code-swift staging contract).
+  timestamp: 2026-09-15T21:11:02.500478+00:00
+- actor: claude-code
+  id: 01m2kf3ff12sbt74q0cvbw7a9q
+  text: |-
+    ### implement — changed
+    - evidence: 17 files. New: Sources/FoundationModelsCodeContext/Tools/{CodeContextDefaults,CodeContextOperating,CodeContextToolContext,ToolSupport}.swift, Tests/FoundationModelsCodeContextTests/ToolSupportTests.swift. Changed: Package.swift (tools 6.2, Extras dependency, `Operations` on main and test targets), CodeContext.swift, Ops/{QueryAST,CallGraph,BlastRadius,GrepCode,SymbolOps,SearchCode,ManagerQueries,FindDuplicates,LiveOpsCore}.swift, Diagnostics/{Diagnose,Settle}.swift (default arguments use `CodeContextDefaults`; the private `LiveOpsCore.defaultMaxImplementations` is removed).
+    - `swift package update foundationmodelsextras` exit 0 (root and `--package-path IntegrationTests`); Extras at 8ec26d4; `rg -c nounAliases` on OperationResolver.swift gives 8. A stale `.build/checkouts/EventSource` (from the removed Router) blocked the first update; I removed it.
+    - `swift package dump-package | rg -c FoundationModelsExtras` = 3; `show-dependencies` has no Router line; the acceptance `rg` on CodeContext.swift gives no output.
+    - `swift build` exit 0; `swift build --package-path IntegrationTests --build-tests` exit 0; `swift format lint -r --strict ...` exit 0; `swift test --filter ToolSupportTests` 8/8 pass.
+    - next: /test (full suite).
+  timestamp: 2026-09-15T21:20:55.777373+00:00
+position_column: doing
 position_ordinal: '80'
 title: 'Tool foundation: add Extras Operations, the tool context and corrective output'
 ---

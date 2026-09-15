@@ -85,8 +85,8 @@ extension CodeContextManager {
     ///   `FanOutFailure` per root whose own `searchCode` call threw.
     public func searchCode(
         query: String,
-        topK: Int = 20,
-        weights: SearchWeights = .default
+        topK: Int = CodeContextDefaults.searchTopK,
+        weights: SearchWeights = CodeContextDefaults.searchWeights
     ) async -> (results: [Rooted<SearchCodeMatch>], failures: [FanOutFailure]) {
         let (perRoot, failures) = await fanOutQuery { context in
             try await context.searchCode(query: query, topK: topK, weights: weights).hits

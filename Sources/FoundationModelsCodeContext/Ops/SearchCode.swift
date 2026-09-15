@@ -262,8 +262,8 @@ public enum SearchCode {
         corpus: SearchCorpus,
         embedder: TextEmbedding?,
         query: String,
-        topK: Int = 20,
-        weights: SearchWeights = .default
+        topK: Int = CodeContextDefaults.searchTopK,
+        weights: SearchWeights = CodeContextDefaults.searchWeights
     ) async throws -> SearchCodeResult {
         let snapshot = try await corpus.snapshot()
 

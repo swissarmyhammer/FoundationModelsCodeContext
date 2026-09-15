@@ -71,8 +71,8 @@ enum Settle {
     static func settle<Connection: LanguageServerConnection, C: Clock>(
         session: LspSession<Connection>,
         uris: [DocumentURI],
-        settleWindow: Duration = .milliseconds(300),
-        hardTimeout: Duration = .seconds(5),
+        settleWindow: Duration = CodeContextDefaults.diagnosticsSettleWindow,
+        hardTimeout: Duration = CodeContextDefaults.diagnosticsHardTimeout,
         clock: C
     ) async -> SettleOutcome where C.Duration == Duration {
         let watched = Set(uris)

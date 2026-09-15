@@ -64,20 +64,24 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// Default `maxResults` for the bounded index-scan queries (`getSymbol(...)`,
     /// `searchSymbol(...)`, `grepCode(...)`) that don't need a caller-tunable cap most of the time.
     ///
+    /// It returns `CodeContextDefaults.maxQueryResults`, the one source of this value.
+    ///
     /// A computed property, like `indexLoopIdleSleep` above: `CodeContext` is generic over
     /// `Connection`, and generic types can't have stored static properties. `@usableFromInline`,
-    /// not `public`: it's referenced from those `public` methods' default argument values, which
-    /// requires at least this visibility, but it isn't meant as API surface in its own right.
+    /// not `public`: `CodeContextManager`'s `public` fan-out methods refer to it from their default
+    /// argument values, which requires at least this visibility, but it isn't meant as API surface
+    /// in its own right.
     @usableFromInline
-    static var defaultMaxQueryResults: Int { 50 }
+    static var defaultMaxQueryResults: Int { CodeContextDefaults.maxQueryResults }
 
     /// Default `includeSource` for the live ops (`definition(...)`, `typeDefinition(...)`,
     /// `implementations(...)`) that can optionally embed the resolved location's source text.
     ///
-    /// See `defaultMaxQueryResults`'s doc comment for why this is a computed, `@usableFromInline`
+    /// It returns `CodeContextDefaults.includeSource`, the one source of this value. See
+    /// `defaultMaxQueryResults`'s doc comment for why this is a computed, `@usableFromInline`
     /// property rather than a stored `private` constant.
     @usableFromInline
-    static var defaultIncludeSource: Bool { false }
+    static var defaultIncludeSource: Bool { CodeContextDefaults.includeSource }
 
     /// Whether `start()` has completed and `stop()` has not yet been called; guards both methods
     /// against being run twice concurrently or out of order.
@@ -344,12 +348,12 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     // MARK: - Indexed ops
 
     /// See `SymbolOps.getSymbol(store:query:maxResults:)`.
-    public func getSymbol(query: String, maxResults: Int = defaultMaxQueryResults) async throws -> GetSymbolResult {
+    public func getSymbol(query: String, maxResults: Int = CodeContextDefaults.maxQueryResults) async throws -> GetSymbolResult {
         try await SymbolOps.getSymbol(store: store, query: query, maxResults: maxResults)
     }
 
     /// See `SymbolOps.searchSymbol(store:query:kind:maxResults:)`.
-    public func searchSymbol(query: String, kind: SymbolMetaType? = nil, maxResults: Int = defaultMaxQueryResults) async throws -> [SearchSymbolMatch] {
+    public func searchSymbol(query: String, kind: SymbolMetaType? = nil, maxResults: Int = CodeContextDefaults.maxQueryResults) async throws -> [SearchSymbolMatch] {
         try await SymbolOps.searchSymbol(store: store, query: query, kind: kind, maxResults: maxResults)
     }
 
@@ -359,36 +363,44 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     }
 
     /// See `CallGraphOps.callGraph(store:of:direction:maxDepth:)`.
-    public func callGraph(of symbol: String, direction: CallGraphDirection = .outbound, maxDepth: Int = 2) async throws -> CallGraph {
+    public func callGraph(
+        of symbol: String,
+        direction: CallGraphDirection = CodeContextDefaults.callGraphDirection,
+        maxDepth: Int = CodeContextDefaults.callGraphMaxDepth
+    ) async throws -> CallGraph {
         try await CallGraphOps.callGraph(store: store, of: symbol, direction: direction, maxDepth: maxDepth)
     }
 
     /// See `BlastRadiusOps.blastRadius(store:file:symbol:maxHops:)`.
-    public func blastRadius(file: String, symbol: String? = nil, maxHops: Int = 3) async throws -> BlastRadius {
+    public func blastRadius(file: String, symbol: String? = nil, maxHops: Int = CodeContextDefaults.blastRadiusMaxHops) async throws -> BlastRadius {
         try await BlastRadiusOps.blastRadius(store: store, file: file, symbol: symbol, maxHops: maxHops)
     }
 
     /// See `GrepCode.run(store:pattern:languages:filePattern:maxResults:)`.
     public func grepCode(
         pattern: String,
-        languages: [String] = [],
+        languages: [String] = CodeContextDefaults.grepLanguages,
         filePattern: String? = nil,
-        maxResults: Int = defaultMaxQueryResults
+        maxResults: Int = CodeContextDefaults.maxQueryResults
     ) async throws -> GrepCodeResult {
         try await GrepCode.run(store: store, pattern: pattern, languages: languages, filePattern: filePattern, maxResults: maxResults)
     }
 
     /// See `SearchCode.run(corpus:embedder:query:topK:weights:)`.
-    public func searchCode(query: String, topK: Int = 20, weights: SearchWeights = .default) async throws -> SearchCodeResult {
+    public func searchCode(
+        query: String,
+        topK: Int = CodeContextDefaults.searchTopK,
+        weights: SearchWeights = CodeContextDefaults.searchWeights
+    ) async throws -> SearchCodeResult {
         try await SearchCode.run(corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights)
     }
 
     /// See `FindDuplicatesOps.findDuplicates(corpus:file:minSimilarity:minChunkBytes:maxPerChunk:)`.
     public func findDuplicates(
         file: String? = nil,
-        minSimilarity: Double = 0.85,
-        minChunkBytes: Int = 100,
-        maxPerChunk: Int = 5
+        minSimilarity: Double = CodeContextDefaults.duplicateMinSimilarity,
+        minChunkBytes: Int = CodeContextDefaults.duplicateMinChunkBytes,
+        maxPerChunk: Int = CodeContextDefaults.duplicateMaxPerChunk
     ) async throws -> FindDuplicatesResult {
         try await FindDuplicatesOps.findDuplicates(
             corpus: corpus, file: file, minSimilarity: minSimilarity, minChunkBytes: minChunkBytes, maxPerChunk: maxPerChunk
@@ -403,7 +415,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     // MARK: - Live ops
 
     /// See `LiveOpsCore.definition(store:session:rootDirectory:filePath:line:character:includeSource:)`.
-    public func definition(filePath: String, line: Int, character: Int, includeSource: Bool = defaultIncludeSource) async throws -> DefinitionResult {
+    public func definition(filePath: String, line: Int, character: Int, includeSource: Bool = CodeContextDefaults.includeSource) async throws -> DefinitionResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.definition(
             store: store, session: session, rootDirectory: rootDirectory,
@@ -412,7 +424,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     }
 
     /// See `LiveOpsCore.typeDefinition(store:session:rootDirectory:filePath:line:character:includeSource:)`.
-    public func typeDefinition(filePath: String, line: Int, character: Int, includeSource: Bool = defaultIncludeSource) async throws -> DefinitionResult {
+    public func typeDefinition(filePath: String, line: Int, character: Int, includeSource: Bool = CodeContextDefaults.includeSource) async throws -> DefinitionResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.typeDefinition(
             store: store, session: session, rootDirectory: rootDirectory,
@@ -433,7 +445,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         filePath: String,
         line: Int,
         character: Int,
-        includeDeclaration: Bool = false,
+        includeDeclaration: Bool = CodeContextDefaults.referencesIncludeDeclaration,
         maxResults: Int? = nil
     ) async throws -> ReferencesResult {
         let session = await session(forFilePath: filePath)
@@ -448,8 +460,8 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         filePath: String,
         line: Int,
         character: Int,
-        includeSource: Bool = defaultIncludeSource,
-        maxResults: Int = 20  // mirrors LiveOpsCore's own private defaultMaxImplementations
+        includeSource: Bool = CodeContextDefaults.includeSource,
+        maxResults: Int = CodeContextDefaults.implementationsMaxResults
     ) async throws -> ImplementationsResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.implementations(
@@ -507,11 +519,11 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// from up front.
     public func diagnostics(
         scope: DiagnosticsScope,
-        severity: DiagnosticSeverity = .warning,
-        includeDependents: Bool = true,
-        settleWindow: Duration = .milliseconds(300),
-        hardTimeout: Duration = .seconds(5),
-        perReportCap: Int = 100
+        severity: DiagnosticSeverity = CodeContextDefaults.diagnosticsSeverity,
+        includeDependents: Bool = CodeContextDefaults.diagnosticsIncludeDependents,
+        settleWindow: Duration = CodeContextDefaults.diagnosticsSettleWindow,
+        hardTimeout: Duration = CodeContextDefaults.diagnosticsHardTimeout,
+        perReportCap: Int = CodeContextDefaults.diagnosticsPerReportCap
     ) async throws -> DiagnosticsReport {
         let session = await supervisor.anySession()
         return try await DiagnosticsOps<Connection>.diagnostics(
