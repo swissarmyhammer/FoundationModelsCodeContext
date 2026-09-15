@@ -1,19 +1,14 @@
-/// A seam for converting text into fixed-length embedding vectors.
-///
-/// Abstracts over the concrete embedding backend so callers — chiefly
-/// `TreeSitterWorker`'s embedding step — depend on this narrow protocol
-/// rather than a specific implementation. The caller supplies the
-/// implementation. Tests substitute `FakeEmbedder`, a deterministic,
-/// GPU-free double.
-public protocol TextEmbedding: Sendable {
-    /// The length of every embedding vector this embedder produces.
-    var dimension: Int { get }
+import FoundationModelsRanker
 
-    /// Embeds each input string into a `dimension`-length vector, in order.
-    ///
-    /// - Parameter texts: The strings to embed.
-    /// - Returns: One `dimension`-length vector per input, in the same
-    ///   order as `texts`.
-    /// - Throws: If the underlying embedding computation fails.
-    func embed(_ texts: [String]) async throws -> [[Float]]
-}
+/// The embedding-model type that converts text into fixed-length vectors — see
+/// `FoundationModelsRanker.TextEmbedding`.
+///
+/// This package and FoundationModelsRanker use one protocol, not two copies. Thus a caller conforms
+/// one time, and the same value goes to `CodeContext(rootDirectory:embedder:)`,
+/// `CodeContextManager(embedder:)`, and each FoundationModelsRanker API that takes an embedder.
+///
+/// The contract: `embed(_:)` returns one vector for each input, in input order. Each vector is
+/// `dimension` long and L2-normalized. The host supplies the model. This package has no embedding
+/// model and no Router of its own. Tests use `FakeEmbedder`, a deterministic double that needs no
+/// GPU.
+public typealias TextEmbedding = FoundationModelsRanker.TextEmbedding

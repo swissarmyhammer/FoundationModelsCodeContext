@@ -25,11 +25,34 @@ comments:
     - TextEmbedding.swift was not changed. README.md and plan.md still name Router; ^ty3qx95 owns them.
     - next: /review
   timestamp: 2026-09-15T15:02:16.362984+00:00
+- actor: claude-code
+  id: 01m2jskqe0cmbxn20we0w8rq72
+  text: |-
+    ### commit — changed
+    - evidence: de02a31 refactor!: remove RoutedEmbedderAdapter and the direct FoundationModelsRouter dependency
+    - next: none
+  timestamp: 2026-09-15T15:05:19.552420+00:00
+- actor: claude-code
+  id: 01m2jss504m8m78hweqpbwhwx9
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD. 0 findings (0 confirmed, 0 refuted). 5 files reviewed. 6 .kanban files not reviewed (.reviewignore). Five code-hygiene rules could not read RoutedEmbedderAdapter.swift, because the commit deletes this file.
+    - next: The task is in done. The dependent task ^040smds can start.
+  timestamp: 2026-09-15T15:08:17.284795+00:00
+- actor: claude-code
+  id: 01m2jssnsz2eqtx5gg0twq4rwx
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — deleted RoutedEmbedderAdapter.swift; Package.swift (Router package and product removed, comments rewritten); Log.swift comment; new CallerEmbedderPublicAPITests.swift; red step: dump-package count 3 and show-dependencies count 4, then no output
+    - test: green — swift build, both example targets, IntegrationTests build-tests, swift format lint --strict, show-dependencies has no Router, swift test 562 passed in 48 suites, 0 failed, 0 skipped; the test step also changed the old TextEmbedding.swift doc comment that named the deleted adapter
+    - commit: de02a31 (refactor!, BREAKING CHANGE footer)
+    - review: clean — 0 findings (5 files, 7 validator runs)
+  timestamp: 2026-09-15T15:08:34.495463+00:00
 depends_on:
 - 01M2JFK30S1NQT9X11SZ4V7EXQ
 - 01M2JG4HJDKVAX6FRH81QCV5A6
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: be80
 title: Remove RoutedEmbedderAdapter and the direct FoundationModelsRouter dependency
 ---
 ## What
