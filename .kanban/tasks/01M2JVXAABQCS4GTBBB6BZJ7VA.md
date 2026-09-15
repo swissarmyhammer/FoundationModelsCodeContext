@@ -35,10 +35,27 @@ comments:
     - `swift test --filter DiagnosticsTests`: 10 runs in a row, 19/19 tests pass each time, no run over 1.3 seconds (each run had a 240-second kill limit, and no run reached it), while a test loop of another package loaded the machine.
     - next: /commit.
   timestamp: 2026-09-15T23:46:50.180637+00:00
+- actor: claude-code
+  id: 01m2kqnpbx7xvna06dark4dttm
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (b0fa431) — 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed). 11 files reviewed; the 6 `.kanban/` files are excluded by `.reviewignore`. The card has no prior `## Review Findings` section, so no finding is open.
+    - The last open checkbox (`swift test` exits 0) is now checked: the full suite passed with 587 tests.
+    - next: move the task to done.
+  timestamp: 2026-09-15T23:50:41.277753+00:00
+- actor: claude-code
+  id: 01m2kqp4ba5xkeyhp6djs8hzn3
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 6 new files in Sources/FoundationModelsCodeContext/Tools/Search (the five operations and `CodeSearchTool`), new Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift, new helpers on Tools/ToolSupport.swift, the superfluous periphery marker removed from Tools/CodeContextToolContext.swift, `TestJSON` in TestSupport.swift, and the stale-waiter race removed from the two settle tests in DiagnosticsTests.swift.
+    - test: green — `swift test` 587 tests in 52 suites passed, 0 failed, 0 skipped, 0 warnings; `swift format lint -r --strict` exit 0; `swift build --package-path IntegrationTests --build-tests` exit 0.
+    - commit: b0fa431
+    - review: clean — `review sha HEAD~1..HEAD` 0 findings (7 attempted, 0 failed); no finding was open before.
+  timestamp: 2026-09-15T23:50:55.594969+00:00
 depends_on:
 - 01M2JVWH2DV2WCXTBHR6QBVGWQ
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: c380
 title: 'code_search tool: symbol and graph operations'
 ---
 ## What
@@ -80,7 +97,7 @@ Shared descriptions in `code_search` (use these exact meanings):
 - [x] New `Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift` (uses `import FoundationModels` and `import Operations`, and `@testable import FoundationModelsCodeContext`): build `CodeContext<FakeLanguageServerConnection>` with `withTemporaryWorkspace`, `FakeEmbedder`, `FakeFileEventSource`, `fakeConnectionFactory` and `autoInstall: LspAutoInstall(isEnabled: false)` (see `CodeContextE2ETests.swift`; no project markers), write a small Swift file, `start()`, then call `tool.call(arguments: GeneratedContent(properties: ["op": "get symbol", "query": ...]))` for each operation and assert on the JSON. Add `defaultsMatchTheDirectEngineCall` (for `get callgraph` and `get blastradius`), `aliasesDispatchToTheCanonicalOperation` (the alias cases in the acceptance criteria), corrective-path tests for an unknown symbol and an invalid `direction`, and `sharedParameterDescriptionsAreTheSharedText` that reads `tool.parameters`.
 - [x] `swift build` exits 0.
 - [x] `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exits 0.
-- [ ] `swift test` exits 0.
+- [x] `swift test` exits 0.
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass. #tools #feature
