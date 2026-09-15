@@ -57,8 +57,24 @@ comments:
     - `swift build` exit 0, no warnings; `swift format lint -r --strict ...` exit 0.
     - next: /test (full suite).
   timestamp: 2026-09-15T21:41:27.785320+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2kgknv6mxrng2r0bd3pzjgx
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (97d1063) — 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed). The 3 findings of 2026-09-15 16:23 are fixed in 97d1063 and are checked.
+    - next: move the task to done.
+  timestamp: 2026-09-15T21:47:15.174862+00:00
+- actor: claude-code
+  id: 01m2kgkrbxmpwtynnqxepsxk6c
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — Tools/CodeContextDefaults.swift (named `diagnosticsSettleWindowMilliseconds` = 300 and `diagnosticsHardTimeoutSeconds` = 5), Tools/CodeContextOperating.swift (removed the superfluous `// periphery:ignore` marker). The 3 findings of iteration 1 are fixed.
+    - test: green — `swift test` 580 tests in 51 suites passed, 0 failed, 0 skipped, 0 warnings; `swift build` exit 0; `swift format lint -r --strict` exit 0.
+    - commit: 97d1063
+    - review: clean — `review sha HEAD~1..HEAD` 0 findings; every prior finding is checked.
+  timestamp: 2026-09-15T21:47:17.757154+00:00
+position_column: done
+position_ordinal: c280
 title: 'Tool foundation: add Extras Operations, the tool context and corrective output'
 ---
 ## What
@@ -68,27 +84,27 @@ Framework facts (FoundationModelsExtras, product `Operations`): operations are `
 
 **Precondition (Extras change):** the Extras agent (`foundationmodelsextras-34`) adds `OperationResolver(verbAliases:nounAliases:inferOp:)` and op matching that ignores `_`, `-` and spaces inside compound verbs and nouns (so `get typedefinition`, `get type_definition` and `type_definition get` all resolve). Start this task only after that commit is on Extras `origin/main`.
 
-- [ ] `Package.swift`: change `// swift-tools-version: 6.1` to `6.2` (Extras requires 6.2). Add `.package(url: "git@github.com:swissarmyhammer/FoundationModelsExtras.git", branch: "main")` with a comment in the same style as the Ranker entry. Add `.product(name: "Operations", package: "FoundationModelsExtras")` to the `FoundationModelsCodeContext` target AND to the `FoundationModelsCodeContextTests` target (the tool tests use `OperationTool`, `AnyOperation` and `GeneratedContent` directly; follow the existing comment rule for Ranker in the test target). Run `swift package update foundationmodelsextras` (and with `--package-path IntegrationTests`) so the resolved Extras has `nounAliases`.
-- [ ] Add `Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift`: an internal `enum CodeContextDefaults` with one named constant for each engine default: `maxQueryResults = 50`, `includeSource = false`, `callGraphDirection = CallGraphDirection.outbound`, `callGraphMaxDepth = 2`, `blastRadiusMaxHops = 3`, `grepLanguages: [String] = []`, `searchTopK = 20`, `searchWeights = SearchWeights.default`, `duplicateMinSimilarity = 0.85`, `duplicateMinChunkBytes = 100`, `duplicateMaxPerChunk = 5`, `queryASTMaxResults = 50`, `referencesIncludeDeclaration = false`, `implementationsMaxResults = 20`, `diagnosticsSeverity = DiagnosticSeverity.warning`, `diagnosticsIncludeDependents = true`, `diagnosticsSettleWindow = Duration.milliseconds(300)`, `diagnosticsHardTimeout = Duration.seconds(5)`, `diagnosticsPerReportCap = 100`. Change the default arguments of the public `CodeContext` methods (and `QueryASTOptions.maxResults`) to use these constants, and make `CodeContext.defaultMaxQueryResults` and `CodeContext.defaultIncludeSource` return them, so each default has one source. Public signatures do not change.
-- [ ] Add `Sources/FoundationModelsCodeContext/Tools/CodeContextOperating.swift`: an internal `protocol CodeContextOperating: Sendable` with exactly these 23 `CodeContext` methods (same signatures, no default arguments, find them by name, not by line): `detectProjects`, `indexStatus`, `lspStatus`, `rebuildIndex`, `getSymbol`, `searchSymbol`, `listSymbols`, `callGraph`, `blastRadius`, `grepCode`, `searchCode`, `findDuplicates`, `queryAST`, `definition`, `typeDefinition`, `hover`, `references`, `implementations`, `codeActions`, `renameEdits`, `inboundCalls`, `workspaceSymbols`, `diagnostics`; and `extension CodeContext: CodeContextOperating {}`. In the same folder add `CodeContextToolContext.swift`: an INTERNAL `struct CodeContextToolContext: Sendable` that holds `let operating: any CodeContextOperating` (internal, because no public API takes or returns it; `CodeContextTools.make` returns `[any Tool]`). A protocol requirement cannot have default arguments, so every operation passes each optional tool parameter as `value ?? CodeContextDefaults.<name>`.
-- [ ] Add `Sources/FoundationModelsCodeContext/Tools/ToolSupport.swift`: (1) `enum ToolOutcome<Success: Encodable & Sendable>: Encodable, Sendable` with `.success(Success)` (encodes the value) and `.corrective(String)` (encodes a bare JSON string); (2) `func correctiveMessage(for error: CodeContextError) -> String?` that returns a message for the recoverable cases `.notFound`, `.pattern`, `.query`, `.spawnFailed` (a git failure, for example a directory that is not a git repository or a bad commit) and `nil` for the others; (3) `enum ChoiceParse<T> { case value(T), corrective(String) }` and `func parseChoice<T>(_ raw: String?, choices: [(name: String, value: T)], parameter: String) -> ChoiceParse<T>` that matches a name (case-insensitive, and ignoring `_` and `-`) or gives a corrective message that lists the allowed names. A name table is necessary because `DiagnosticSeverity` has `Int` raw values. When a choice needs a second value at call time (the diagnostics `scope` needs `file` or `sha`), the table maps the name to a private kind enum, and the operation checks the second value and makes the final value itself (see ^dw4p9bj).
-- [ ] Write every comment in ASD-STE100 Simplified Technical English. No new file can have the same name as a file that is already in `Sources/FoundationModelsCodeContext`, and no new type can have the same name as a type in the module.
+- [x] `Package.swift`: change `// swift-tools-version: 6.1` to `6.2` (Extras requires 6.2). Add `.package(url: "git@github.com:swissarmyhammer/FoundationModelsExtras.git", branch: "main")` with a comment in the same style as the Ranker entry. Add `.product(name: "Operations", package: "FoundationModelsExtras")` to the `FoundationModelsCodeContext` target AND to the `FoundationModelsCodeContextTests` target (the tool tests use `OperationTool`, `AnyOperation` and `GeneratedContent` directly; follow the existing comment rule for Ranker in the test target). Run `swift package update foundationmodelsextras` (and with `--package-path IntegrationTests`) so the resolved Extras has `nounAliases`.
+- [x] Add `Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift`: an internal `enum CodeContextDefaults` with one named constant for each engine default: `maxQueryResults = 50`, `includeSource = false`, `callGraphDirection = CallGraphDirection.outbound`, `callGraphMaxDepth = 2`, `blastRadiusMaxHops = 3`, `grepLanguages: [String] = []`, `searchTopK = 20`, `searchWeights = SearchWeights.default`, `duplicateMinSimilarity = 0.85`, `duplicateMinChunkBytes = 100`, `duplicateMaxPerChunk = 5`, `queryASTMaxResults = 50`, `referencesIncludeDeclaration = false`, `implementationsMaxResults = 20`, `diagnosticsSeverity = DiagnosticSeverity.warning`, `diagnosticsIncludeDependents = true`, `diagnosticsSettleWindow = Duration.milliseconds(300)`, `diagnosticsHardTimeout = Duration.seconds(5)`, `diagnosticsPerReportCap = 100`. Change the default arguments of the public `CodeContext` methods (and `QueryASTOptions.maxResults`) to use these constants, and make `CodeContext.defaultMaxQueryResults` and `CodeContext.defaultIncludeSource` return them, so each default has one source. Public signatures do not change.
+- [x] Add `Sources/FoundationModelsCodeContext/Tools/CodeContextOperating.swift`: an internal `protocol CodeContextOperating: Sendable` with exactly these 23 `CodeContext` methods (same signatures, no default arguments, find them by name, not by line): `detectProjects`, `indexStatus`, `lspStatus`, `rebuildIndex`, `getSymbol`, `searchSymbol`, `listSymbols`, `callGraph`, `blastRadius`, `grepCode`, `searchCode`, `findDuplicates`, `queryAST`, `definition`, `typeDefinition`, `hover`, `references`, `implementations`, `codeActions`, `renameEdits`, `inboundCalls`, `workspaceSymbols`, `diagnostics`; and `extension CodeContext: CodeContextOperating {}`. In the same folder add `CodeContextToolContext.swift`: an INTERNAL `struct CodeContextToolContext: Sendable` that holds `let operating: any CodeContextOperating` (internal, because no public API takes or returns it; `CodeContextTools.make` returns `[any Tool]`). A protocol requirement cannot have default arguments, so every operation passes each optional tool parameter as `value ?? CodeContextDefaults.<name>`.
+- [x] Add `Sources/FoundationModelsCodeContext/Tools/ToolSupport.swift`: (1) `enum ToolOutcome<Success: Encodable & Sendable>: Encodable, Sendable` with `.success(Success)` (encodes the value) and `.corrective(String)` (encodes a bare JSON string); (2) `func correctiveMessage(for error: CodeContextError) -> String?` that returns a message for the recoverable cases `.notFound`, `.pattern`, `.query`, `.spawnFailed` (a git failure, for example a directory that is not a git repository or a bad commit) and `nil` for the others; (3) `enum ChoiceParse<T> { case value(T), corrective(String) }` and `func parseChoice<T>(_ raw: String?, choices: [(name: String, value: T)], parameter: String) -> ChoiceParse<T>` that matches a name (case-insensitive, and ignoring `_` and `-`) or gives a corrective message that lists the allowed names. A name table is necessary because `DiagnosticSeverity` has `Int` raw values. When a choice needs a second value at call time (the diagnostics `scope` needs `file` or `sha`), the table maps the name to a private kind enum, and the operation checks the second value and makes the final value itself (see ^dw4p9bj).
+- [x] Write every comment in ASD-STE100 Simplified Technical English. No new file can have the same name as a file that is already in `Sources/FoundationModelsCodeContext`, and no new type can have the same name as a type in the module.
 
 ## Acceptance Criteria
-- [ ] `swift package dump-package | rg -c FoundationModelsExtras` gives a count; `swift package show-dependencies --format json | rg -c -i foundationmodelsrouter` gives no output (Extras does not add Router).
-- [ ] `rg -n "nounAliases" .build/checkouts/FoundationModelsExtras/Sources/Operations/OperationResolver.swift` gives a count (the resolved Extras has the precondition change).
-- [ ] `CodeContext` conforms to `CodeContextOperating`, and the protocol has the 23 methods listed above.
-- [ ] Each engine default is written one time, in `CodeContextDefaults`; `rg -n "maxDepth: Int = 2|maxHops: Int = 3|topK: Int = 20|minSimilarity: Double = 0.85" Sources/FoundationModelsCodeContext/CodeContext.swift` gives no output.
-- [ ] `CodeContextToolContext` is not public.
-- [ ] A corrective outcome encodes as a JSON string, and a success outcome encodes as the value.
-- [ ] `parseChoice` accepts each name (any letter case, with or without `_`) and rejects an unknown name with the list of allowed names.
+- [x] `swift package dump-package | rg -c FoundationModelsExtras` gives a count; `swift package show-dependencies --format json | rg -c -i foundationmodelsrouter` gives no output (Extras does not add Router).
+- [x] `rg -n "nounAliases" .build/checkouts/FoundationModelsExtras/Sources/Operations/OperationResolver.swift` gives a count (the resolved Extras has the precondition change).
+- [x] `CodeContext` conforms to `CodeContextOperating`, and the protocol has the 23 methods listed above.
+- [x] Each engine default is written one time, in `CodeContextDefaults`; `rg -n "maxDepth: Int = 2|maxHops: Int = 3|topK: Int = 20|minSimilarity: Double = 0.85" Sources/FoundationModelsCodeContext/CodeContext.swift` gives no output.
+- [x] `CodeContextToolContext` is not public.
+- [x] A corrective outcome encodes as a JSON string, and a success outcome encodes as the value.
+- [x] `parseChoice` accepts each name (any letter case, with or without `_`) and rejects an unknown name with the list of allowed names.
 
 ## Tests
-- [ ] New `Tests/FoundationModelsCodeContextTests/ToolSupportTests.swift`: `successOutcomeEncodesTheValue`, `correctiveOutcomeEncodesABareString`, `parseChoiceAcceptsEachNameInAnyCaseAndSeparator`, `parseChoiceRejectsAnUnknownNameWithTheAllowedList`, `recoverableErrorsGiveACorrectiveMessage` (includes `.spawnFailed`), `otherErrorsGiveNoCorrectiveMessage`, `codeContextDefaultsMatchThePublicDefaults` (for example `CodeContext<FakeLanguageServerConnection>.defaultMaxQueryResults == CodeContextDefaults.maxQueryResults` and `QueryASTOptions().maxResults == CodeContextDefaults.queryASTMaxResults`).
-- [ ] All existing tests stay green (the public default values do not change).
-- [ ] `swift build` exits 0, and `swift build --package-path IntegrationTests --build-tests` exits 0.
-- [ ] `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exits 0.
-- [ ] `swift test` exits 0.
+- [x] New `Tests/FoundationModelsCodeContextTests/ToolSupportTests.swift`: `successOutcomeEncodesTheValue`, `correctiveOutcomeEncodesABareString`, `parseChoiceAcceptsEachNameInAnyCaseAndSeparator`, `parseChoiceRejectsAnUnknownNameWithTheAllowedList`, `recoverableErrorsGiveACorrectiveMessage` (includes `.spawnFailed`), `otherErrorsGiveNoCorrectiveMessage`, `codeContextDefaultsMatchThePublicDefaults` (for example `CodeContext<FakeLanguageServerConnection>.defaultMaxQueryResults == CodeContextDefaults.maxQueryResults` and `QueryASTOptions().maxResults == CodeContextDefaults.queryASTMaxResults`).
+- [x] All existing tests stay green (the public default values do not change).
+- [x] `swift build` exits 0, and `swift build --package-path IntegrationTests --build-tests` exits 0.
+- [x] `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exits 0.
+- [x] `swift test` exits 0.
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass. #tools #feature
@@ -100,6 +116,6 @@ Framework facts (FoundationModelsExtras, product `Operations`): operations are `
 > 4 file(s) not reviewed — excluded by an ignore rule:
 > - `.kanban/ (from .reviewignore)` — 4 file(s)
 
-- [ ] `Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift:66` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
-- [ ] `Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift:69` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
-- [ ] `Sources/FoundationModelsCodeContext/Tools/CodeContextOperating.swift:16` `code-hygiene/dead-code-swift` — protocol `CodeContextOperating` is superfluousIgnoreCommand.
+- [x] `Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift:66` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Sources/FoundationModelsCodeContext/Tools/CodeContextDefaults.swift:69` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Sources/FoundationModelsCodeContext/Tools/CodeContextOperating.swift:16` `code-hygiene/dead-code-swift` — protocol `CodeContextOperating` is superfluousIgnoreCommand.

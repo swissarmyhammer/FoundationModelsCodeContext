@@ -23,6 +23,23 @@ func write(_ content: String, to relativePath: String, in root: URL) throws {
     try content.write(to: url, atomically: true, encoding: .utf8)
 }
 
+/// The JSON helpers of the test target.
+enum TestJSON {
+    /// Encodes `value` with `.sortedKeys` and returns the JSON text.
+    ///
+    /// The tools encode each result with `.sortedKeys`, so this text is the
+    /// same as the output of a tool for the same value.
+    ///
+    /// - Parameter value: The value to encode.
+    /// - Returns: The JSON text.
+    /// - Throws: An `EncodingError` when `value` cannot be encoded.
+    static func encodedText<Value: Encodable>(_ value: Value) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return String(decoding: try encoder.encode(value), as: UTF8.self)
+    }
+}
+
 /// Builds a Swift function named `deepSpine` whose body is
 /// `leadingStatements` followed by a single `1 + 1 + …` expression of
 /// `termCount` terms.

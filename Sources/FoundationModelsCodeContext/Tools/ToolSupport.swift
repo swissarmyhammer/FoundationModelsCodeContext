@@ -105,6 +105,96 @@ internal enum ToolSupport {
         return .value(match.value)
     }
 
+    /// Finds the choice whose name matches `raw`, for an optional parameter.
+    ///
+    /// When the model gave no name, the result is `.value(nil)`. The operation
+    /// then uses the default of the parameter. When the model gave a name, the
+    /// match is the same as `parseChoice(_:choices:parameter:)`.
+    ///
+    /// - Parameters:
+    ///   - raw: The name that the model gave, or `nil` when the model gave no
+    ///     name.
+    ///   - choices: The allowed names and the value of each name.
+    ///   - parameter: The name of the tool parameter, for the corrective
+    ///     message.
+    /// - Returns: `.value(nil)` when `raw` is `nil`, `.value(_:)` with the
+    ///   value of the matching choice, or `.corrective(_:)` with a message
+    ///   that lists the allowed names.
+    static func parseOptionalChoice<T>(
+        _ raw: String?,
+        choices: [(name: String, value: T)],
+        parameter: String
+    ) -> ChoiceParse<T?> {
+        guard let raw else {
+            return .value(nil)
+        }
+        switch parseChoice(raw, choices: choices, parameter: parameter) {
+        case .value(let value):
+            return .value(value)
+        case .corrective(let message):
+            return .corrective(message)
+        }
+    }
+
+    /// Makes the choice table of an enum whose raw values are the names.
+    ///
+    /// Each case gives one row: the raw value is the name, and the case is the
+    /// value. The rows are in the order of `allCases`.
+    ///
+    /// - Parameter type: The enum type.
+    /// - Returns: The choice table, for `parseChoice(_:choices:parameter:)`.
+    static func choiceTable<T: CaseIterable & RawRepresentable>(for type: T.Type) -> [(name: String, value: T)]
+    where T.RawValue == String {
+        type.allCases.map { (name: $0.rawValue, value: $0) }
+    }
+
+    /// Runs one `CodeContext` call and gives its outcome.
+    ///
+    /// A recoverable `CodeContextError` becomes `.corrective(_:)` with the
+    /// message of `correctiveMessage(for:)`. Each other error is thrown again.
+    ///
+    /// - Parameter call: The `CodeContext` call.
+    /// - Returns: `.success(_:)` with the result of `call`, or
+    ///   `.corrective(_:)` when `call` threw a recoverable error.
+    /// - Throws: The error that `call` threw, when the model cannot correct it.
+    static func outcome<Success: Encodable & Sendable>(
+        of call: () async throws -> Success
+    ) async throws -> ToolOutcome<Success> {
+        do {
+            return .success(try await call())
+        } catch let error as CodeContextError {
+            guard let message = correctiveMessage(for: error) else {
+                throw error
+            }
+            return .corrective(message)
+        }
+    }
+
+    /// Runs one `CodeContext` call with a parsed choice and gives its outcome.
+    ///
+    /// When `parse` is `.corrective(_:)`, the call does not run, and the
+    /// outcome is the same corrective message. When `parse` is `.value(_:)`,
+    /// the call runs with the value, as in `outcome(of:)`.
+    ///
+    /// - Parameters:
+    ///   - parse: The result of the parse of a choice parameter.
+    ///   - call: The `CodeContext` call. It receives the parsed value.
+    /// - Returns: `.success(_:)` with the result of `call`, or
+    ///   `.corrective(_:)` when the parse failed or `call` threw a recoverable
+    ///   error.
+    /// - Throws: The error that `call` threw, when the model cannot correct it.
+    static func outcome<Choice, Success: Encodable & Sendable>(
+        after parse: ChoiceParse<Choice>,
+        of call: (Choice) async throws -> Success
+    ) async throws -> ToolOutcome<Success> {
+        switch parse {
+        case .corrective(let message):
+            return .corrective(message)
+        case .value(let choice):
+            return try await outcome { try await call(choice) }
+        }
+    }
+
     /// Gives the names of `choices`, in table order, with a comma between
     /// each two names.
     ///

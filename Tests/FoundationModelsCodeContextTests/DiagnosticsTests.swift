@@ -163,33 +163,30 @@ struct DiagnosticsTests {
         let clock = ManualClock()
         let (stream, continuation) = AsyncStream<DiagnosticUpdate>.makeStream()
         let uri = DocumentURI("file:///repo/a.swift")
+        let settleWindow = Duration.milliseconds(300)
 
         let task = Task {
             await Settle.settleStream(
                 stream: stream,
                 watched: [uri],
                 initial: [uri: []],
-                settleWindow: .milliseconds(300),
+                settleWindow: settleWindow,
                 hardTimeout: .seconds(5),
                 clock: clock
             )
         }
 
         for _ in 0..<19 {
-            await clock.waitForWaiter(count: 2)
+            // Wait for the debounce deadline of the current race. A waiter of
+            // the previous race has an earlier deadline, so it cannot satisfy
+            // this wait, and the clock does not move before the settle loop
+            // applied the last update (see task `^vhcye6y`).
+            await clock.waitForWaiter(withDeadline: clock.now.advanced(by: settleWindow))
             clock.advance(by: .milliseconds(250))
             continuation.yield(DiagnosticUpdate(uri: uri, diagnostics: []))
-            // A real (short) suspension every iteration, giving the settle
-            // task's race loop an actual chance to run: `waitForWaiter`'s
-            // guard can be satisfied by waiters left over from the
-            // *previous* iteration without ever truly suspending, which
-            // would otherwise let this tight loop starve the settle task of
-            // scheduling time before it can process each update and
-            // re-arm its debounce sleep.
-            try await Task.sleep(for: .milliseconds(5))
         }
         // 19 * 250ms = 4750ms elapsed; push past the 5s hard deadline.
-        await clock.waitForWaiter(count: 2)
+        await clock.waitForWaiter(withDeadline: clock.now.advanced(by: settleWindow))
         clock.advance(by: .milliseconds(500))
 
         let outcome = await task.value
@@ -362,14 +359,14 @@ struct DiagnosticsTests {
             }
 
             let uri = DocumentURI(root.appendingPathComponent("a.swift").absoluteString)
+            let settleWindow = CodeContextDefaults.diagnosticsSettleWindow
             for _ in 0..<19 {
-                await clock.waitForWaiter(count: 2)
+                // See the identical comment in `continuousUpdatesResultInPendingAtHardTimeout`.
+                await clock.waitForWaiter(withDeadline: clock.now.advanced(by: settleWindow))
                 clock.advance(by: .milliseconds(250))
                 await connection.emit(notification: .publishDiagnostics(uri: uri, diagnostics: []))
-                // See the identical comment in `continuousUpdatesResultInPendingAtHardTimeout`.
-                try await Task.sleep(for: .milliseconds(5))
             }
-            await clock.waitForWaiter(count: 2)
+            await clock.waitForWaiter(withDeadline: clock.now.advanced(by: settleWindow))
             clock.advance(by: .milliseconds(500))
 
             let report = try await diagnoseTask.value
