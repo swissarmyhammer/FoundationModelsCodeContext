@@ -36,6 +36,11 @@ private func seedSymbolFixtures(store: Store, root: URL) async throws {
 /// listing order — all against a store populated by the real `Chunker` (via
 /// `TreeSitterWorker`) on fixtures, per the task's `/tdd` workflow.
 struct SymbolOpsTests {
+    /// How many more times `searchSymbolGivesTiedMatchesTheSameOrderOnEveryCall`
+    /// repeats its query to show that the order of the tied matches does not
+    /// change from one call to the next.
+    private static let repeatedCallCount = 20
+
     @Test
     func getSymbolExactMatchOutranksSuffixAndFuzzy() async throws {
         try await withTemporaryWorkspace { root in
@@ -262,6 +267,43 @@ struct SymbolOpsTests {
             let results = try await SymbolOps.searchSymbol(store: store, query: "zzzznonexistent")
 
             #expect(results.isEmpty)
+        }
+    }
+
+    @Test
+    func searchSymbolGivesTiedMatchesTheSameOrderOnEveryCall() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write(
+                """
+                struct Greeter {
+                    func greet() -> String {
+                        return helper()
+                    }
+                }
+
+                func helper() -> String {
+                    "hello"
+                }
+                """,
+                to: "Greeter.swift",
+                in: root
+            )
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+            try await TreeSitterWorker.run(store: store, rootDirectory: root)
+
+            let first = try await SymbolOps.searchSymbol(store: store, query: "greet")
+
+            // `Greeter` and `Greeter.greet` both match `greet` with the same
+            // score, so only the tie-break fixes their order.
+            #expect(first.map(\.qualifiedPath) == ["Greeter", "Greeter.greet"])
+            #expect(Set(first.map(\.score)).count == 1)
+
+            for _ in 0..<Self.repeatedCallCount {
+                let next = try await SymbolOps.searchSymbol(store: store, query: "greet")
+
+                #expect(next.map(\.qualifiedPath) == first.map(\.qualifiedPath))
+            }
         }
     }
 

@@ -171,9 +171,9 @@ struct CodeSearchToolTests {
             let graph = try await context.callGraph(of: "greet")
             let radius = try await context.blastRadius(file: Self.fixtureFile)
             let symbol = try await context.getSymbol(query: "greet")
-            // No other match of `helper` has the same score, so the order of the
-            // matches is fixed. Task ^a7byaqk adds a tie-break to the engine.
-            let matches = try await context.searchSymbol(query: "helper")
+            // `Greeter` and `Greeter.greet` have the same score, so this query
+            // shows that the engine gives the tied matches a fixed order.
+            let matches = try await context.searchSymbol(query: "greet")
 
             try await Self.expectEachCall(
                 [
@@ -190,7 +190,7 @@ struct CodeSearchToolTests {
                         try TestJSON.encodedText(symbol)
                     ),
                     (
-                        GeneratedContent(properties: ["op": "search symbol", "query": "helper"]),
+                        GeneratedContent(properties: ["op": "search symbol", "query": "greet"]),
                         try TestJSON.encodedText(matches)
                     ),
                 ],

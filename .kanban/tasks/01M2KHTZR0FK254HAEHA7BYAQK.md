@@ -1,8 +1,8 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '8880'
+position_column: doing
+position_ordinal: '80'
 title: 'searchSymbol and getSymbol: matches with the same score have no fixed order'
 ---
 ## What

@@ -379,7 +379,7 @@ public enum SymbolOps {
         guard !matches.isEmpty else {
             return nil
         }
-        let scoredRows = matches.map { (candidate: $0, score: exactScore) }
+        let scoredRows = matches.map { (candidate: $0, score: exactScore) }.sorted(by: rankedBefore)
         return makeResult(query: query, tier: .exact, scoredRows: scoredRows, maxResults: maxResults)
     }
 
@@ -391,7 +391,7 @@ public enum SymbolOps {
             candidates
             .filter { $0.qualifiedPath.hasSuffix(suffixPattern) || $0.qualifiedPath == query }
             .map { (candidate: $0, score: suffixBaseScore + shorterPathBonus(qualifiedPath: $0.qualifiedPath)) }
-            .sorted { $0.score > $1.score }
+            .sorted(by: rankedBefore)
         guard !scoredRows.isEmpty else {
             return nil
         }
@@ -405,7 +405,7 @@ public enum SymbolOps {
             candidates
             .filter { $0.qualifiedPath.lowercased().contains(queryLowercased) }
             .map { (candidate: $0, score: caseInsensitiveBaseScore + shorterPathBonus(qualifiedPath: $0.qualifiedPath)) }
-            .sorted { $0.score > $1.score }
+            .sorted(by: rankedBefore)
         guard !scoredRows.isEmpty else {
             return nil
         }
@@ -422,7 +422,7 @@ public enum SymbolOps {
                 }
                 return (candidate, score)
             }
-            .sorted { $0.score > $1.score }
+            .sorted(by: rankedBefore)
         guard !scoredRows.isEmpty else {
             return nil
         }
@@ -436,7 +436,7 @@ public enum SymbolOps {
     private static func makeResult(
         query: String,
         tier: SymbolMatchTier,
-        scoredRows: [(candidate: SymbolCandidateRow, score: Int)],
+        scoredRows: [ScoredCandidateRow],
         maxResults: Int
     ) -> GetSymbolResult {
         let symbols = scoredRows.prefix(maxResults).map { candidate, score in
@@ -463,6 +463,32 @@ public enum SymbolOps {
     /// over a longer one at the same tier.
     private static func shorterPathBonus(qualifiedPath: String) -> Int {
         max(0, shorterPathBonusCeiling - qualifiedPath.count)
+    }
+
+    /// Orders two scored candidate rows: the higher score comes first, and
+    /// two rows with the same score are ordered by qualified path, then file
+    /// path, then start line.
+    ///
+    /// `loadCandidateRows` gives its rows in no particular order, so a
+    /// comparison of the scores alone lets two calls with the same arguments
+    /// give the matches in a different order. These tie-breaks make the order
+    /// total, so each call gives the same order, and thus the same JSON.
+    ///
+    /// - Parameters:
+    ///   - lhs: The first row to compare.
+    ///   - rhs: The second row to compare.
+    /// - Returns: `true` when `lhs` comes before `rhs`.
+    private static func rankedBefore(_ lhs: ScoredCandidateRow, _ rhs: ScoredCandidateRow) -> Bool {
+        if lhs.score != rhs.score {
+            return lhs.score > rhs.score
+        }
+        if lhs.candidate.qualifiedPath != rhs.candidate.qualifiedPath {
+            return lhs.candidate.qualifiedPath < rhs.candidate.qualifiedPath
+        }
+        if lhs.candidate.filePath != rhs.candidate.filePath {
+            return lhs.candidate.filePath < rhs.candidate.filePath
+        }
+        return lhs.candidate.startLine < rhs.candidate.startLine
     }
 
     // MARK: - searchSymbol
@@ -505,7 +531,7 @@ public enum SymbolOps {
                 }
                 return (candidate, score)
             }
-            .sorted { $0.score > $1.score }
+            .sorted(by: rankedBefore)
 
         return scoredRows.prefix(maxResults).map { candidate, score in
             SearchSymbolMatch(
@@ -625,6 +651,9 @@ public enum SymbolOps {
         var detail: String?
         var source: SymbolSource
     }
+
+    /// One candidate row together with the score that a tier gave it.
+    private typealias ScoredCandidateRow = (candidate: SymbolCandidateRow, score: Int)
 
     /// A row loaded from `lsp_symbols`, before merging into a
     /// `SymbolCandidateRow`.
