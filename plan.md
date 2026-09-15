@@ -44,7 +44,7 @@ consequences here:
 | Leader/Follower `WorkspaceMode`, `FollowerGuard`, `step_down`, `open_as_follower` | Same |
 | `LiveLspRouter` / `MultiLspRouter` follower→leader routing seams | Ops talk to the in-process `LspSession` directly |
 | `spawn_reelection_loop`, follower diagnostics subscriber, promotion gating | Same |
-| `ane-embedding` (CoreML/ANE) and `llama-embedding` (GGUF) backends, `model-loader` | Embeddings come from `../FoundationModelsRouter` (MLX); no hand-rolled ANE |
+| `ane-embedding` (CoreML/ANE) and `llama-embedding` (GGUF) backends, `model-loader` | The host app supplies the embedding model as a `TextEmbedding` value; this package has no model loader and no hand-rolled ANE |
 | MCP tool layer (`swissarmyhammer-tools` dispatch, schema) and any server surface | Consumer wraps ops as FoundationModels `Tool`s in a higher-level package |
 | YAML server-spec registry + `include_dir!` embedding | Specs become plain Swift values (see LSP registry) |
 | `ReadOnlyFollower` errors, residual-writer defenses | No second writer exists |
@@ -68,8 +68,8 @@ consequences here:
 
 ```
 FoundationModelsCodeContext/
-  Package.swift            // swift-tools-version 6.1+, macOS 27 (floor inherited
-                           // from FoundationModelsRouter)
+  Package.swift            // swift-tools-version 6.1+, macOS 27 (FoundationModels
+                           // v2 and FoundationModelsRanker need this floor)
   Sources/FoundationModelsCodeContext/
     CodeContext.swift      // public facade (actor)
     Languages/             // one LanguageModule per language (strategy) — grammar,
@@ -82,17 +82,18 @@ FoundationModelsCodeContext/
     Diagnostics/           // diagnose, settle, report types
     Ops/                   // one file per operation, layered cascade
     Projects/              // project-type detection
-    Embedding/             // TextEmbedding protocol + FoundationModelsRouter adapter
+    Embedding/             // TextEmbedding typealias to FoundationModelsRanker's protocol
     Logging/               // os.Logger subsystem/category constants
   Tests/FoundationModelsCodeContextTests/
 ```
 
 ### Dependencies
 
-- **FoundationModelsRouter** (GitHub URL, `main` — spelled identically to
-  FoundationModelsRanker's declaration so the shared package identity resolves to a single
-  origin; see the comment in `Package.swift`) — embeddings via `RoutedEmbedder`
-  (`embed([String]) async throws -> [[Float]]`, L2-normalized, runtime `dimension`).
+- **FoundationModelsRanker** (GitHub URL, `main`; see the comment in
+  `Package.swift`) — hybrid ranking, and the `TextEmbedding` protocol
+  (`embed([String]) async throws -> [[Float]]`, L2-normalized, runtime
+  `dimension`). The caller supplies the embedding model. The resolved build
+  graph has no Router package.
 - **SwiftTreeSitter** (ChimeHQ) + per-language grammar packages.
 - **GRDB** for SQLite (WAL, migrations, `DatabasePool` for concurrent reads).
   Alternative: raw `sqlite3` C API — more code, no dep. Recommend GRDB.
@@ -102,9 +103,9 @@ FoundationModelsCodeContext/
 
 **Use `os.Logger` (Apple unified logging) directly.** Rationale:
 
-- The macOS 27 floor (inherited from FoundationModelsRouter) makes this an
-  Apple-only package; the usual reason to prefer the `swift-log` facade
-  (cross-platform backends) does not apply.
+- The macOS 27 floor (FoundationModels v2 and FoundationModelsRanker need it)
+  makes this an Apple-only package; the usual reason to prefer the `swift-log`
+  facade (cross-platform backends) does not apply.
 - Unified logging is structured, near-zero-cost when not captured, has built-in
   privacy redaction, and is queryable after the fact:
   `log stream --predicate 'subsystem == "com.swissarmyhammer.FoundationModelsCodeContext"'`
@@ -273,21 +274,31 @@ explainability. No embeddings at all → keyword-only results plus an
 
 ### Embeddings
 
-FoundationModelsCodeContext defines a tiny seam and never owns model lifecycle:
+FoundationModelsCodeContext uses one small seam and never owns a model
+lifecycle. The seam is FoundationModelsRanker's embedding protocol:
 
 ```swift
+// FoundationModelsRanker
 public protocol TextEmbedding: Sendable {
     var dimension: Int { get }
     func embed(_ texts: [String]) async throws -> [[Float]]
 }
+
+// FoundationModelsCodeContext
+public typealias TextEmbedding = FoundationModelsRanker.TextEmbedding
 ```
 
-- Shipped adapter: `RoutedEmbedderAdapter` wrapping FoundationModelsRouter's
-  `RoutedEmbedder` (which already has exactly this shape).
-- The **host app** resolves the Router profile and injects the embedder.
-  Reason: `Router` allows one resident profile at a time and resolving one
-  loads two LLMs alongside the embedder — that lifecycle belongs to the app,
-  not to a library that merely consumes vectors.
+- There is one protocol, not two copies. The package ships no adapter and no
+  embedding model, and its build graph has no Router.
+- The **host app** supplies the embedding model and gives it to
+  `CodeContext(rootDirectory:embedder:)` or `CodeContextManager(embedder:)`.
+  Reason: model loading and model residency belong to the app, not to a
+  library that only consumes vectors.
+- The same value works with each FoundationModelsRanker API that takes an
+  embedder. Ranker's `Searcher` takes `embedder:` and also `session:` (a
+  FoundationModels `LanguageModelSession`) for its selection tier.
+  `CodeContext` takes no language model.
+- The two examples define a file-local `HashingEmbedder` to show the seam.
 - Tests inject a deterministic fake (hash-based vectors); no models, no
   downloads, no Metal in CI.
 - Query text is embedded with the same embedder at search time; if the stored
@@ -462,9 +473,8 @@ back to the hint. Design decisions, matching the seams the code documents:
 ### Observable state for SwiftUI (in-memory)
 
 The kit unifies everything it knows — detected projects, LSP daemon health,
-index progress, diagnostics — into one in-memory, SwiftUI-bindable model,
-following the same pattern FoundationModelsRouter uses for
-`ResolutionProgress`:
+index progress, diagnostics — into one in-memory, SwiftUI-bindable model.
+The model is a `@MainActor @Observable` class:
 
 ```swift
 @MainActor @Observable
@@ -541,7 +551,7 @@ Ops surface (public methods on `CodeContext`, mirroring the Rust op set):
 
 ## Port order (each step compiles + is tested before the next)
 
-1. **Package scaffold** — Package.swift (deps: FoundationModelsRouter — now a
+1. **Package scaffold** — Package.swift (deps: FoundationModelsRanker — a
    GitHub URL dependency on `main`, see Dependencies above — SwiftTreeSitter,
    GRDB, initial grammars), `Log` constants, error enum, CI-able `swift test`.
 2. **Store** — GRDB schema + migrations, dirty-flag helpers, Float32-blob
@@ -552,8 +562,8 @@ Ops surface (public methods on `CodeContext`, mirroring the Rust op set):
    `Languages.all`, the v1 module files (node-kind tables ported per
    language), generic chunker (`symbol_path` qualification), TS worker
    writing chunks; then the TS call-edge heuristic; then `queryAST`.
-5. **Embedding seam** — `TextEmbedding` protocol, fake for tests,
-   `RoutedEmbedderAdapter`, batch embedding inside the TS worker.
+5. **Embedding seam** — `TextEmbedding` (typealias to FoundationModelsRanker's
+   protocol), fake for tests, batch embedding inside the TS worker. No adapter.
 6. **Search** — BM25/trigram/cosine/RRF port + `searchCode`, `findDuplicates`.
 7. **Indexed ops** — `getSymbol` (match tiers Exact/Suffix/CaseInsensitive/Fuzzy),
    `searchSymbol`, `listSymbols`, `grepCode`, `callGraph`, `blastRadius`, status ops.
@@ -584,8 +594,8 @@ Ops surface (public methods on `CodeContext`, mirroring the Rust op set):
 - One gated integration test drives real `sourcekit-lsp` (present wherever
   Xcode is) end-to-end: spawn → index → definition → kill -9 the child →
   assert auto-restart and recovery.
-- Embedding tests use the deterministic fake; a gated integration test uses
-  the real FoundationModelsRouter profile.
+- Embedding tests use the deterministic fake (`FakeEmbedder`). No test loads a
+  real embedding model, because the host app supplies the model.
 - Search ranker gets golden tests ported from the Rust crate's cases.
 - Fixture mini-repos under `Tests/Fixtures/` for walk/reconcile/watch tests.
 

@@ -15,8 +15,8 @@ in-process agent is a thin layer over one async method.
 ```swift
 import FoundationModelsCodeContext
 
-// `embedder` is a `TextEmbedding`. `RoutedEmbedderAdapter` wraps a
-// FoundationModelsRouter embedding model.
+// `embedder` is your embedding model: any value that conforms to
+// `TextEmbedding`, the embedding protocol of FoundationModelsRanker.
 let context = try await CodeContext(
     rootDirectory: URL(fileURLWithPath: "/path/to/repo", isDirectory: true),
     embedder: embedder
@@ -56,6 +56,9 @@ necessary):
 - [plan.md](plan.md) — design and porting notes.
 
 Hybrid search ranking (BM25 + trigram + cosine, fused with RRF) comes from
-[FoundationModelsRanker](https://github.com/swissarmyhammer/FoundationModelsRanker),
-and embeddings come from
-[FoundationModelsRouter](https://github.com/swissarmyhammer/FoundationModelsRouter).
+[FoundationModelsRanker](https://github.com/swissarmyhammer/FoundationModelsRanker).
+Your app supplies the embedding model through `TextEmbedding`. This package
+has no embedding model of its own. The same value also works with the
+`Searcher` of FoundationModelsRanker. `Searcher` also takes a FoundationModels
+`LanguageModelSession` for its selection tier. `CodeContext` itself takes no
+language model.

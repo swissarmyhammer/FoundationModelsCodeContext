@@ -20,10 +20,26 @@ comments:
     - evidence: 2 files. Sources/FoundationModelsCodeContext/Embedding/TextEmbedding.swift (the protocol is replaced by `public typealias TextEmbedding = FoundationModelsRanker.TextEmbedding`). Tests/FoundationModelsCodeContextTests/SharedEmbedderTests.swift (new, test `oneEmbedderValueServesCodeContextAndRankerCorpus`). RED: `swift build --build-tests` failed, "does not conform to expected type 'TextEmbedding'". GREEN: `swift build` exit 0. `swift build --build-tests` exit 0. `swift build --package-path IntegrationTests --build-tests` exit 0. `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exit 0. `rg -n "protocol TextEmbedding" Sources` gave no output. `swift test` exit 0: 563 tests in 49 suites passed, 0 skipped, 0 warnings. SharedEmbedderTests and EmbeddingSeamTests passed. No other file changed. CallerEmbedderPublicAPITests.swift does not import FoundationModelsRanker.
     - next: /review
   timestamp: 2026-09-15T15:12:26.120978+00:00
+- actor: claude-code
+  id: 01m2jtav2008gq6wy8h431b50m
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (067d58f). 2 files reviewed. 7 validator runs attempted, 0 failed. 0 findings, 0 confirmed, 0 refuted. 4 .kanban files are not reviewed because of .reviewignore. The description has no prior Review Findings sections.
+    - next: The task moved to done. Task ^ty3qx95 is next.
+  timestamp: 2026-09-15T15:17:56.928608+00:00
+- actor: claude-code
+  id: 01m2jtb72f5djn1bswrdar4d5h
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — TextEmbedding.swift is now `public typealias TextEmbedding = FoundationModelsRanker.TextEmbedding`; new SharedEmbedderTests.swift; red step: the test did not compile, then it passed
+    - test: green — swift build, both example targets, IntegrationTests build-tests, swift format lint --strict, rg "protocol TextEmbedding" Sources gives no output, swift test 563 passed in 49 suites, 0 failed, 0 skipped
+    - commit: 067d58f
+    - review: clean — 0 findings (2 files, 7 validator runs)
+  timestamp: 2026-09-15T15:18:09.231095+00:00
 depends_on:
 - 01M2JFKFQ1DS4B95ACWJPQWGMW
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: bf80
 title: Use FoundationModelsRanker.TextEmbedding as the one embedding-model type
 ---
 ## What
