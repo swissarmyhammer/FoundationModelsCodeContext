@@ -63,6 +63,8 @@ try await context.start()
 let tools = try CodeContextTools.make(context: context)
 for tool in tools {
     let operations = CodeContextTools.operationNames[tool.name] ?? []
+    // This demo is a command-line program, thus standard out is where the reader looks for its result, as for each other line of this file.
+    // swiftlint:disable:next no_direct_standard_out_logs
     print("Tool \(tool.name): \(operations.joined(separator: ", "))")
 }
 
