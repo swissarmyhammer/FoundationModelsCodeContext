@@ -60,10 +60,14 @@ try await context.start()
 // `CodeContextTools.make(context:)` gives the three tools of one `CodeContext`.
 // A host gives them to a `LanguageModelSession`. This example only prints the
 // name of each tool and its op strings: it calls no language model.
+//
+// This demo is a command-line program, and it has no logging system. Each
+// `print` below writes the result that the reader asked for, and not a debug
+// log. Thus each one carries the swiftlint directive for
+// `no_direct_standard_out_logs` on the line immediately above it.
 let tools = try CodeContextTools.make(context: context)
 for tool in tools {
     let operations = CodeContextTools.operationNames[tool.name] ?? []
-    // This demo is a command-line program, thus standard out is where the reader looks for its result, as for each other line of this file.
     // swiftlint:disable:next no_direct_standard_out_logs
     print("Tool \(tool.name): \(operations.joined(separator: ", "))")
 }
@@ -71,15 +75,19 @@ for tool in tools {
 // MARK: - Query the context
 
 let projects = try await context.detectProjects()
+// swiftlint:disable:next no_direct_standard_out_logs
 print("Detected projects: \(projects)")
 
 let indexProgress = await context.indexStatus()
+// swiftlint:disable:next no_direct_standard_out_logs
 print("Index status: \(indexProgress)")
 
 let symbolMatches = try await context.searchSymbol(query: query)
+// swiftlint:disable:next no_direct_standard_out_logs
 print("searchSymbol(\"\(query)\") matches: \(symbolMatches)")
 
 let codeHits = try await context.searchCode(query: query)
+// swiftlint:disable:next no_direct_standard_out_logs
 print("searchCode(\"\(query)\") hits: \(codeHits)")
 
 await context.stop()
