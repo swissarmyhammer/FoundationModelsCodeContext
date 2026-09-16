@@ -24,11 +24,28 @@ comments:
     - The full run took less than 5 seconds of test time. No test of this task is flaky: `swift test --filter CodeSearchToolTests` passed 13/13 on 6 runs in a row.
     - next: /commit.
   timestamp: 2026-09-16T00:08:15.043744+00:00
+- actor: claude-code
+  id: 01m2krv7q0qsh8k000z3jfyap6
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (3c216af) — 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed). 6 files reviewed; the 4 `.kanban/` files are excluded by `.reviewignore`. The card has no `## Review Findings` section, so no finding is open.
+    - Each box of the card is now checked: the four operation files, the nine operations, no two files with the same name, the `astQuery` parameter, the default and alias tests, the two corrective tests, `swift build`, `swift format lint` and `swift test`.
+    - next: move the task to done.
+  timestamp: 2026-09-16T00:11:11.456894+00:00
+- actor: claude-code
+  id: 01m2krvj9x2ptr35gh8xw7xhwf
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 4 new files in Sources/FoundationModelsCodeContext/Tools/Search (`GrepCodeOperation`, `SearchCodeOperation`, `FindDuplicatesOperation`, `QueryAstOperation`), the four operations added to `CodeSearchTool.operations()` with a tool description that names them, and the new tests in CodeSearchToolTests.swift (`toolExposesNineOperations`, `eachNewOperationReturnsTheJSONOfTheEngineResult`, `newOperationDefaultsMatchTheDirectEngineCall`, `newOperationAliasesDispatch`, `fusedSchemaHasAstQueryParameter`, and the two corrective tests).
+    - test: green — `swift test` 594 tests in 52 suites passed, 0 failed, 0 skipped, 0 warnings; `swift format lint -r --strict` exit 0; `swift build --package-path IntegrationTests --build-tests` exit 0. `swift test --filter CodeSearchToolTests` passed 13/13 on 6 runs in a row.
+    - commit: 3c216af
+    - review: clean — `review sha HEAD~1..HEAD` 0 findings (7 attempted, 0 failed); no finding was open before.
+  timestamp: 2026-09-16T00:11:22.301367+00:00
 depends_on:
 - 01M2JVXAABQCS4GTBBB6BZJ7VA
 - 01M2JVWWAYY3VPYYH3XFAGWVZ8
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: c580
 title: 'code_search tool: text, similarity and AST operations'
 ---
 ## What
@@ -36,25 +53,25 @@ Add the last four operations to the `code_search` tool. Follow ALL the rules in 
 
 Name collisions to avoid: the target already has the files `Ops/GrepCode.swift`, `Ops/SearchCode.swift`, `Ops/FindDuplicates.swift`, `Ops/QueryAST.swift` and the types `public enum GrepCode` and `public enum SearchCode`. Files or structs named `GrepCode`, `SearchCode` or `FindDuplicates` stop the build. Use the names below.
 
-- [ ] `Sources/FoundationModelsCodeContext/Tools/Search/GrepCodeOperation.swift`: `struct GrepCodeOperation`, `@Operation(verb: "grep", noun: "code", description: "...")`: `pattern: String` (aliases `regex`, `query`), `languages: [String]?` (aliases `extensions`, `langs`; extensions without the dot), `filePattern: String?` (aliases `glob`, `include`; POSIX glob), `maxResults: Int?` (standard aliases) → `grepCode(pattern:languages: languages ?? CodeContextDefaults.grepLanguages, filePattern:maxResults: maxResults ?? CodeContextDefaults.maxQueryResults)`. An invalid regex gives a corrective string.
-- [ ] `Tools/Search/SearchCodeOperation.swift`: `struct SearchCodeOperation`, `search`/`code`: `query: String` (aliases `text`, `q`), `topK: Int?` (aliases `limit`, `maxResults`, `k`) → `searchCode(query:topK: topK ?? CodeContextDefaults.searchTopK, weights: CodeContextDefaults.searchWeights)`.
-- [ ] `Tools/Search/FindDuplicatesOperation.swift`: `struct FindDuplicatesOperation`, `find`/`duplicates`: `file: String?` (standard aliases), `minSimilarity: Double?` (aliases `threshold`, `similarity`), `minChunkBytes: Int?` (aliases `minBytes`, `minSize`), `maxPerChunk: Int?` (alias `perChunk`) → `findDuplicates(...)` with the `CodeContextDefaults.duplicate*` constants for missing values.
-- [ ] `Tools/Search/QueryAstOperation.swift`: `struct QueryAstOperation`, `query`/`ast`: `language: String` (alias `lang`), `astQuery: String` (aliases `query`, `sexp`, `pattern`; a tree-sitter S-expression; the canonical name is not `query`, because `query` already means a symbol or text query in this tool), `maxResults: Int?` (standard aliases) → `queryAST(language:query:options: QueryASTOptions(maxResults: maxResults ?? CodeContextDefaults.queryASTMaxResults))`. An unknown language or an invalid query gives a corrective string. Add the four operations to `CodeSearchTool.operations()`.
-- [ ] Write every doc comment, `@Guide` description and operation description in ASD-STE100 Simplified Technical English.
+- [x] `Sources/FoundationModelsCodeContext/Tools/Search/GrepCodeOperation.swift`: `struct GrepCodeOperation`, `@Operation(verb: "grep", noun: "code", description: "...")`: `pattern: String` (aliases `regex`, `query`), `languages: [String]?` (aliases `extensions`, `langs`; extensions without the dot), `filePattern: String?` (aliases `glob`, `include`; POSIX glob), `maxResults: Int?` (standard aliases) → `grepCode(pattern:languages: languages ?? CodeContextDefaults.grepLanguages, filePattern:maxResults: maxResults ?? CodeContextDefaults.maxQueryResults)`. An invalid regex gives a corrective string.
+- [x] `Tools/Search/SearchCodeOperation.swift`: `struct SearchCodeOperation`, `search`/`code`: `query: String` (aliases `text`, `q`), `topK: Int?` (aliases `limit`, `maxResults`, `k`) → `searchCode(query:topK: topK ?? CodeContextDefaults.searchTopK, weights: CodeContextDefaults.searchWeights)`.
+- [x] `Tools/Search/FindDuplicatesOperation.swift`: `struct FindDuplicatesOperation`, `find`/`duplicates`: `file: String?` (standard aliases), `minSimilarity: Double?` (aliases `threshold`, `similarity`), `minChunkBytes: Int?` (aliases `minBytes`, `minSize`), `maxPerChunk: Int?` (alias `perChunk`) → `findDuplicates(...)` with the `CodeContextDefaults.duplicate*` constants for missing values.
+- [x] `Tools/Search/QueryAstOperation.swift`: `struct QueryAstOperation`, `query`/`ast`: `language: String` (alias `lang`), `astQuery: String` (aliases `query`, `sexp`, `pattern`; a tree-sitter S-expression; the canonical name is not `query`, because `query` already means a symbol or text query in this tool), `maxResults: Int?` (standard aliases) → `queryAST(language:query:options: QueryASTOptions(maxResults: maxResults ?? CodeContextDefaults.queryASTMaxResults))`. An unknown language or an invalid query gives a corrective string. Add the four operations to `CodeSearchTool.operations()`.
+- [x] Write every doc comment, `@Guide` description and operation description in ASD-STE100 Simplified Technical English.
 
 ## Acceptance Criteria
-- [ ] `CodeSearchTool.make` succeeds with nine operations: the five from ^6bzj7va plus `grep code`, `search code`, `find duplicates`, `query ast`.
-- [ ] `find Sources/FoundationModelsCodeContext -name '*.swift' -exec basename {} \; | sort | uniq -d` gives no output (no two files have the same name).
-- [ ] The fused schema has a parameter `astQuery`, and `query`, `file` and `maxResults` have one type each.
-- [ ] `search code` and `find duplicates` called with no optional parameters return the same JSON as the direct engine calls with no arguments.
-- [ ] Aliases work: `{"op": "query ast", "query": ...}` dispatches the S-expression to `astQuery`; `{"op": "grep code", "regex": ...}`, `{"op": "search code", "limit": 5}`, `find dupes` and `search source` dispatch to the correct operation.
-- [ ] An invalid grep regex and an invalid AST query give corrective strings.
+- [x] `CodeSearchTool.make` succeeds with nine operations: the five from ^6bzj7va plus `grep code`, `search code`, `find duplicates`, `query ast`.
+- [x] `find Sources/FoundationModelsCodeContext -name '*.swift' -exec basename {} \; | sort | uniq -d` gives no output (no two files have the same name).
+- [x] The fused schema has a parameter `astQuery`, and `query`, `file` and `maxResults` have one type each.
+- [x] `search code` and `find duplicates` called with no optional parameters return the same JSON as the direct engine calls with no arguments.
+- [x] Aliases work: `{"op": "query ast", "query": ...}` dispatches the S-expression to `astQuery`; `{"op": "grep code", "regex": ...}`, `{"op": "search code", "limit": 5}`, `find dupes` and `search source` dispatch to the correct operation.
+- [x] An invalid grep regex and an invalid AST query give corrective strings.
 
 ## Tests
-- [ ] Extend `Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift`: one success test for each new operation against an indexed temporary workspace (`FakeEmbedder` gives embeddings for `search code` and `find duplicates`), `newOperationDefaultsMatchTheDirectEngineCall`, `newOperationAliasesDispatch` (the alias cases in the acceptance criteria), corrective tests for an invalid regex and an invalid AST query, `toolExposesNineOperations` that checks the op strings, and `fusedSchemaHasAstQueryParameter`.
-- [ ] `swift build` exits 0.
-- [ ] `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exits 0.
-- [ ] `swift test` exits 0.
+- [x] Extend `Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift`: one success test for each new operation against an indexed temporary workspace (`FakeEmbedder` gives embeddings for `search code` and `find duplicates`), `newOperationDefaultsMatchTheDirectEngineCall`, `newOperationAliasesDispatch` (the alias cases in the acceptance criteria), corrective tests for an invalid regex and an invalid AST query, `toolExposesNineOperations` that checks the op strings, and `fusedSchemaHasAstQueryParameter`.
+- [x] `swift build` exits 0.
+- [x] `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exits 0.
+- [x] `swift test` exits 0.
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass. #tools #feature

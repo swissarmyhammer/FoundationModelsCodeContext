@@ -1,10 +1,34 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m2ksfamz4tcv9js3bcfjx85s
+  text: |-
+    ### implement — changed
+    - evidence: 9 files. New: Sources/FoundationModelsCodeContext/Tools/Navigation/{GetDefinitionOperation,GetTypeDefinitionOperation,GetHoverOperation,GetReferencesOperation,GetImplementationsOperation,CodeNavigationTool}.swift, Tests/FoundationModelsCodeContextTests/{CodeNavigationToolTests,ToolTestSupport}.swift. Changed: Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift.
+    - Each operation follows the pattern of the `code_search` operations: `@Operation` with the three arguments, `@OperationParam` aliases, `value ?? CodeContextDefaults.<name>` for each optional parameter, and `ToolSupport.outcome { }` for the engine call. No operation of this task parses a choice, so no `parseChoice` call is necessary.
+    - `get references` gives `maxResults` to the engine as it is, because the engine reads `nil` as "no limit". `get implementations` uses `?? CodeContextDefaults.implementationsMaxResults`.
+    - The shared `line` and `character` descriptions say that the numbers are 0-based and that `character` is a UTF-16 offset. The standard aliases of a position are `row` for `line` and `column`/`col` for `character`.
+    - Discovery: with an indexed workspace and no running language server, each of the five operations answers from the LSP index, not from tree-sitter. The test first expected `.treeSitter` and the run gave `.lspIndex` for all five results. The tests and the suite doc comment now say `lspIndex`. A later task that tests a fall-back layer must use this fact.
+    - To prevent a duplicate of the tool-test setup, the shared helpers are now `enum ToolTest` in the new ToolTestSupport.swift (`withIndexedTool(source:file:embeddingDimension:make:_:)`, `expectEachCall(_:on:)`, `decodedString(_:)`). CodeSearchToolTests calls the same helpers, so no block is copied.
+    - `swift test --filter "CodeNavigationToolTests|CodeSearchToolTests"`: 18 tests in 2 suites pass. `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exit 0.
+    - next: /test (full suite).
+  timestamp: 2026-09-16T00:22:09.823290+00:00
+- actor: claude-code
+  id: 01m2ksftt9x9hywggpxpk3hxaa
+  text: |-
+    ### test — green
+    - evidence: `swift test` exit 0 — 599 tests in 53 suites passed, 0 failed, 0 skipped. The full log has no `error:` line and no `warning:` line. The run took 4.8 seconds of test time.
+    - `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exit 0.
+    - `swift build --package-path IntegrationTests --build-tests` exit 0, 0 warnings and 0 errors in the log.
+    - `swift test --filter "CodeNavigationToolTests|CodeSearchToolTests"`: 18 tests in 2 suites pass, each run less than 0.1 seconds.
+    - next: /commit.
+  timestamp: 2026-09-16T00:22:26.377838+00:00
 depends_on:
 - 01M2JVWH2DV2WCXTBHR6QBVGWQ
-position_column: todo
-position_ordinal: '8480'
+position_column: doing
+position_ordinal: '80'
 title: 'code_navigation tool: position operations'
 ---
 ## What

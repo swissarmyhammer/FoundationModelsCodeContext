@@ -12,9 +12,6 @@ import Testing
 /// marker, so no LSP daemon starts, and the tree-sitter layer gives the
 /// symbols and the call edges.
 struct CodeSearchToolTests {
-    /// One tool call, and the JSON text that the call must give.
-    private typealias Call = (arguments: GeneratedContent, expected: String)
-
     /// The file of the fixture, relative to the workspace root.
     private static let fixtureFile = "Greeter.swift"
 
@@ -85,56 +82,20 @@ struct CodeSearchToolTests {
     private static let callMaxPerChunk = 2
 
     /// Indexes the fixture, makes the tool, and gives the tool and the
-    /// `CodeContext` to `body`. The `CodeContext` stops after `body`, also
-    /// when `body` throws.
+    /// `CodeContext` to `body`.
     ///
     /// - Parameter body: The test body.
     /// - Throws: The error that the setup or `body` throws.
     private static func withIndexedTool(
         _ body: (OperationTool<CodeContextToolContext>, CodeContext<FakeLanguageServerConnection>) async throws -> Void
     ) async throws {
-        try await withTemporaryWorkspace { root in
-            try write(fixtureSource, to: fixtureFile, in: root)
-            let context = try await CodeContext<FakeLanguageServerConnection>(
-                rootDirectory: root,
-                embedder: FakeEmbedder(dimension: embeddingDimension),
-                eventSource: FakeFileEventSource(),
-                autoInstall: LspAutoInstall(isEnabled: false),
-                connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
-            )
-            try await context.start()
-            do {
-                try await body(try CodeSearchTool.make(context: CodeContextToolContext(operating: context)), context)
-            } catch {
-                await context.stop()
-                throw error
-            }
-            await context.stop()
-        }
-    }
-
-    /// Calls `tool` with the arguments of each call, and expects the JSON
-    /// text of that call.
-    ///
-    /// - Parameters:
-    ///   - calls: The tool calls and their expected JSON text.
-    ///   - tool: The tool to call.
-    /// - Throws: The error that the tool throws.
-    private static func expectEachCall(_ calls: [Call], on tool: OperationTool<CodeContextToolContext>) async throws {
-        for call in calls {
-            let output = try await tool.call(arguments: call.arguments)
-            #expect(output == call.expected, "arguments: \(call.arguments.jsonString)")
-        }
-    }
-
-    /// Decodes a tool output that is one JSON string, for example a corrective
-    /// message.
-    ///
-    /// - Parameter output: The tool output.
-    /// - Returns: The decoded string.
-    /// - Throws: A `DecodingError` when `output` is not one JSON string.
-    private static func decodedString(_ output: String) throws -> String {
-        try JSONDecoder().decode(String.self, from: Data(output.utf8))
+        try await ToolTest.withIndexedTool(
+            source: fixtureSource,
+            file: fixtureFile,
+            embeddingDimension: embeddingDimension,
+            make: CodeSearchTool.make,
+            body
+        )
     }
 
     // MARK: - The tool
@@ -169,7 +130,7 @@ struct CodeSearchToolTests {
             #expect(graph.root.name == "helper")
             #expect(!radius.roots.isEmpty)
 
-            try await Self.expectEachCall(
+            try await ToolTest.expectEachCall(
                 [
                     (
                         GeneratedContent(properties: ["op": "get symbol", "query": "greet", "maxResults": 1]),
@@ -213,7 +174,7 @@ struct CodeSearchToolTests {
             // shows that the engine gives the tied matches a fixed order.
             let matches = try await context.searchSymbol(query: "greet")
 
-            try await Self.expectEachCall(
+            try await ToolTest.expectEachCall(
                 [
                     (
                         GeneratedContent(properties: ["op": "get callgraph", "symbol": "greet"]),
@@ -247,7 +208,7 @@ struct CodeSearchToolTests {
             let radius = try TestJSON.encodedText(try await context.blastRadius(file: Self.fixtureFile))
             let locations = try TestJSON.encodedText(try await context.listSymbols(file: Self.fixtureFile))
 
-            try await Self.expectEachCall(
+            try await ToolTest.expectEachCall(
                 [
                     (GeneratedContent(properties: ["op": "get call_graph", "symbol": "greet"]), graph),
                     (GeneratedContent(properties: ["op": "callgraph get", "symbol": "greet"]), graph),
@@ -272,7 +233,7 @@ struct CodeSearchToolTests {
             )
 
             #expect(
-                try Self.decodedString(output)
+                try ToolTest.decodedString(output)
                     == ToolSupport.correctiveMessage(for: .notFound("symbol not found: noSuchSymbol"))
             )
         }
@@ -288,7 +249,7 @@ struct CodeSearchToolTests {
             )
 
             #expect(
-                try Self.decodedString(output)
+                try ToolTest.decodedString(output)
                     == "`sideways` is not a valid value for `direction`. Use one of: inbound, outbound, both."
             )
         }
@@ -353,7 +314,7 @@ struct CodeSearchToolTests {
             #expect(hits.query == Self.searchText)
             #expect(!ast.matches.isEmpty)
 
-            try await Self.expectEachCall(
+            try await ToolTest.expectEachCall(
                 [
                     (
                         GeneratedContent(properties: [
@@ -397,7 +358,7 @@ struct CodeSearchToolTests {
             let duplicates = try await context.findDuplicates()
             let ast = try await context.queryAST(language: Self.fixtureLanguage, query: Self.astQuery)
 
-            try await Self.expectEachCall(
+            try await ToolTest.expectEachCall(
                 [
                     (
                         GeneratedContent(properties: ["op": "grep code", "pattern": Self.grepPattern]),
@@ -436,7 +397,7 @@ struct CodeSearchToolTests {
                 try await context.queryAST(language: Self.fixtureLanguage, query: Self.astQuery)
             )
 
-            try await Self.expectEachCall(
+            try await ToolTest.expectEachCall(
                 [
                     (
                         GeneratedContent(properties: [
@@ -465,7 +426,7 @@ struct CodeSearchToolTests {
             let output = try await tool.call(
                 arguments: GeneratedContent(properties: ["op": "grep code", "pattern": "("])
             )
-            let message = try Self.decodedString(output)
+            let message = try ToolTest.decodedString(output)
 
             #expect(message.hasPrefix("The pattern is not a valid regular expression:"))
             #expect(message.hasSuffix("Correct the pattern, then try again."))
@@ -480,7 +441,7 @@ struct CodeSearchToolTests {
                     "op": "query ast", "language": Self.fixtureLanguage, "astQuery": "(not_a_valid_node_type @x)",
                 ])
             )
-            let message = try Self.decodedString(output)
+            let message = try ToolTest.decodedString(output)
 
             #expect(message.hasPrefix("The AST query failed:"))
             #expect(message.hasSuffix("Correct the language or the query, then try again."))
