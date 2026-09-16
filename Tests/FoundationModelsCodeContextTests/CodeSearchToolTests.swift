@@ -5,7 +5,7 @@ import Testing
 
 @testable import FoundationModelsCodeContext
 
-/// Tests the symbol and graph operations of the `code_search` tool.
+/// Tests the operations of the `code_search` tool.
 ///
 /// Each test indexes a small Swift fixture and calls the tool as the model
 /// calls it: with a `GeneratedContent` payload. The fixture has no project
@@ -46,6 +46,43 @@ struct CodeSearchToolTests {
 
     /// The shared description of the `file` parameter.
     private static let fileDescription = "A file path relative to the workspace root."
+
+    /// The description of the `astQuery` parameter.
+    private static let astQueryDescription =
+        "A tree-sitter S-expression query, for example `(function_declaration) @function`."
+
+    /// An S-expression query that matches each Swift function declaration.
+    private static let astQuery = "(function_declaration) @function"
+
+    /// The language of the fixture, for the `query ast` calls.
+    private static let fixtureLanguage = "swift"
+
+    /// The glob of the `grep code` calls that give a glob.
+    private static let fixtureGlob = "*.swift"
+
+    /// The regular expression of the `grep code` calls. It matches the free
+    /// function of the fixture.
+    private static let grepPattern = "helper"
+
+    /// The free text of the `search code` calls.
+    private static let searchText = "hello"
+
+    /// The maximum number of results of the calls that give a maximum.
+    private static let callMaxResults = 5
+
+    /// The number of hits of the `search code` calls that give a number.
+    private static let callTopK = 3
+
+    /// The minimum similarity of the `find duplicates` calls that give one.
+    private static let callMinSimilarity = 0.5
+
+    /// The minimum chunk size, in bytes, of the `find duplicates` calls that
+    /// give one.
+    private static let callMinChunkBytes = 1
+
+    /// The maximum number of duplicates for one chunk of the `find duplicates`
+    /// calls that give one.
+    private static let callMaxPerChunk = 2
 
     /// Indexes the fixture, makes the tool, and gives the tool and the
     /// `CodeContext` to `body`. The `CodeContext` stops after `body`, also
@@ -103,12 +140,13 @@ struct CodeSearchToolTests {
     // MARK: - The tool
 
     @Test
-    func makeFusesTheFiveSymbolAndGraphOperations() async throws {
+    func toolExposesNineOperations() async throws {
         try await Self.withIndexedTool { tool, _ in
             #expect(tool.name == "code_search")
             #expect(
                 tool.operations.map(\.opString) == [
                     "get symbol", "search symbol", "list symbol", "get callgraph", "get blastradius",
+                    "grep code", "search code", "find duplicates", "query ast",
                 ]
             )
         }
@@ -273,6 +311,179 @@ struct CodeSearchToolTests {
                 let property = try #require(properties[parameter.name] as? [String: Any], "parameter: \(parameter.name)")
                 #expect(property["description"] as? String == parameter.expected, "parameter: \(parameter.name)")
             }
+        }
+    }
+
+    @Test
+    func fusedSchemaHasAstQueryParameter() async throws {
+        try await Self.withIndexedTool { tool, _ in
+            let schema = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(tool.parameters))
+            let properties = try #require((schema as? [String: Any])?["properties"] as? [String: Any])
+            let astQuery = try #require(properties["astQuery"] as? [String: Any])
+
+            #expect(astQuery["description"] as? String == Self.astQueryDescription)
+        }
+    }
+
+    // MARK: - The text, similarity and AST operations
+
+    @Test
+    func eachNewOperationReturnsTheJSONOfTheEngineResult() async throws {
+        try await Self.withIndexedTool { tool, context in
+            let grep = try await context.grepCode(
+                pattern: Self.grepPattern,
+                languages: [Self.fixtureLanguage],
+                filePattern: Self.fixtureGlob,
+                maxResults: Self.callMaxResults
+            )
+            let hits = try await context.searchCode(query: Self.searchText, topK: Self.callTopK)
+            let duplicates = try await context.findDuplicates(
+                file: Self.fixtureFile,
+                minSimilarity: Self.callMinSimilarity,
+                minChunkBytes: Self.callMinChunkBytes,
+                maxPerChunk: Self.callMaxPerChunk
+            )
+            let ast = try await context.queryAST(
+                language: Self.fixtureLanguage,
+                query: Self.astQuery,
+                options: QueryASTOptions(maxResults: Self.callMaxResults)
+            )
+
+            #expect(grep.pattern == Self.grepPattern)
+            #expect(hits.query == Self.searchText)
+            #expect(!ast.matches.isEmpty)
+
+            try await Self.expectEachCall(
+                [
+                    (
+                        GeneratedContent(properties: [
+                            "op": "grep code", "pattern": Self.grepPattern, "languages": [Self.fixtureLanguage],
+                            "filePattern": Self.fixtureGlob, "maxResults": Self.callMaxResults,
+                        ]),
+                        try TestJSON.encodedText(grep)
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "search code", "query": Self.searchText, "topK": Self.callTopK,
+                        ]),
+                        try TestJSON.encodedText(hits)
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "find duplicates", "file": Self.fixtureFile,
+                            "minSimilarity": Self.callMinSimilarity, "minChunkBytes": Self.callMinChunkBytes,
+                            "maxPerChunk": Self.callMaxPerChunk,
+                        ]),
+                        try TestJSON.encodedText(duplicates)
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "query ast", "language": Self.fixtureLanguage, "astQuery": Self.astQuery,
+                            "maxResults": Self.callMaxResults,
+                        ]),
+                        try TestJSON.encodedText(ast)
+                    ),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func newOperationDefaultsMatchTheDirectEngineCall() async throws {
+        try await Self.withIndexedTool { tool, context in
+            let grep = try await context.grepCode(pattern: Self.grepPattern)
+            let hits = try await context.searchCode(query: Self.searchText)
+            let duplicates = try await context.findDuplicates()
+            let ast = try await context.queryAST(language: Self.fixtureLanguage, query: Self.astQuery)
+
+            try await Self.expectEachCall(
+                [
+                    (
+                        GeneratedContent(properties: ["op": "grep code", "pattern": Self.grepPattern]),
+                        try TestJSON.encodedText(grep)
+                    ),
+                    (
+                        GeneratedContent(properties: ["op": "search code", "query": Self.searchText]),
+                        try TestJSON.encodedText(hits)
+                    ),
+                    (
+                        GeneratedContent(properties: ["op": "find duplicates"]),
+                        try TestJSON.encodedText(duplicates)
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "query ast", "language": Self.fixtureLanguage, "astQuery": Self.astQuery,
+                        ]),
+                        try TestJSON.encodedText(ast)
+                    ),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func newOperationAliasesDispatch() async throws {
+        try await Self.withIndexedTool { tool, context in
+            let grep = try TestJSON.encodedText(try await context.grepCode(pattern: Self.grepPattern))
+            let hits = try TestJSON.encodedText(try await context.searchCode(query: Self.searchText))
+            let limited = try TestJSON.encodedText(
+                try await context.searchCode(query: Self.searchText, topK: Self.callMaxResults)
+            )
+            let duplicates = try TestJSON.encodedText(try await context.findDuplicates())
+            let ast = try TestJSON.encodedText(
+                try await context.queryAST(language: Self.fixtureLanguage, query: Self.astQuery)
+            )
+
+            try await Self.expectEachCall(
+                [
+                    (
+                        GeneratedContent(properties: [
+                            "op": "query ast", "language": Self.fixtureLanguage, "query": Self.astQuery,
+                        ]),
+                        ast
+                    ),
+                    (GeneratedContent(properties: ["op": "grep code", "regex": Self.grepPattern]), grep),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "search code", "query": Self.searchText, "limit": Self.callMaxResults,
+                        ]),
+                        limited
+                    ),
+                    (GeneratedContent(properties: ["op": "find dupes"]), duplicates),
+                    (GeneratedContent(properties: ["op": "search source", "query": Self.searchText]), hits),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func anInvalidGrepPatternGivesACorrectiveString() async throws {
+        try await Self.withIndexedTool { tool, _ in
+            let output = try await tool.call(
+                arguments: GeneratedContent(properties: ["op": "grep code", "pattern": "("])
+            )
+            let message = try Self.decodedString(output)
+
+            #expect(message.hasPrefix("The pattern is not a valid regular expression:"))
+            #expect(message.hasSuffix("Correct the pattern, then try again."))
+        }
+    }
+
+    @Test
+    func anInvalidAstQueryGivesACorrectiveString() async throws {
+        try await Self.withIndexedTool { tool, _ in
+            let output = try await tool.call(
+                arguments: GeneratedContent(properties: [
+                    "op": "query ast", "language": Self.fixtureLanguage, "astQuery": "(not_a_valid_node_type @x)",
+                ])
+            )
+            let message = try Self.decodedString(output)
+
+            #expect(message.hasPrefix("The AST query failed:"))
+            #expect(message.hasSuffix("Correct the language or the query, then try again."))
         }
     }
 }

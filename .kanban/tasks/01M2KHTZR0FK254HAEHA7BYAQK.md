@@ -1,8 +1,20 @@
 ---
 assignees:
 - claude-code
-position_column: doing
-position_ordinal: '80'
+comments:
+- actor: claude-code
+  id: 01m2kr7remds9hgytz6csn9234
+  text: |-
+    ### finish iteration 1 — review clean
+    - implement: added one shared comparator `rankedBefore` to `SymbolOps`, with the typealias `ScoredCandidateRow`. It keeps the highest score first, then compares the qualified path, the file path and the start line. All four score sorts (the suffix, case-insensitive and fuzzy tiers, and `searchSymbol`) now use it. The exact tier gives each match the same score and did not sort at all, so it uses the comparator too. The tool test `defaultsMatchTheDirectEngineCall` now uses the query `greet`, which has a tie. Added `searchSymbolGivesTiedMatchesTheSameOrderOnEveryCall`, which calls `searchSymbol(query: "greet")` 21 times on a `Greeter`/`helper` fixture and expects the order `["Greeter", "Greeter.greet"]` each time.
+    - test: green — 588 tests in 52 suites passed. `swift format lint -r --strict` gave no findings.
+    - commit: 111ea82
+    - review: clean — 0 findings from 7 checks.
+
+    Note for the next agent: `Greeter` and `Greeter.greet` both score 120 for the query `greet`, because `fuzzyScore` gives 10 for the first character, 10 more because it starts the target, and 25 for each of the four characters that follow. `helper` has no `g`, so it does not match. `listSymbols` sorts only by start line, but its candidates are keyed by `(file path, start line)` inside one file, so that order is already total.
+  timestamp: 2026-09-16T00:00:33.236980+00:00
+position_column: done
+position_ordinal: c480
 title: 'searchSymbol and getSymbol: matches with the same score have no fixed order'
 ---
 ## What

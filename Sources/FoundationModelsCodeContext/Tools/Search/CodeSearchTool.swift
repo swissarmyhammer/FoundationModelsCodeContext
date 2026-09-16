@@ -1,8 +1,8 @@
 import FoundationModels
 import Operations
 
-/// The `code_search` tool: it finds symbols and walks the call graph of the
-/// workspace.
+/// The `code_search` tool: it finds symbols, walks the call graph, and
+/// searches the text and the syntax tree of the workspace.
 ///
 /// The tool fuses its operations into one `OperationTool`. The model selects
 /// an operation with the `op` parameter, for example `get symbol`.
@@ -13,7 +13,8 @@ internal enum CodeSearchTool {
     /// The model-facing description of the tool.
     static let description =
         "Search the code of the workspace. Find symbols by name, list the symbols of a file, "
-        + "walk the call graph of a symbol, and find the blast radius of a change."
+        + "walk the call graph of a symbol, find the blast radius of a change, match a regular "
+        + "expression, search with free text, find near-duplicate code, and run a tree-sitter query."
 
     /// The verb aliases of the tool, from the alias to the real verb.
     ///
@@ -55,6 +56,10 @@ internal enum CodeSearchTool {
             AnyOperation(ListSymbolOperation.self),
             AnyOperation(GetCallgraphOperation.self),
             AnyOperation(GetBlastradiusOperation.self),
+            AnyOperation(GrepCodeOperation.self),
+            AnyOperation(SearchCodeOperation.self),
+            AnyOperation(FindDuplicatesOperation.self),
+            AnyOperation(QueryAstOperation.self),
         ]
     }
 
