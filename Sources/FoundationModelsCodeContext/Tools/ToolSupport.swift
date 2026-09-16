@@ -1,4 +1,5 @@
 import Foundation
+import Operations
 
 /// The outcome of one tool operation: a success value, or a corrective
 /// message for the model.
@@ -48,6 +49,46 @@ extension ChoiceParse: Equatable where T: Equatable {}
 
 /// The shared helpers of the FoundationModels tool operations of this package.
 internal enum ToolSupport {
+    /// Makes one fused tool from the name, the description, the alias tables
+    /// and the operations of a tool.
+    ///
+    /// Each tool of this package has the same construction: it fuses its
+    /// operations into one `OperationTool`, and it gives its two alias tables
+    /// to the resolver. Only the name, the description, the tables and the
+    /// operations are different, so this function holds the construction one
+    /// time.
+    ///
+    /// - Parameters:
+    ///   - name: The model-facing name of the tool.
+    ///   - description: The model-facing description of the tool.
+    ///   - verbAliases: The verb aliases of the tool, from the alias to the
+    ///     real verb.
+    ///   - nounAliases: The noun aliases of the tool, from the alias to the
+    ///     real noun.
+    ///   - operations: The operations of the tool, in the order of the fused
+    ///     schema.
+    ///   - context: The tool context that each operation receives.
+    /// - Returns: The fused tool, with the alias tables of the tool in its
+    ///   resolver.
+    /// - Throws: `SchemaFusionError` or `GenerationSchema.SchemaError` when the
+    ///   schema fusion fails.
+    static func makeOperationTool(
+        name: String,
+        description: String,
+        verbAliases: [String: String],
+        nounAliases: [String: String],
+        operations: [AnyOperation<CodeContextToolContext>],
+        context: CodeContextToolContext
+    ) throws -> OperationTool<CodeContextToolContext> {
+        try OperationTool(
+            name: name,
+            description: description,
+            context: context,
+            operations: operations,
+            resolver: OperationResolver(verbAliases: verbAliases, nounAliases: nounAliases)
+        )
+    }
+
     /// Gives the corrective message for a recoverable `CodeContextError`.
     ///
     /// The model can correct a recoverable error itself: it can change a name,

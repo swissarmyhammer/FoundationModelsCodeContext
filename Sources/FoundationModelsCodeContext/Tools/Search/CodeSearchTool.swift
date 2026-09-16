@@ -71,12 +71,13 @@ internal enum CodeSearchTool {
     /// - Throws: `SchemaFusionError` or `GenerationSchema.SchemaError` when the
     ///   schema fusion fails.
     static func make(context: CodeContextToolContext) throws -> OperationTool<CodeContextToolContext> {
-        try OperationTool(
+        try ToolSupport.makeOperationTool(
             name: name,
             description: description,
-            context: context,
+            verbAliases: verbAliases,
+            nounAliases: nounAliases,
             operations: operations(),
-            resolver: OperationResolver(verbAliases: verbAliases, nounAliases: nounAliases)
+            context: context
         )
     }
 }
