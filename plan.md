@@ -24,14 +24,15 @@ struct StatusView: View {
 }
 ```
 
-This package is the engine only — no server of any kind, no MCP, no CLI. The
-consumer is a **higher-level package that wraps these ops as FoundationModels
-`Tool` implementations** for an in-process agent harness. Two design
-consequences here:
+This package is the engine **and its FoundationModels tools** — no server of
+any kind, no MCP, no CLI. One main target holds the engine and three
+`OperationTool`s from FoundationModelsExtras: `code_search`, `code_navigation`
+and `code_index`. The examples and the integration tests are separate targets.
+Two design consequences here:
 
-- Every op result is a plain `Codable & Sendable` value type, so a `Tool`
-  wrapper is a thin `call(arguments:) -> output` shim over one async method —
-  no adaptation layer needed.
+- Every op result is an `Encodable & Sendable` value type, so each tool
+  operation is a thin shim over one async method — no adaptation layer
+  needed.
 - `CodeContext` is cheap to hold alongside the agent's other tools and safe
   to call concurrently from tool invocations (actor-isolated where it
   matters, read-only queries in parallel).
@@ -45,7 +46,7 @@ consequences here:
 | `LiveLspRouter` / `MultiLspRouter` follower→leader routing seams | Ops talk to the in-process `LspSession` directly |
 | `spawn_reelection_loop`, follower diagnostics subscriber, promotion gating | Same |
 | `ane-embedding` (CoreML/ANE) and `llama-embedding` (GGUF) backends, `model-loader` | The host app supplies the embedding model as a `TextEmbedding` value; this package has no model loader and no hand-rolled ANE |
-| MCP tool layer (`swissarmyhammer-tools` dispatch, schema) and any server surface | Consumer wraps ops as FoundationModels `Tool`s in a higher-level package |
+| MCP tool layer (`swissarmyhammer-tools` dispatch, schema) and any server surface | The main target ships the three FoundationModels tools; there is no MCP layer and no server |
 | YAML server-spec registry + `include_dir!` embedding | Specs become plain Swift values (see LSP registry) |
 | `ReadOnlyFollower` errors, residual-writer defenses | No second writer exists |
 
@@ -84,7 +85,10 @@ FoundationModelsCodeContext/
     Projects/              // project-type detection
     Embedding/             // TextEmbedding typealias to FoundationModelsRanker's protocol
     Logging/               // os.Logger subsystem/category constants
+    Tools/                 // the three FoundationModels tools and their operations
   Tests/FoundationModelsCodeContextTests/
+  Examples/                // one executable target for each example program
+  IntegrationTests/        // nested package: the live language-server suite
 ```
 
 ### Dependencies
@@ -94,6 +98,9 @@ FoundationModelsCodeContext/
   (`embed([String]) async throws -> [[Float]]`, L2-normalized, runtime
   `dimension`). The caller supplies the embedding model. The resolved build
   graph has no Router package.
+- **FoundationModelsExtras** (GitHub URL, `main`) — its `Operations` product
+  gives `@Operation` and `OperationTool`, which the three FoundationModels
+  tools of the main target use.
 - **SwiftTreeSitter** (ChimeHQ) + per-language grammar packages.
 - **GRDB** for SQLite (WAL, migrations, `DatabasePool` for concurrent reads).
   Alternative: raw `sqlite3` C API — more code, no dep. Recommend GRDB.

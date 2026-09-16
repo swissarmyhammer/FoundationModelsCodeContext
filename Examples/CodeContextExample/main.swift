@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 import FoundationModelsCodeContext
 
 /// # Runnable demo: standalone, single-root `CodeContext`.
@@ -53,6 +54,19 @@ private let embedder = HashingEmbedder(dimension: embeddingDimension)
 
 let context = try await CodeContext(rootDirectory: rootDirectory, embedder: embedder)
 try await context.start()
+
+// MARK: - The FoundationModels tools of this context
+
+// `CodeContextTools.make(context:)` gives the three tools of one `CodeContext`.
+// A host gives them to a `LanguageModelSession`. This example only prints the
+// name of each tool and its op strings: it calls no language model.
+let tools = try CodeContextTools.make(context: context)
+for tool in tools {
+    let operations = CodeContextTools.operationNames[tool.name] ?? []
+    print("Tool \(tool.name): \(operations.joined(separator: ", "))")
+}
+
+// MARK: - Query the context
 
 let projects = try await context.detectProjects()
 print("Detected projects: \(projects)")

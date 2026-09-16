@@ -30,12 +30,30 @@ comments:
     - The first build gave one error and four warnings, and both are now corrected: `#expect` takes a `Comment`, so the message of the parameter-alias check must be one interpolated literal and not two strings with `+`; and `indexStatus()` and `lspStatus()` do not throw, so the `try` on those four calls was not necessary.
     - next: /commit.
   timestamp: 2026-09-16T00:58:41.143402+00:00
+- actor: claude-code
+  id: 01m2kvrzrr1z6xkxdynvqvv5zh
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (d07f508) — 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed, 0 skipped). 18 files reviewed; the 4 `.kanban/` files are excluded by `.reviewignore`.
+    - No finding is open, because this is iteration 1 and it gave no finding.
+    - Each box of the card is now checked: the four operation files of Tools/Index, CodeIndexTool with its two alias tables, CodeContextTools with `make`, `toolNames` and `operationNames`, the three tools with 9, 10 and 4 operations, the safe alias tables, the alias dispatch of `get lspstatus`, `get lsp`, `refresh index`, `scan projects`, `list project` and `rebuild index` with `target: tree_sitter`, the corrective string of an invalid layer, the registration on a `LanguageModelSession`, `swift build`, `swift build --package-path IntegrationTests --build-tests`, `swift format lint` and `swift test`.
+    - next: move the task to done.
+  timestamp: 2026-09-16T01:02:23.512524+00:00
+- actor: claude-code
+  id: 01m2kvs57jpqynmv9h6nv7g76a
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 9 new files (Tools/Index/{GetStatusOperation,GetLspStatusOperation,RebuildIndexOperation,DetectProjectsOperation,CodeIndexTool}.swift, Tools/CodeContextTools.swift, and the three new test suites CodeIndexToolTests, CodeContextToolsTests, CodeContextToolsPublicAPITests), and 6 changed files (ToolSupport.swift and CodeContextDefaults.swift for `includesSchemaInInstructions`, the `make` function of the two other tools, ToolTestSupport.swift for the shared `withStartedContext`, TestSupport.swift for the shared `CallerDefinedEmbedder`, and the call sites in the three older test files).
+    - test: green — `swift test` 616 tests in 56 suites passed, 0 failed, 0 skipped, 0 warnings; `swift build --build-tests` exit 0; `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exit 0; `swift build --package-path IntegrationTests --build-tests` exit 0.
+    - commit: d07f508
+    - review: clean — `review sha HEAD~1..HEAD` 0 findings (7 attempted, 0 failed, 0 refuted). No finding was open from a previous iteration.
+  timestamp: 2026-09-16T01:02:29.106916+00:00
 depends_on:
 - 01M2JVXMF987MDJWG7533EJV0T
 - 01M2JVYA791J25KMC3VDW4P9BJ
 - 01M2JVWWAYY3VPYYH3XFAGWVZ8
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: c880
 title: code_index tool and the public CodeContextTools factory
 ---
 ## What
