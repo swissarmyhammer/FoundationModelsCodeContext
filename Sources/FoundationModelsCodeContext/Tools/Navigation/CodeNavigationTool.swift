@@ -19,7 +19,10 @@ internal enum CodeNavigationTool {
         "Move through the code from a position in a file: `get definition` finds the declaration of the symbol, "
         + "`get type_definition` finds the declaration of its type, `get hover` gives its type, signature or "
         + "documentation, `get references` finds each place that uses it, and `get implementations` finds each "
-        + "implementation of it. Each result tells which layer gave the data."
+        + "implementation of it. `get code_actions` gives the quick fixes of a range, `get rename_edits` gives the "
+        + "edits of a rename, `get inbound_calls` finds each function that calls it, `search workspace_symbol` finds "
+        + "the symbols of the workspace by name, and `get diagnostics` gives the errors and the warnings of a scope. "
+        + "Each result tells which layer gave the data."
 
     /// The verb aliases of the tool, from the alias to the real verb.
     ///
@@ -78,6 +81,11 @@ internal enum CodeNavigationTool {
             AnyOperation(GetHoverOperation.self),
             AnyOperation(GetReferencesOperation.self),
             AnyOperation(GetImplementationsOperation.self),
+            AnyOperation(GetCodeActionsOperation.self),
+            AnyOperation(GetRenameEditsOperation.self),
+            AnyOperation(GetInboundCallsOperation.self),
+            AnyOperation(SearchWorkspaceSymbolOperation.self),
+            AnyOperation(GetDiagnosticsOperation.self),
         ]
     }
 

@@ -1,11 +1,37 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m2ktgctrvh21ghj614fmk595
+  text: |-
+    ### implement — changed
+    - evidence: 7 files. New: Sources/FoundationModelsCodeContext/Tools/Navigation/{GetCodeActionsOperation,GetRenameEditsOperation,GetInboundCallsOperation,SearchWorkspaceSymbolOperation,GetDiagnosticsOperation}.swift. Changed: Tools/Navigation/CodeNavigationTool.swift, Tests/FoundationModelsCodeContextTests/CodeNavigationToolTests.swift.
+    - Each new operation follows the pattern of the five position operations: `@Operation` with the three arguments, `@OperationParam` aliases, and `ToolSupport.outcome { }` for the engine call. The descriptions of `file`, `line` and `character` are the same words as the registered descriptions, so the fused schema keeps one description for each shared name.
+    - `get code_actions` gives an empty list of diagnostics to the engine. A `Diagnostic` is not a supported parameter type, so the operation has no diagnostics parameter. The doc comment says this.
+    - `get diagnostics` parses `scope` with `parseChoice` and a private table that maps `working`, `file` and `sha` to a private `enum ScopeKind`. It parses `severity` with `parseOptionalChoice` and a table of the four severity names. A missing `severity` is `CodeContextDefaults.diagnosticsSeverity`, and the other five arguments of the engine call are the `CodeContextDefaults.diagnostics*` constants.
+    - The scope becomes a `DiagnosticsScope`: `.working` gives `.workingTree`; `.file` needs `file`; `.sha` needs `sha`. A scope with no `file` or no `sha` gives a corrective string, and the engine call does not run.
+    - `CodeNavigationTool.operations()` now gives ten operations, and the description of the tool names the five new operations.
+    - Discovery: the temporary workspace of the tool tests is not a git repository. `scope: "working"` and `scope: "sha"` there both fail in git, so each one gives the corrective string of `CodeContextError.spawnFailed`. The two tests use this fact.
+    - `swift build --build-tests` exit 0. `swift test --filter CodeNavigationToolTests`: 10 tests in 1 suite pass. `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exit 0.
+    - next: /test (full suite).
+  timestamp: 2026-09-16T00:40:13.400205+00:00
+- actor: claude-code
+  id: 01m2kth8q181400fkf9brgk6zt
+  text: |-
+    ### test — green
+    - evidence: `swift test` exit 0 — 604 tests in 53 suites passed, 0 failed, 0 skipped. The full log has no `error:` line and no `warning:` line. The test time was 5.0 seconds.
+    - `swift test --filter CodeNavigationToolTests`: 10 tests in 1 suite pass, each run less than 0.2 seconds.
+    - `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exit 0.
+    - `swift build --package-path IntegrationTests --build-tests` exit 0, with 0 errors and 0 warnings in the log.
+    - The suite count is 5 tests more than the 599 tests of the last task, because this task adds 5 tests.
+    - next: /commit.
+  timestamp: 2026-09-16T00:40:41.953797+00:00
 depends_on:
 - 01M2JVXYZNVQJYZXY3F681TKFE
 - 01M2JVWWAYY3VPYYH3XFAGWVZ8
-position_column: todo
-position_ordinal: '8580'
+position_column: doing
+position_ordinal: '80'
 title: 'code_navigation tool: edit, call and diagnostics operations'
 ---
 ## What

@@ -70,10 +70,36 @@ comments:
     - `swift build --package-path IntegrationTests --build-tests` exit 0, 0 warnings and 0 errors in the log.
     - next: /commit.
   timestamp: 2026-09-16T00:29:43.522801+00:00
+- actor: claude-code
+  id: 01m2ksxm6pnrw5fg29pb1hye8g
+  text: |-
+    ### commit — changed
+    - evidence: c9a279d refactor(tools): share one factory for the fused operation tools. 3 files: Tools/ToolSupport.swift, Tools/Navigation/CodeNavigationTool.swift, Tools/Search/CodeSearchTool.swift, with the `.kanban/tasks` files.
+    - The commit is local. Nothing is pushed.
+    - next: /review.
+  timestamp: 2026-09-16T00:29:58.358852+00:00
+- actor: claude-code
+  id: 01m2kt1z18kne5tdftgmqcspeg
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (c9a279d) — 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed). 3 files reviewed; the 2 `.kanban/` files are excluded by `.reviewignore`.
+    - The finding of iteration 1 is now checked in the description: the shared factory `ToolSupport.makeOperationTool` holds the construction, and the two tools call it.
+    - Each box of the card is now checked: the six operation files, the five op strings, the defaults, the aliases, the corrective output, `swift build`, `swift format lint` and `swift test`.
+    - next: move the task to done.
+  timestamp: 2026-09-16T00:32:20.520699+00:00
+- actor: claude-code
+  id: 01m2kt22pxnh656g55t91tqhp6
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — `ToolSupport.makeOperationTool(name:description:verbAliases:nounAliases:operations:context:)` added in Tools/ToolSupport.swift, and `CodeNavigationTool.make` and `CodeSearchTool.make` each call it. No `make` function of the package calls `OperationTool(...)` directly now.
+    - test: green — `swift test` 599 tests in 53 suites passed, 0 failed, 0 skipped, 0 warnings; `swift format lint -r --strict` exit 0; `swift build --package-path IntegrationTests --build-tests` exit 0.
+    - commit: c9a279d
+    - review: clean — `review sha HEAD~1..HEAD` 0 findings (7 attempted, 0 failed); the one finding of iteration 1 is checked.
+  timestamp: 2026-09-16T00:32:24.285248+00:00
 depends_on:
 - 01M2JVWH2DV2WCXTBHR6QBVGWQ
-position_column: review
-position_ordinal: '80'
+position_column: done
+position_ordinal: c680
 title: 'code_navigation tool: position operations'
 ---
 ## What
@@ -116,4 +142,4 @@ Shared `file` description in `code_navigation` (the first operation registers it
 > 4 file(s) not reviewed — excluded by an ignore rule:
 > - `.kanban/ (from .reviewignore)` — 4 file(s)
 
-- [ ] `Sources/FoundationModelsCodeContext/Tools/Navigation/CodeNavigationTool.swift:91` `reuse/reuse` — The `make` function reimplements factory logic identical to CodeSearchTool::make. With multiple tools using this pattern, generic factory logic should be extracted to a shared helper rather than duplicated across tools. Extract a shared factory function (e.g., `makeOperationTool(name:description:verbAliases:nounAliases:operations:context:)`) in a tool utilities file. Have both CodeNavigationTool::make and CodeSearchTool::make delegate to this shared factory. The per-tool static properties remain in each tool; the generic construction pattern is shared once.
+- [x] `Sources/FoundationModelsCodeContext/Tools/Navigation/CodeNavigationTool.swift:91` `reuse/reuse` — The `make` function reimplements factory logic identical to CodeSearchTool::make. With multiple tools using this pattern, generic factory logic should be extracted to a shared helper rather than duplicated across tools. Extract a shared factory function (e.g., `makeOperationTool(name:description:verbAliases:nounAliases:operations:context:)`) in a tool utilities file. Have both CodeNavigationTool::make and CodeSearchTool::make delegate to this shared factory. The per-tool static properties remain in each tool; the generic construction pattern is shared once.

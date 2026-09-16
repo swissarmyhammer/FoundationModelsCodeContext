@@ -5,7 +5,7 @@ import Testing
 
 @testable import FoundationModelsCodeContext
 
-/// Tests the position operations of the `code_navigation` tool.
+/// Tests the ten operations of the `code_navigation` tool.
 ///
 /// Each test indexes a small Swift fixture and calls the tool as the model
 /// calls it: with a `GeneratedContent` payload. The fixture has no project
@@ -43,10 +43,23 @@ struct CodeNavigationToolTests {
     /// The maximum number of results of the calls that give a maximum.
     private static let callMaxResults = 5
 
-    /// The op strings of the five position operations, in the order of the
-    /// fused schema.
+    /// The character offset that follows the name `helper` on `helperLine`.
+    /// The range of `get code_actions` ends here.
+    private static let helperEndCharacter = 11
+
+    /// The new name that `get rename_edits` gives to `helper`.
+    private static let newHelperName = "greeting"
+
+    /// The query of `search workspace_symbol`.
+    private static let symbolQuery = "helper"
+
+    /// A commit name that no repository holds.
+    private static let badSha = "0000000000000000000000000000000000000000"
+
+    /// The op strings of the ten operations, in the order of the fused schema.
     private static let operationStrings = [
         "get definition", "get type_definition", "get hover", "get references", "get implementations",
+        "get code_actions", "get rename_edits", "get inbound_calls", "search workspace_symbol", "get diagnostics",
     ]
 
     /// Indexes the fixture, makes the tool, and gives the tool and the
@@ -69,7 +82,7 @@ struct CodeNavigationToolTests {
     // MARK: - The tool
 
     @Test
-    func toolExposesTheFivePositionOperations() async throws {
+    func toolExposesTenOperations() async throws {
         try await Self.withIndexedTool { tool, _ in
             #expect(tool.name == "code_navigation")
             #expect(tool.operations.map(\.opString) == Self.operationStrings)
@@ -287,6 +300,222 @@ struct CodeNavigationToolTests {
             )
 
             #expect(output == "Missing required parameter(s): line.")
+        }
+    }
+
+    // MARK: - The edit, call and diagnostics operations
+
+    @Test
+    func eachNewOperationReturnsTheJSONOfTheEngineResult() async throws {
+        try await Self.withIndexedTool { tool, context in
+            let codeActions = try await context.codeActions(
+                filePath: Self.fixtureFile, startLine: Self.helperLine, startCharacter: Self.helperCharacter,
+                endLine: Self.helperLine, endCharacter: Self.helperEndCharacter
+            )
+            let renameEdits = try await context.renameEdits(
+                filePath: Self.fixtureFile, line: Self.helperLine, character: Self.helperCharacter,
+                newName: Self.newHelperName
+            )
+            let inboundCalls = try await context.inboundCalls(
+                filePath: Self.fixtureFile, line: Self.helperLine, character: Self.helperCharacter
+            )
+            let workspaceSymbols = try await context.workspaceSymbols(query: Self.symbolQuery)
+
+            #expect(renameEdits.canRename == false)
+            #expect(workspaceSymbols.symbols.isEmpty)
+
+            try await ToolTest.expectEachCall(
+                [
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get code_actions", "file": Self.fixtureFile, "startLine": Self.helperLine,
+                            "startCharacter": Self.helperCharacter, "endLine": Self.helperLine,
+                            "endCharacter": Self.helperEndCharacter,
+                        ]),
+                        try TestJSON.encodedText(codeActions)
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get rename_edits", "file": Self.fixtureFile, "line": Self.helperLine,
+                            "character": Self.helperCharacter, "newName": Self.newHelperName,
+                        ]),
+                        try TestJSON.encodedText(renameEdits)
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get inbound_calls", "file": Self.fixtureFile, "line": Self.helperLine,
+                            "character": Self.helperCharacter,
+                        ]),
+                        try TestJSON.encodedText(inboundCalls)
+                    ),
+                    (
+                        GeneratedContent(properties: ["op": "search workspace_symbol", "query": Self.symbolQuery]),
+                        try TestJSON.encodedText(workspaceSymbols)
+                    ),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func diagnosticsWithTheFileScopeGivesTheReport() async throws {
+        try await Self.withIndexedTool { tool, context in
+            let report = try TestJSON.encodedText(try await context.diagnostics(scope: .file(Self.fixtureFile)))
+
+            try await ToolTest.expectEachCall(
+                [
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get diagnostics", "scope": "file", "file": Self.fixtureFile,
+                        ]),
+                        report
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get diagnostics", "scope": "file", "path": Self.fixtureFile,
+                        ]),
+                        report
+                    ),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    // MARK: - The aliases of the new operations
+
+    @Test
+    func newOperationAliasesDispatch() async throws {
+        try await Self.withIndexedTool { tool, context in
+            let codeActions = try TestJSON.encodedText(
+                try await context.codeActions(
+                    filePath: Self.fixtureFile, startLine: Self.helperLine, startCharacter: Self.helperCharacter,
+                    endLine: Self.helperLine, endCharacter: Self.helperEndCharacter
+                )
+            )
+            let renameEdits = try TestJSON.encodedText(
+                try await context.renameEdits(
+                    filePath: Self.fixtureFile, line: Self.helperLine, character: Self.helperCharacter,
+                    newName: Self.newHelperName
+                )
+            )
+            let inboundCalls = try TestJSON.encodedText(
+                try await context.inboundCalls(
+                    filePath: Self.fixtureFile, line: Self.helperLine, character: Self.helperCharacter
+                )
+            )
+            let workspaceSymbols = try TestJSON.encodedText(try await context.workspaceSymbols(query: Self.symbolQuery))
+            let report = try TestJSON.encodedText(try await context.diagnostics(scope: .file(Self.fixtureFile)))
+
+            try await ToolTest.expectEachCall(
+                [
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get codeactions", "file": Self.fixtureFile, "startLine": Self.helperLine,
+                            "startCharacter": Self.helperCharacter, "endLine": Self.helperLine,
+                            "endCharacter": Self.helperEndCharacter,
+                        ]),
+                        codeActions
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get code_action", "file": Self.fixtureFile, "startLine": Self.helperLine,
+                            "startCharacter": Self.helperCharacter, "endLine": Self.helperLine,
+                            "endCharacter": Self.helperEndCharacter,
+                        ]),
+                        codeActions
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get rename_edits", "file": Self.fixtureFile, "line": Self.helperLine,
+                            "character": Self.helperCharacter, "name": Self.newHelperName,
+                        ]),
+                        renameEdits
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get inboundcalls", "file": Self.fixtureFile, "line": Self.helperLine,
+                            "character": Self.helperCharacter,
+                        ]),
+                        inboundCalls
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get callers", "file": Self.fixtureFile, "line": Self.helperLine,
+                            "character": Self.helperCharacter,
+                        ]),
+                        inboundCalls
+                    ),
+                    (
+                        GeneratedContent(properties: ["op": "search symbol", "query": Self.symbolQuery]),
+                        workspaceSymbols
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get errors", "scope": "file", "file": Self.fixtureFile,
+                        ]),
+                        report
+                    ),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    // MARK: - The corrective output of `get diagnostics`
+
+    @Test
+    func theDiagnosticsScopeAndSeverityGiveTheCorrectiveOutput() async throws {
+        try await Self.withIndexedTool { tool, _ in
+            let missingFile = try await tool.call(
+                arguments: GeneratedContent(properties: ["op": "get diagnostics", "scope": "file"])
+            )
+            let missingSha = try await tool.call(
+                arguments: GeneratedContent(properties: ["op": "get diagnostics", "scope": "sha"])
+            )
+            let unknownScope = try await tool.call(
+                arguments: GeneratedContent(properties: ["op": "get diagnostics", "scope": "bogus"])
+            )
+            let unknownSeverity = try await tool.call(
+                arguments: GeneratedContent(properties: [
+                    "op": "get diagnostics", "scope": "file", "file": Self.fixtureFile, "severity": "loud",
+                ])
+            )
+
+            #expect(
+                try ToolTest.decodedString(missingFile)
+                    .hasPrefix("Give the parameter `file` for the scope `file`.")
+            )
+            #expect(
+                try ToolTest.decodedString(missingSha)
+                    .hasPrefix("Give the parameter `sha` for the scope `sha`.")
+            )
+            #expect(
+                try ToolTest.decodedString(unknownScope)
+                    == "`bogus` is not a valid value for `scope`. Use one of: working, file, sha."
+            )
+            #expect(
+                try ToolTest.decodedString(unknownSeverity)
+                    == "`loud` is not a valid value for `severity`. Use one of: error, warning, information, hint."
+            )
+        }
+    }
+
+    @Test
+    func aGitFailureGivesTheCorrectiveOutput() async throws {
+        try await Self.withIndexedTool { tool, _ in
+            let workingTree = try await tool.call(
+                arguments: GeneratedContent(properties: ["op": "get diagnostics", "scope": "working"])
+            )
+            let unknownCommit = try await tool.call(
+                arguments: GeneratedContent(properties: [
+                    "op": "get diagnostics", "scope": "sha", "sha": Self.badSha,
+                ])
+            )
+
+            #expect(try ToolTest.decodedString(workingTree).hasPrefix("A git command failed:"))
+            #expect(try ToolTest.decodedString(unknownCommit).hasPrefix("A git command failed:"))
         }
     }
 }
