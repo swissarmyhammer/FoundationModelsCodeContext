@@ -23,6 +23,28 @@ func write(_ content: String, to relativePath: String, in root: URL) throws {
     try content.write(to: url, atomically: true, encoding: .utf8)
 }
 
+/// A `TextEmbedding` that the caller defines, with no model and no network.
+///
+/// The public-API test suites use this type. Those suites see only the public
+/// API, so they cannot use the internal `FakeEmbedder`. The first entry of
+/// each vector is the character count of its text, and the other entries are
+/// zero. The vectors are not useful for search; the suites examine only that
+/// the public API accepts the type.
+struct CallerDefinedEmbedder: TextEmbedding {
+    /// The length of each vector that `embed(_:)` returns.
+    let dimension: Int
+
+    /// Returns one `dimension`-length vector for each text, in order.
+    ///
+    /// - Parameter texts: The texts to embed.
+    /// - Returns: One vector for each text, in the order of `texts`.
+    func embed(_ texts: [String]) async throws -> [[Float]] {
+        texts.map { text in
+            [Float(text.count)] + Array(repeating: 0, count: dimension - 1)
+        }
+    }
+}
+
 /// The JSON helpers of the test target.
 enum TestJSON {
     /// Encodes `value` with `.sortedKeys` and returns the JSON text.

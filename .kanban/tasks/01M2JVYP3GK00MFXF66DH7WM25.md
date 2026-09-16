@@ -1,12 +1,41 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m2kvj1hq6m7gf5j658ert7dy
+  text: |-
+    ### implement — changed
+    - evidence: 15 files. New: Sources/FoundationModelsCodeContext/Tools/Index/{GetStatusOperation,GetLspStatusOperation,RebuildIndexOperation,DetectProjectsOperation,CodeIndexTool}.swift, Tools/CodeContextTools.swift, Tests/FoundationModelsCodeContextTests/{CodeIndexToolTests,CodeContextToolsTests,CodeContextToolsPublicAPITests}.swift. Changed: Tools/ToolSupport.swift, Tools/CodeContextDefaults.swift, Tools/Search/CodeSearchTool.swift, Tools/Navigation/CodeNavigationTool.swift, Tests/{ToolTestSupport,TestSupport,CodeSearchToolTests,CodeNavigationToolTests,CallerEmbedderPublicAPITests}.swift.
+    - `get status`, `get lsp_status` and `detect projects` are structs with no parameters, because their engine calls have none. A parameterless `@Generable @Operation` struct is legal: the Extras example `ListNotes` has the same shape.
+    - `rebuild index` parses `layer` with `ToolSupport.parseChoice`. The table is `ToolSupport.choiceTable(for: RebuildLayer.self)`, not a hand-written table, because the raw value of each `RebuildLayer` case is already the name that the card asks for: treesitter, lsp, embedding, all. The match ignores `_`, so `tree_sitter` also finds `treesitter`.
+    - `CodeContextTools.make`, `toolNames` and `operationNames` are the only new public API. `make` is generic over `Connection: LanguageServerConnection` and gives `[any Tool]`, so a host needs no `import Operations`.
+    - The card asks for `make(context:includesSchemaInInstructions:)`. `ToolSupport.makeOperationTool` now takes that value, and the `make` function of each of the three tools passes it. No `make` calls `OperationTool(...)` directly.
+    - The default of that value is the new `CodeContextDefaults.includesSchemaInInstructions`, so the three tools always start with the same value and the literal `true` has one place.
+    - Discovery: Swift does not apply a default argument to a function reference. `make: CodeSearchTool.make` therefore stopped compiling when `make` took the second parameter. The two existing suites now give a closure: `make: { try CodeSearchTool.make(context: $0) }`.
+    - To prevent a duplicate of the setup, `ToolTest.withStartedContext(source:file:embeddingDimension:_:)` is new and holds the workspace, the `CodeContext` and the stop. `withIndexedTool` now calls it, and `CodeContextToolsTests` uses it directly.
+    - To prevent a second copy of the caller-defined embedder, `CallerDefinedEmbedder` moved from a private nested type of CallerEmbedderPublicAPITests to TestSupport.swift. Both public-API suites now use that one type.
+    - `aliasTablesAreSafe` reads the tables of all three tools and each operation's `parameterMetadata`. For the parameter rule it reports a collision only when an alias normalizes to a name or an alias of a **different** parameter, because two aliases of one parameter both name that parameter and cannot misroute a value.
+    - next: /test (full suite).
+  timestamp: 2026-09-16T00:58:35.959912+00:00
+- actor: claude-code
+  id: 01m2kvj6kqgnz47vrk4vv8r5as
+  text: |-
+    ### test — green
+    - evidence: `swift test` exit 0 — 616 tests in 56 suites passed, 0 failed, 0 skipped. The full log has no `error:` line and no `warning:` line (the count of both is 0). The test time was 4.7 seconds.
+    - The count is 12 tests more than the 604 tests of the last task, because this task adds 12 tests: 6 in CodeIndexToolTests, 5 in CodeContextToolsTests and 1 in CodeContextToolsPublicAPITests.
+    - `swift build --build-tests` exit 0, with 0 errors and 0 warnings.
+    - `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` exit 0.
+    - `swift build --package-path IntegrationTests --build-tests` exit 0, with 0 errors and 0 warnings.
+    - The first build gave one error and four warnings, and both are now corrected: `#expect` takes a `Comment`, so the message of the parameter-alias check must be one interpolated literal and not two strings with `+`; and `indexStatus()` and `lspStatus()` do not throw, so the `try` on those four calls was not necessary.
+    - next: /commit.
+  timestamp: 2026-09-16T00:58:41.143402+00:00
 depends_on:
 - 01M2JVXMF987MDJWG7533EJV0T
 - 01M2JVYA791J25KMC3VDW4P9BJ
 - 01M2JVWWAYY3VPYYH3XFAGWVZ8
-position_column: todo
-position_ordinal: '8680'
+position_column: doing
+position_ordinal: '80'
 title: code_index tool and the public CodeContextTools factory
 ---
 ## What

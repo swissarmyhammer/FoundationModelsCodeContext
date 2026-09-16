@@ -78,4 +78,11 @@ internal enum CodeContextDefaults {
 
     /// The maximum number of diagnostics that `diagnostics` keeps from one report.
     @usableFromInline static let diagnosticsPerReportCap = 100
+
+    /// Whether FoundationModels adds the schema of a tool to the prompt.
+    ///
+    /// This is the default of `CodeContextTools.make` and of the `make`
+    /// function of each tool, so the three tools always start with the same
+    /// value.
+    @usableFromInline static let includesSchemaInInstructions = true
 }

@@ -13,26 +13,6 @@ struct CallerEmbedderPublicAPITests {
     /// The length of each vector that `CallerDefinedEmbedder` returns.
     private static let embeddingDimension = 8
 
-    /// A `TextEmbedding` that the caller defines, with no model and no network.
-    ///
-    /// The first entry of each vector is the character count of its text, and the other entries
-    /// are zero. The vectors are not useful for search. This test examines only that the manager
-    /// accepts the type.
-    private struct CallerDefinedEmbedder: TextEmbedding {
-        /// The length of each vector that `embed(_:)` returns.
-        let dimension: Int
-
-        /// Returns one `dimension`-length vector for each text, in order.
-        ///
-        /// - Parameter texts: The texts to embed.
-        /// - Returns: One vector for each text, in the order of `texts`.
-        func embed(_ texts: [String]) async throws -> [[Float]] {
-            texts.map { text in
-                [Float(text.count)] + Array(repeating: 0, count: dimension - 1)
-            }
-        }
-    }
-
     /// Opens a `CodeContextManager` with a caller-defined embedder, opens a temporary root with it,
     /// and then shuts the manager down.
     ///

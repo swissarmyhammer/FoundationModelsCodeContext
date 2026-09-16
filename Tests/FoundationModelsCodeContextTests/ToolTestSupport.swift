@@ -17,12 +17,49 @@ enum ToolTest {
     /// The process identifier of the fake language-server connection.
     private static let fakeProcessIdentifier: Int32 = 1
 
-    /// Indexes one fixture file in a new temporary workspace, makes the tool,
-    /// and gives the tool and the `CodeContext` to `body`.
+    /// Indexes one fixture file in a new temporary workspace and gives the
+    /// started `CodeContext` to `body`.
     ///
     /// The workspace has no project marker, so no LSP daemon starts, and the
     /// tree-sitter layer answers each operation. The `CodeContext` stops after
     /// `body`, also when `body` throws.
+    ///
+    /// - Parameters:
+    ///   - source: The text of the fixture file.
+    ///   - file: The path of the fixture file, relative to the workspace root.
+    ///   - embeddingDimension: The dimension of the fake embedding vectors.
+    ///   - body: The test body.
+    /// - Throws: The error that the setup or `body` throws.
+    static func withStartedContext(
+        source: String,
+        file: String,
+        embeddingDimension: Int,
+        _ body: (CodeContext<FakeLanguageServerConnection>) async throws -> Void
+    ) async throws {
+        try await withTemporaryWorkspace { root in
+            try write(source, to: file, in: root)
+            let context = try await CodeContext<FakeLanguageServerConnection>(
+                rootDirectory: root,
+                embedder: FakeEmbedder(dimension: embeddingDimension),
+                eventSource: FakeFileEventSource(),
+                autoInstall: LspAutoInstall(isEnabled: false),
+                connectionFactory: fakeConnectionFactory(pid: fakeProcessIdentifier, processState: ProcessState())
+            )
+            try await context.start()
+            do {
+                try await body(context)
+            } catch {
+                await context.stop()
+                throw error
+            }
+            await context.stop()
+        }
+    }
+
+    /// Indexes one fixture file in a new temporary workspace, makes the tool,
+    /// and gives the tool and the `CodeContext` to `body`.
+    ///
+    /// The setup is the setup of `withStartedContext(source:file:embeddingDimension:_:)`.
     ///
     /// - Parameters:
     ///   - source: The text of the fixture file.
@@ -38,23 +75,8 @@ enum ToolTest {
         make: (CodeContextToolContext) throws -> OperationTool<CodeContextToolContext>,
         _ body: (OperationTool<CodeContextToolContext>, CodeContext<FakeLanguageServerConnection>) async throws -> Void
     ) async throws {
-        try await withTemporaryWorkspace { root in
-            try write(source, to: file, in: root)
-            let context = try await CodeContext<FakeLanguageServerConnection>(
-                rootDirectory: root,
-                embedder: FakeEmbedder(dimension: embeddingDimension),
-                eventSource: FakeFileEventSource(),
-                autoInstall: LspAutoInstall(isEnabled: false),
-                connectionFactory: fakeConnectionFactory(pid: fakeProcessIdentifier, processState: ProcessState())
-            )
-            try await context.start()
-            do {
-                try await body(try make(CodeContextToolContext(operating: context)), context)
-            } catch {
-                await context.stop()
-                throw error
-            }
-            await context.stop()
+        try await withStartedContext(source: source, file: file, embeddingDimension: embeddingDimension) { context in
+            try await body(try make(CodeContextToolContext(operating: context)), context)
         }
     }
 

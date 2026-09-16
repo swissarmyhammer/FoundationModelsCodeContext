@@ -91,19 +91,26 @@ internal enum CodeNavigationTool {
 
     /// Makes the `code_navigation` tool for one `CodeContext`.
     ///
-    /// - Parameter context: The tool context that each operation receives.
+    /// - Parameters:
+    ///   - context: The tool context that each operation receives.
+    ///   - includesSchemaInInstructions: Whether FoundationModels adds the
+    ///     schema of the tool to the prompt.
     /// - Returns: The fused tool, with the alias tables of the tool in its
     ///   resolver.
     /// - Throws: `SchemaFusionError` or `GenerationSchema.SchemaError` when the
     ///   schema fusion fails.
-    static func make(context: CodeContextToolContext) throws -> OperationTool<CodeContextToolContext> {
+    static func make(
+        context: CodeContextToolContext,
+        includesSchemaInInstructions: Bool = CodeContextDefaults.includesSchemaInInstructions
+    ) throws -> OperationTool<CodeContextToolContext> {
         try ToolSupport.makeOperationTool(
             name: name,
             description: description,
             verbAliases: verbAliases,
             nounAliases: nounAliases,
             operations: operations(),
-            context: context
+            context: context,
+            includesSchemaInInstructions: includesSchemaInInstructions
         )
     }
 }

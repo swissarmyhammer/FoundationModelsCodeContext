@@ -74,7 +74,7 @@ struct CodeNavigationToolTests {
             source: fixtureSource,
             file: fixtureFile,
             embeddingDimension: embeddingDimension,
-            make: CodeNavigationTool.make,
+            make: { try CodeNavigationTool.make(context: $0) },
             body
         )
     }

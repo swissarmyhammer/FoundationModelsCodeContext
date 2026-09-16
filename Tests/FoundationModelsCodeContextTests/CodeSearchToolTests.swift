@@ -93,7 +93,7 @@ struct CodeSearchToolTests {
             source: fixtureSource,
             file: fixtureFile,
             embeddingDimension: embeddingDimension,
-            make: CodeSearchTool.make,
+            make: { try CodeSearchTool.make(context: $0) },
             body
         )
     }

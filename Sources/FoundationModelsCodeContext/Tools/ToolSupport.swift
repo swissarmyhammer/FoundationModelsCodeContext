@@ -68,6 +68,8 @@ internal enum ToolSupport {
     ///   - operations: The operations of the tool, in the order of the fused
     ///     schema.
     ///   - context: The tool context that each operation receives.
+    ///   - includesSchemaInInstructions: Whether FoundationModels adds the
+    ///     schema of the tool to the prompt.
     /// - Returns: The fused tool, with the alias tables of the tool in its
     ///   resolver.
     /// - Throws: `SchemaFusionError` or `GenerationSchema.SchemaError` when the
@@ -78,14 +80,16 @@ internal enum ToolSupport {
         verbAliases: [String: String],
         nounAliases: [String: String],
         operations: [AnyOperation<CodeContextToolContext>],
-        context: CodeContextToolContext
+        context: CodeContextToolContext,
+        includesSchemaInInstructions: Bool
     ) throws -> OperationTool<CodeContextToolContext> {
         try OperationTool(
             name: name,
             description: description,
             context: context,
             operations: operations,
-            resolver: OperationResolver(verbAliases: verbAliases, nounAliases: nounAliases)
+            resolver: OperationResolver(verbAliases: verbAliases, nounAliases: nounAliases),
+            includesSchemaInInstructions: includesSchemaInInstructions
         )
     }
 
