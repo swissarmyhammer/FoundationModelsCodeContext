@@ -60,8 +60,24 @@ comments:
     - evidence: staged all source, tests, and .kanban files; one local commit follows this comment
     - next: none
   timestamp: 2026-09-18T16:13:19.363570+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2tn03wfrb7bnyfa1gmczffm
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit 1613ef7). Counts: 0 findings, 0 confirmed, 0 refuted, 7 attempted, 0 failed, 0 skipped. 2 files reviewed. 4 `.kanban/` files not reviewed because of `.reviewignore`. The task had no prior `## Review Findings` sections.
+    - next: none. The task is in `done`.
+  timestamp: 2026-09-18T16:18:38.095450+00:00
+- actor: claude-code
+  id: 01m2tn0f4dz2wazpqhq7mxjchq
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 2 files
+    - test: green — swift test, 634 tests in 59 suites passed, 0 failed, 0 skipped
+    - commit: 1613ef7
+    - review: clean — 0 findings, 2 files reviewed
+  timestamp: 2026-09-18T16:18:49.613507+00:00
+position_column: done
+position_ordinal: cb80
 title: Two index passes can run at the same time and embed the same files twice
 ---
 ## What
