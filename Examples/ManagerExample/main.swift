@@ -53,8 +53,11 @@ for root in discoveredRoots {
 
 // MARK: - Open each discovered root explicitly
 
+// `context(for:)` returns before the index of the root is complete. `waitForFirstIndexPass()` waits for the
+// complete first index pass, thus the ready state and the search below read a complete index.
 for root in discoveredRoots {
-    _ = try await manager.context(for: root)
+    let context = try await manager.context(for: root)
+    await context.waitForFirstIndexPass()
 }
 
 // `ManagerState.contexts` is `@MainActor`-isolated, mirroring `CodeContextState`'s own

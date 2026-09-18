@@ -8,8 +8,9 @@ workspace, one owner of the index and the LSP servers.
 
 ```swift
 let context = try await CodeContext(rootDirectory: URL(filePath: "/path/to/repo"),
-                                    embedder: someEmbedder)   // injected, see Embeddings
-try await context.start()          // walk, reconcile, index, watch, spawn LSP
+                                    embedder: someEmbedder)   // injected, see Embeddings; nil = no embedding layer
+try await context.start()          // walk, reconcile, watch, spawn LSP; the first index pass runs in the background
+await context.waitForFirstIndexPass()   // optional: wait for the complete first pass (parse + embed)
 
 let hits    = try await context.searchSymbol("parse_config")
 let graph   = try await context.callGraph(of: "handleRequest", direction: .inbound)
@@ -23,6 +24,14 @@ struct StatusView: View {
     var body: some View { ForEach(state.servers) { ... } }
 }
 ```
+
+`start()` returns before the index is complete. It runs the reconcile, the
+project detection, the watcher and the language servers, and it makes the
+index loop task. That task runs the first index pass (tree-sitter parse and
+embedding) in the background. While the pass runs, the symbol operations and
+the language-server operations answer from the partial index, and
+`indexStatus()` shows how much of the index is complete.
+`waitForFirstIndexPass()` waits for the complete first pass.
 
 This package is the engine **and its FoundationModels tools** — no server of
 any kind, no MCP, no CLI. One main target holds the engine and three
@@ -169,7 +178,12 @@ all layers dirty, new → INSERT dirty.
    node kinds → `SemanticChunk` with qualified `symbol_path`) → embed chunks
    (batched through the injected embedder; skip gracefully if unavailable,
    leaving `embedded = 0`) → write chunks + heuristic call edges → mark done.
-   Parsing/embedding happen outside any DB transaction.
+   Parsing/embedding happen outside any DB transaction. The worker sends the
+   chunk texts to the embedder in bounded batches
+   (`TreeSitterWorker.defaultEmbeddingBatchSize`, which is 32). It calls
+   `Task.checkCancellation()` between files and between batches. Thus a
+   cancelled pass (for example from `stop()`) stops between batches. With no
+   embedder (`embedder: nil`), the worker makes no embeddings.
 2. *LSP worker* (one per running daemon) — drain `lsp_indexed = 0` for that
    server's extensions: `didOpen` → `documentSymbol` (flatten to qualified
    symbols) → `prepareCallHierarchy`/`outgoingCalls` per function-like symbol →
@@ -301,6 +315,11 @@ public typealias TextEmbedding = FoundationModelsRanker.TextEmbedding
   `CodeContext(rootDirectory:embedder:)` or `CodeContextManager(embedder:)`.
   Reason: model loading and model residency belong to the app, not to a
   library that only consumes vectors.
+- The `embedder` parameter is `TextEmbedding?`. `embedder: nil` turns the
+  embedding layer off: there is no semantic search, `searchCode` and
+  `findDuplicates` throw `CodeContextError.embeddingDisabled`,
+  `indexStatus().isEmbeddingEnabled` is `false`, and
+  `IndexProgress.isDrained` ignores `filesEmbedded`.
 - The same value works with each FoundationModelsRanker API that takes an
   embedder. Ranker's `Searcher` takes `embedder:` and also `session:` (a
   FoundationModels `LanguageModelSession`) for its selection tier.
@@ -318,7 +337,8 @@ Port of `swissarmyhammer-project-detection` — pure filesystem inspection, no
 LSP involved. It answers "what kinds of code live under this root?" and is
 what decides which language servers to spawn.
 
-- **When**: runs inside `context.start()`, before any daemon spawns. Also
+- **When**: runs inside `context.start()`, before any daemon spawns. It does
+  not wait for the first index pass, which runs in the background. Also
   callable on demand as `detectProjects()` (re-scans, refreshes
   `state.projects`).
 - **Input**: the `rootDirectory` the `CodeContext` was constructed with —
@@ -502,7 +522,8 @@ owns it:
 ```swift
 // The path under consideration enters exactly once, at construction.
 let context = try await CodeContext(rootDirectory: repoURL, embedder: embedder)
-try await context.start()
+try await context.start()   // returns before the first index pass is complete;
+                            // `state.indexing` shows the progress of that pass
 
 let state = context.state   // nonisolated let — created in init, same
                             // instance for the context's lifetime, safe to
@@ -696,7 +717,11 @@ agreed design decisions the manager's doc comments reference.
 
 - **Keep-all-started lifecycle.** Every successful `context(for:)` call has
   already run `start()` on the context it returns — there is no
-  "open but not started" state visible outside the manager. A `start()`
+  "open but not started" state visible outside the manager. `start()` does
+  not wait for the first index pass. Thus a context that `context(for:)`
+  returns is started, but its first index pass can still run and its index
+  can be partial. A caller that needs the complete index calls
+  `waitForFirstIndexPass()` on the returned context. A `start()`
   failure leaves the root unregistered rather than parked half-open. The
   only ways down are `close(root:)` (stop one root, no-op if it isn't open)
   and `shutdown()` (close every open root); nothing else removes a root from

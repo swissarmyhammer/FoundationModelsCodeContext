@@ -11,10 +11,13 @@ import Testing
 ///
 /// Fixtures deliberately omit `Package.swift`/`*.xcodeproj` markers so `ProjectDetection.detectProjects`
 /// finds nothing: this keeps every test here free of the "does a real `sourcekit-lsp` need to be on
-/// `$PATH`" concern the gated live smoke test (a separate, later task) owns instead. `CodeContext.start()`
-/// still settles deterministically in this configuration, because every file's language has no
-/// registered LSP server, so the facade's own `markUncoveredLspFilesDone()` step marks the LSP layer
-/// trivially drained.
+/// `$PATH`" concern the gated live smoke test (a separate, later task) owns instead.
+///
+/// `CodeContext.start()` returns before the first index pass is complete. Thus each test calls
+/// `waitForFirstIndexPass()` after `start()`, and that call gives the deterministic settle point.
+/// The settle is deterministic in this configuration, because the language of each file has no
+/// registered LSP server. Thus the `markUncoveredLspFilesDone()` step of the facade marks the LSP
+/// layer as drained.
 struct CodeContextE2ETests {
     /// Builds a `CodeContext<FakeLanguageServerConnection>` for `rootDirectory`, wired to a fake
     /// filesystem-event source (never a real FSEvents stream) and a fake LSP connection factory (never
@@ -62,6 +65,7 @@ struct CodeContextE2ETests {
             let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
 
             try await context.start()
+            await context.waitForFirstIndexPass()
 
             #expect(await context.state.isReady)
 
@@ -112,6 +116,7 @@ struct CodeContextE2ETests {
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blockedDirectory.path)
 
             try await context.start()
+            await context.waitForFirstIndexPass()
 
             // A meaningful assertion, not a vacuous one: `state.isReady` alone would pass even on
             // a `guard !isStarted else { return }` no-op retry, since a workspace with zero files
@@ -136,6 +141,7 @@ struct CodeContextE2ETests {
 
             let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
             try await context.start()
+            await context.waitForFirstIndexPass()
 
             let initialProjects = await context.state.projects
             #expect(initialProjects.isEmpty)
@@ -161,6 +167,7 @@ struct CodeContextE2ETests {
 
             let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
             try await context.start()
+            await context.waitForFirstIndexPass()
 
             let settledStatus = await context.indexStatus()
             #expect(settledStatus.filesWalked > 0)
@@ -205,6 +212,8 @@ struct CodeContextE2ETests {
                 async let startA: Void = contextA.start()
                 async let startB: Void = contextB.start()
                 _ = try await (startA, startB)
+                await contextA.waitForFirstIndexPass()
+                await contextB.waitForFirstIndexPass()
 
                 async let matchesA = contextA.searchSymbol(query: "onlyInWorkspaceA")
                 async let matchesB = contextB.searchSymbol(query: "onlyInWorkspaceB")

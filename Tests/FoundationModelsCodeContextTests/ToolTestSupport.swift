@@ -20,6 +20,10 @@ enum ToolTest {
     /// Indexes one fixture file in a new temporary workspace and gives the
     /// started `CodeContext` to `body`.
     ///
+    /// `start()` returns before the first index pass is complete. Thus this
+    /// helper calls `waitForFirstIndexPass()` after `start()`, and `body`
+    /// receives a `CodeContext` whose first index pass is complete.
+    ///
     /// The workspace has no project marker, so no LSP daemon starts, and the
     /// tree-sitter layer answers each operation. The `CodeContext` stops after
     /// `body`, also when `body` throws.
@@ -46,6 +50,7 @@ enum ToolTest {
                 connectionFactory: fakeConnectionFactory(pid: fakeProcessIdentifier, processState: ProcessState())
             )
             try await context.start()
+            await context.waitForFirstIndexPass()
             do {
                 try await body(context)
             } catch {

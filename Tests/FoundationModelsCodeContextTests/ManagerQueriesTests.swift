@@ -17,6 +17,9 @@ import Testing
 /// Driven entirely against `FakeLanguageServerConnection` and `FakeEmbedder` via the internal
 /// general initializer, mirroring `CodeContextManagerTests`'s own setup. Fixtures deliberately
 /// omit project-marker files so no real LSP daemon ever spawns.
+///
+/// `start()` does not wait for the first index pass. Thus each test that reads the index waits
+/// for the first index pass of each root that it opens, before it runs a fan-out query.
 struct ManagerQueriesTests {
     // MARK: - Fixtures
 
@@ -103,9 +106,9 @@ struct ManagerQueriesTests {
             try Self.writeMarkerFixture(in: repoB, namePrefix: "b", count: 2)
             try Self.writeMarkerFixture(in: repoC, namePrefix: "c", count: 1)
             let manager = await Self.makeManager()
-            _ = try await manager.context(for: repoA)
-            _ = try await manager.context(for: repoB)
-            _ = try await manager.context(for: repoC)
+            try await manager.context(for: repoA).waitForFirstIndexPass()
+            try await manager.context(for: repoB).waitForFirstIndexPass()
+            try await manager.context(for: repoC).waitForFirstIndexPass()
 
             let (results, failures) = await manager.grepCode(pattern: "MARKERTAG", maxResults: 100)
 
@@ -133,9 +136,9 @@ struct ManagerQueriesTests {
             try Self.writeMarkerFixture(in: repoB, namePrefix: "b", count: 2)
             try Self.writeMarkerFixture(in: repoC, namePrefix: "c", count: 1)
             let manager = await Self.makeManager()
-            _ = try await manager.context(for: repoA)
-            _ = try await manager.context(for: repoB)
-            _ = try await manager.context(for: repoC)
+            try await manager.context(for: repoA).waitForFirstIndexPass()
+            try await manager.context(for: repoB).waitForFirstIndexPass()
+            try await manager.context(for: repoC).waitForFirstIndexPass()
 
             // A cap smaller than repoA's own 5 matches must still include repoB's and repoC's.
             let (results, failures) = await manager.grepCode(pattern: "MARKERTAG", maxResults: 4)
@@ -161,8 +164,8 @@ struct ManagerQueriesTests {
             try Self.writeMarkerFixture(in: repoA, namePrefix: "a", count: 1)
             try Self.writeMarkerFixture(in: repoB, namePrefix: "b", count: 1)
             let manager = await Self.makeManager()
-            _ = try await manager.context(for: repoA)
-            _ = try await manager.context(for: repoB)
+            try await manager.context(for: repoA).waitForFirstIndexPass()
+            try await manager.context(for: repoB).waitForFirstIndexPass()
 
             let (results, failures) = await manager.grepCode(pattern: "MARKERTAG", maxResults: 100)
 
@@ -185,8 +188,8 @@ struct ManagerQueriesTests {
             try Self.writeMarkerFixture(in: repoA, namePrefix: "a", count: 2)
             try Self.writeMarkerFixture(in: repoB, namePrefix: "b", count: 2)
             let manager = await Self.makeManager()
-            _ = try await manager.context(for: repoA)
-            _ = try await manager.context(for: repoB)
+            try await manager.context(for: repoA).waitForFirstIndexPass()
+            try await manager.context(for: repoB).waitForFirstIndexPass()
 
             try Self.corruptStore(at: repoB)
 
@@ -233,8 +236,8 @@ struct ManagerQueriesTests {
             try Self.writeSearchCodeFixture(in: repoA, functionName: "rootASearchElephant", word: "elephant")
             try Self.writeSearchCodeFixture(in: repoB, functionName: "rootBSearchElephant", word: "elephant")
             let manager = await Self.makeManager()
-            _ = try await manager.context(for: repoA)
-            _ = try await manager.context(for: repoB)
+            try await manager.context(for: repoA).waitForFirstIndexPass()
+            try await manager.context(for: repoB).waitForFirstIndexPass()
 
             let (results, failures) = await manager.searchCode(query: "elephant")
 
@@ -258,8 +261,8 @@ struct ManagerQueriesTests {
             try Self.writeSearchSymbolFixture(in: repoA, functionName: "gizmoAlpha")
             try Self.writeSearchSymbolFixture(in: repoB, functionName: "gizmoBeta")
             let manager = await Self.makeManager()
-            _ = try await manager.context(for: repoA)
-            _ = try await manager.context(for: repoB)
+            try await manager.context(for: repoA).waitForFirstIndexPass()
+            try await manager.context(for: repoB).waitForFirstIndexPass()
 
             let (results, failures) = await manager.searchSymbol(query: "gizmo")
 

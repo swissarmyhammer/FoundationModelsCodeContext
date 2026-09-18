@@ -6,10 +6,12 @@ import Foundation
 /// servers. `init(rootDirectory:embedder:)` opens (creating if necessary) the workspace's
 /// `Store` and builds the shared `nonisolated let state: CodeContextState` observable exactly
 /// once; `start()` reconciles the on-disk index against the workspace, detects projects, starts
-/// the LSP supervisor, runs an initial full drain so `state.isReady` reflects reality by the time
-/// `start()` returns, and then spawns the continuous background workers (indexing loop, per-server
+/// the LSP supervisor, and then spawns the continuous background workers (indexing loop, per-server
 /// LSP index workers, filesystem watcher) as owned structured-concurrency tasks; `stop()` tears
 /// every one of those down, in order, before returning.
+///
+/// `start()` does not wait for the index. The indexing loop runs the first index pass, which can
+/// be long for a large workspace, and `waitForFirstIndexPass()` waits for that pass.
 ///
 /// Generic over `Connection` so tests can drive this facade entirely against
 /// `FakeLanguageServerConnection` (see `Tests/FoundationModelsCodeContextTests/Support/`) without ever spawning
@@ -37,7 +39,10 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     public nonisolated let rootDirectory: URL
 
     /// The embedder used by the tree-sitter worker's embedding step and by `searchCode(...)`.
-    private let embedder: TextEmbedding
+    ///
+    /// `nil` means that the host turned the embedding layer off: no pass makes embeddings, and
+    /// `searchCode(...)` and `findDuplicates(...)` throw `CodeContextError.embeddingDisabled`.
+    private let embedder: TextEmbedding?
 
     /// The workspace's index store, opened once in `init`.
     private let store: Store
@@ -87,6 +92,20 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// against being run twice concurrently or out of order.
     private var isStarted = false
 
+    /// The progress of the first index pass that the index loop runs after `start()`.
+    private enum FirstIndexPass {
+        /// No first pass runs: `start()` did not make one, or the pass is complete.
+        case notRunning
+
+        /// The first pass runs. The payload holds each `waitForFirstIndexPass()` call that
+        /// waits for the pass.
+        case running(waiters: [CheckedContinuation<Void, Never>])
+    }
+
+    /// The progress of the first index pass. `start()` sets `.running`, and the index loop sets
+    /// `.notRunning` when the pass is complete, fails, or is cancelled.
+    private var firstIndexPass = FirstIndexPass.notRunning
+
     /// The workspace's filesystem watcher, created and started in `start()`, `nil` before that and
     /// after `stop()`.
     private var watcher: Watcher?
@@ -122,7 +141,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// - Parameters:
     ///   - rootDirectory: The workspace root to open. Enters exactly once, here.
     ///   - embedder: The embedder used for the tree-sitter worker's embedding step and for
-    ///     `searchCode(...)`.
+    ///     `searchCode(...)`, or `nil` to turn the embedding layer off.
     ///   - clock: The clock the index loop and watcher debounce timer sleep against. Defaults to
     ///     `ContinuousClock()`; tests inject a faster or manually-driven clock.
     ///   - eventSource: The raw filesystem-change event source the watcher subscribes to. Defaults
@@ -140,7 +159,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// - Throws: `CodeContextError.storage` if the index store can't be opened or migrated.
     init(
         rootDirectory: URL,
-        embedder: TextEmbedding,
+        embedder: TextEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
         eventSource: any FileEventSource = FSEventsFileEventSource(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
@@ -177,17 +196,18 @@ public actor CodeContext<Connection: LanguageServerConnection> {
 
     // MARK: - Lifecycle
 
-    /// Reconciles the on-disk index, detects projects, starts the LSP supervisor, runs an initial
-    /// full drain, and spawns the continuous background workers.
+    /// Reconciles the on-disk index, detects projects, starts the LSP supervisor, and spawns the
+    /// continuous background workers.
     ///
-    /// By the time this method returns, `state.isReady` reflects the workspace's actual settled
-    /// state (not merely the vacuously-ready zero state `CodeContextState` starts in): the initial
-    /// drain below runs the tree-sitter/embedding pass to completion and marks every file whose
-    /// language has no registered LSP server as trivially LSP-indexed, so a workspace with no
-    /// LSP-backed languages present settles deterministically without waiting on any background
-    /// task. A workspace whose detected projects *do* have registered servers still settles
-    /// against however quickly (or slowly) those daemons start — `state.servers`/`state.indexing`
-    /// continue to update from the background index loop below as that catches up.
+    /// This method does not run an index pass, thus its time does not depend on the parse and
+    /// the embedding of the workspace. The index loop task runs the first pass immediately after
+    /// this method makes the task. While that pass runs, each operation answers from the part of
+    /// the index that is complete, and `waitForFirstIndexPass()` waits for the pass.
+    ///
+    /// Before this method returns, it publishes the index status that the reconcile gives. Thus
+    /// `state.isReady` is `false` while files wait for a layer, not the vacuously-ready zero state
+    /// `CodeContextState` starts in. `state.servers`/`state.indexing` continue to update from the
+    /// background index loop as that catches up.
     ///
     /// Safe to call only once; a second call while already started is a no-op. A call that
     /// throws leaves this facade exactly as if `start()` had never been called — `isStarted`
@@ -196,8 +216,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// being stuck with a permanently-`true` `isStarted` guarding a facade that never actually
     /// started anything.
     /// - Throws: Rethrows `Reconciler.reconcile`'s and `ProjectDetection.detectProjects`'s
-    ///   filesystem errors, `LspSupervisor.start()`'s project-detection errors, or `Store`'s
-    ///   storage errors from the initial drain.
+    ///   filesystem errors, and `LspSupervisor.start()`'s project-detection errors.
     public func start() async throws {
         guard !isStarted else { return }
         isStarted = true
@@ -214,10 +233,9 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             let specs = ProjectDetection.serverSpecs(for: projects)
             coveredLspExtensions = Self.coveredExtensions(for: specs)
 
-            // Initial, synchronous settle so `state.isReady` is accurate the moment this
-            // returns, rather than only eventually once the background loop below has had a
-            // chance to run.
-            try await runOneIndexPass()
+            // The reconcile found the files that wait for a layer. Publish that status now, so
+            // that `state.isReady` is `false` until the first pass of the index loop is complete.
+            await publishIndexingStatus()
 
             let watcher = Watcher(
                 store: store,
@@ -231,6 +249,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             await watcher.start()
             self.watcher = watcher
 
+            firstIndexPass = .running(waiters: [])
             indexLoopTask = Task { [weak self] in
                 await self?.runIndexLoop()
             }
@@ -269,6 +288,10 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// each fully awaited before the next step starts, so no task, subprocess, or in-flight
     /// request from this workspace is still running once this method returns.
     ///
+    /// A call during the first index pass cancels that pass. The pass looks for cancellation
+    /// before each file and before each embedding batch, thus this method waits for one
+    /// embedding batch at most. Each `waitForFirstIndexPass()` call that waits then returns.
+    ///
     /// Does not close `store` itself: this facade's indexed ops (`getSymbol(...)`,
     /// `searchSymbol(...)`, etc.) remain queryable against the on-disk index after `stop()`, so
     /// `store` stays a live, non-optional property for the actor's whole lifetime. Its underlying
@@ -284,6 +307,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         indexLoopTask?.cancel()
         await indexLoopTask?.value
         indexLoopTask = nil
+        finishFirstIndexPass()
 
         for task in lspIndexTasks {
             task.cancel()
@@ -297,6 +321,44 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         watcher = nil
 
         await supervisor.shutdown()
+    }
+
+    /// Waits until the first index pass after `start()` is complete.
+    ///
+    /// `start()` returns before the index is complete. A caller that needs the complete
+    /// tree-sitter and embedding layers, for example a batch program or a test, calls this
+    /// method after `start()`. A caller that can use a partial index does not call it.
+    ///
+    /// The method returns immediately when no first pass runs: before `start()`, after the pass
+    /// is complete, and after `stop()`. It also returns when the pass fails or when `stop()`
+    /// cancels the pass. Thus read `indexStatus()` to see how much of the index is complete.
+    /// LSP indexing is not part of this pass, because it continues in its own tasks.
+    public func waitForFirstIndexPass() async {
+        guard case .running = firstIndexPass else { return }
+        await withCheckedContinuation { continuation in
+            addFirstIndexPassWaiter(continuation)
+        }
+    }
+
+    /// Records one `waitForFirstIndexPass()` call that waits, or resumes it immediately when
+    /// the first pass does not run.
+    /// - Parameter continuation: The continuation of the call that waits.
+    private func addFirstIndexPassWaiter(_ continuation: CheckedContinuation<Void, Never>) {
+        guard case .running(let waiters) = firstIndexPass else {
+            continuation.resume()
+            return
+        }
+        firstIndexPass = .running(waiters: waiters + [continuation])
+    }
+
+    /// Marks the first index pass as not running and resumes each call that waits for it.
+    /// A call while the first pass does not run is a no-op.
+    private func finishFirstIndexPass() {
+        guard case .running(let waiters) = firstIndexPass else { return }
+        firstIndexPass = .notRunning
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     // MARK: - Project detection
@@ -319,10 +381,16 @@ public actor CodeContext<Connection: LanguageServerConnection> {
 
     // MARK: - Index status and rebuild
 
-    /// A snapshot of per-layer indexing progress, read directly from `state.indexing`.
-    /// - Returns: The most recently published `IndexProgress`.
+    /// A snapshot of per-layer indexing progress.
+    ///
+    /// The method reads the counts from the store and publishes them into `state.indexing`
+    /// before it returns. Thus the snapshot shows the progress of a pass that runs, not only the
+    /// result of the last complete pass. `IndexProgress.isEmbeddingEnabled` shows whether the
+    /// host turned the embedding layer off.
+    /// - Returns: The current `IndexProgress`.
     public func indexStatus() async -> IndexProgress {
-        await state.indexing
+        await publishIndexingStatus()
+        return await state.indexing
     }
 
     /// A snapshot of every managed LSP daemon's current lifecycle state, read directly from
@@ -387,24 +455,43 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     }
 
     /// See `SearchCode.run(corpus:embedder:query:topK:weights:)`.
+    /// - Throws: `CodeContextError.embeddingDisabled` when this context has no embedder, and
+    ///   the errors of `SearchCode.run(corpus:embedder:query:topK:weights:)`.
     public func searchCode(
         query: String,
         topK: Int = CodeContextDefaults.searchTopK,
         weights: SearchWeights = CodeContextDefaults.searchWeights
     ) async throws -> SearchCodeResult {
-        try await SearchCode.run(corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights)
+        let embedder = try requireEmbedder()
+        return try await SearchCode.run(corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights)
     }
 
     /// See `FindDuplicatesOps.findDuplicates(corpus:file:minSimilarity:minChunkBytes:maxPerChunk:)`.
+    /// - Throws: `CodeContextError.embeddingDisabled` when this context has no embedder, because
+    ///   the comparison uses the chunk embeddings, and the errors of
+    ///   `FindDuplicatesOps.findDuplicates(corpus:file:minSimilarity:minChunkBytes:maxPerChunk:)`.
     public func findDuplicates(
         file: String? = nil,
         minSimilarity: Double = CodeContextDefaults.duplicateMinSimilarity,
         minChunkBytes: Int = CodeContextDefaults.duplicateMinChunkBytes,
         maxPerChunk: Int = CodeContextDefaults.duplicateMaxPerChunk
     ) async throws -> FindDuplicatesResult {
-        try await FindDuplicatesOps.findDuplicates(
+        _ = try requireEmbedder()
+        return try await FindDuplicatesOps.findDuplicates(
             corpus: corpus, file: file, minSimilarity: minSimilarity, minChunkBytes: minChunkBytes, maxPerChunk: maxPerChunk
         )
+    }
+
+    /// Gives the embedder, for an operation that cannot give a useful result without the
+    /// embedding layer.
+    /// - Returns: The embedder of this context.
+    /// - Throws: `CodeContextError.embeddingDisabled` when the host turned the embedding layer
+    ///   off.
+    private func requireEmbedder() throws -> TextEmbedding {
+        guard let embedder else {
+            throw CodeContextError.embeddingDisabled
+        }
+        return embedder
     }
 
     /// See `QueryAST.run(rootDirectory:language:query:options:)`.
@@ -535,10 +622,13 @@ public actor CodeContext<Connection: LanguageServerConnection> {
 
     // MARK: - Background index loop
 
-    /// Runs until cancelled: sleeps `indexLoopIdleSleep`, then runs one more index pass and
-    /// republishes `state.servers`. Sleeping first (rather than draining immediately on spawn)
-    /// avoids redundantly repeating the pass `start()` already ran just before spawning this task.
+    /// Runs the first index pass, then runs until cancelled: sleeps `indexLoopIdleSleep`, then
+    /// runs one more index pass and republishes `state.servers`.
+    ///
+    /// The first pass runs here and not in `start()`, because the parse and the embedding of a
+    /// large workspace can be long, and `start()` must not wait for them.
     private func runIndexLoop() async {
+        await runFirstIndexPass()
         while !Task.isCancelled {
             do {
                 try await clock.sleep(for: Self.indexLoopIdleSleep)
@@ -551,12 +641,30 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         }
     }
 
+    /// Runs the first index pass after `start()`, then resumes each `waitForFirstIndexPass()`
+    /// call that waits.
+    ///
+    /// A pass that `stop()` cancels is not a failure, and it writes no log entry. Each other
+    /// failure writes a log entry, and the subsequent passes of the loop try again.
+    private func runFirstIndexPass() async {
+        do {
+            try await runOneIndexPass()
+        } catch is CancellationError {
+            // `stop()` cancelled the pass. `stop()` reports nothing, thus no log entry.
+        } catch {
+            Log.index.error("the first index pass failed: \(String(describing: error), privacy: .public)")
+        }
+        await publishServersStatus()
+        finishFirstIndexPass()
+    }
+
     /// Drains the tree-sitter/embedding layers for every currently dirty file, marks every file
     /// whose language has no registered LSP server as trivially LSP-indexed, and republishes
-    /// `state.indexing`. Shared by `start()`'s initial settle, the background index loop, the
+    /// `state.indexing`. Shared by the background index loop (the first pass included), the
     /// watcher's `nudgeWorkers` callback, and `rebuildIndex(layer:)` — every place that needs "redo
     /// a pass and make `state`/`indexStatus()` reflect it" goes through this one method.
-    /// - Throws: Rethrows `Store`'s storage errors.
+    /// - Throws: Rethrows `Store`'s storage errors, and `CancellationError` when the task is
+    ///   cancelled during the pass.
     private func runOneIndexPass() async throws {
         try await TreeSitterWorker.run(store: store, rootDirectory: rootDirectory, embedder: embedder)
         try await markUncoveredLspFilesDone()
@@ -586,7 +694,8 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             filesWalked: status.totalFiles,
             filesParsed: status.treeSitterIndexedFiles,
             filesEmbedded: status.embeddedIndexedFiles,
-            filesLspIndexed: status.lspIndexedFiles
+            filesLspIndexed: status.lspIndexedFiles,
+            isEmbeddingEnabled: embedder != nil
         )
         await state.publishIndexing(progress)
     }
@@ -645,12 +754,14 @@ extension CodeContext where Connection == ProcessLanguageServerConnection {
     /// - Parameters:
     ///   - rootDirectory: The workspace root to open. Enters exactly once, here.
     ///   - embedder: The embedder used for the tree-sitter worker's embedding step and for
-    ///     `searchCode(...)`.
+    ///     `searchCode(...)`. Give `nil` to turn the embedding layer off: the symbol, call graph
+    ///     and language-server operations stay available, no pass makes embeddings, and
+    ///     `searchCode(...)` and `findDuplicates(...)` throw `CodeContextError.embeddingDisabled`.
     ///   - autoInstall: The opt-out policy gating whether the supervisor may auto-install a
     ///     `.notFound` server's binary via its `ServerSpec.installer`. Defaults to
     ///     `LspAutoInstall()` (enabled, 300-second timeout); existing callers compile unchanged.
     /// - Throws: `CodeContextError.storage` if the index store can't be opened or migrated.
-    public init(rootDirectory: URL, embedder: TextEmbedding, autoInstall: LspAutoInstall = LspAutoInstall()) async throws {
+    public init(rootDirectory: URL, embedder: TextEmbedding?, autoInstall: LspAutoInstall = LspAutoInstall()) async throws {
         try await self.init(
             rootDirectory: rootDirectory,
             embedder: embedder,

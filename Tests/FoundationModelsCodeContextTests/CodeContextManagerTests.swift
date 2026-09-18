@@ -17,13 +17,30 @@ struct CodeContextManagerTests {
     /// Builds a `CodeContextManager<FakeLanguageServerConnection>` wired to a fake filesystem-event
     /// source and a fake LSP connection factory (never actually invoked in these tests, since no
     /// fixture here has a detected project/server spec).
+    /// - Parameter embedder: The embedder that the manager gives to each context. `nil` turns the
+    ///   embedding layer off. The default is a `FakeEmbedder`.
     /// - Returns: A manager wired to fake filesystem-event and connection sources for testing.
-    private static func makeManager() async -> CodeContextManager<FakeLanguageServerConnection> {
+    private static func makeManager(
+        embedder: TextEmbedding? = FakeEmbedder(dimension: embeddingDimension)
+    ) async -> CodeContextManager<FakeLanguageServerConnection> {
         await CodeContextManager<FakeLanguageServerConnection>(
-            embedder: FakeEmbedder(dimension: 8),
+            embedder: embedder,
             eventSource: FakeFileEventSource(),
             connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
         )
+    }
+
+    /// The vector dimension of the default `FakeEmbedder` that `makeManager(embedder:)` uses.
+    private static let embeddingDimension = 8
+
+    /// Returns `true` when `error` is `CodeContextError.embeddingDisabled`.
+    /// - Parameter error: The error that an `#expect(throws:)` call gives, or `nil`.
+    /// - Returns: `true` only for `CodeContextError.embeddingDisabled`.
+    private static func isEmbeddingDisabled(_ error: CodeContextError?) -> Bool {
+        if case .embeddingDisabled = error {
+            return true
+        }
+        return false
     }
 
     /// Writes a minimal, deterministic Swift fixture file into `root`, with no project marker.
@@ -69,6 +86,7 @@ struct CodeContextManagerTests {
             let manager = await Self.makeManager()
 
             let first = try await manager.context(for: root)
+            await first.waitForFirstIndexPass()
             let second = try await manager.context(for: root)
 
             #expect(first === second)
@@ -307,9 +325,35 @@ struct CodeContextManagerTests {
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blockedDirectory.path)
 
             let context = try await manager.context(for: root)
+            await context.waitForFirstIndexPass()
             let status = await context.indexStatus()
             #expect(status.filesWalked > 0)
             #expect(await manager.state.roots == [root.standardizedFileURL])
+
+            await manager.shutdown()
+        }
+    }
+
+    // MARK: - Embedding layer off
+
+    /// A manager with a `nil` embedder gives no embedder to each context that it creates. Thus the
+    /// embedding layer of the context is off: `indexStatus()` gives `isEmbeddingEnabled` as
+    /// `false`, and `searchCode(query:)` throws `CodeContextError.embeddingDisabled`.
+    @Test
+    func nilEmbedderTurnsTheEmbeddingLayerOffForEachContext() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixture(in: root)
+            let manager = await Self.makeManager(embedder: nil)
+
+            let context = try await manager.context(for: root)
+            await context.waitForFirstIndexPass()
+
+            let status = await context.indexStatus()
+            #expect(!status.isEmbeddingEnabled)
+            let searchError = await #expect(throws: CodeContextError.self) {
+                try await context.searchCode(query: "fixtureSymbol")
+            }
+            #expect(Self.isEmbeddingDisabled(searchError))
 
             await manager.shutdown()
         }
@@ -331,6 +375,7 @@ struct CodeContextManagerTests {
 
             // Re-opening after close must genuinely create a fresh, started context.
             let reopened = try await manager.context(for: root)
+            await reopened.waitForFirstIndexPass()
             let status = await reopened.indexStatus()
             #expect(status.filesWalked > 0)
 
@@ -426,6 +471,8 @@ struct CodeContextManagerTests {
             for perRoot in [firstRoot, secondRoot] {
                 await runner.closeGate()
                 let context = try await manager.context(for: perRoot)
+                // The first index pass has no LSP work, thus the closed gate does not block it.
+                await context.waitForFirstIndexPass()
 
                 // The manager forwarded the injected runner to *this* root's supervisor: its
                 // intelephense daemon is already `.installing` (gated shut so it cannot yet resolve)

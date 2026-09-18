@@ -32,6 +32,15 @@ public enum CodeContextError: Error, Sendable {
     /// An embedding-layer operation failed.
     case embedding(String)
 
+    /// An operation needs the embedding layer, and the host turned that
+    /// layer off.
+    ///
+    /// A `CodeContext` that has no embedder makes no chunk embeddings. Thus
+    /// `searchCode(query:topK:weights:)` and
+    /// `findDuplicates(file:minSimilarity:minChunkBytes:maxPerChunk:)` cannot
+    /// give a useful result, and they throw this error.
+    case embeddingDisabled
+
     /// A tree-sitter AST query operation failed.
     ///
     /// Covers an unregistered language, a language with no tree-sitter
@@ -76,6 +85,8 @@ extension CodeContextError: LocalizedError {
             "storage error: \(reason)"
         case .embedding(let reason):
             "embedding error: \(reason)"
+        case .embeddingDisabled:
+            "the embedding layer is off: this workspace has no embedder, thus semantic search and duplicate detection are not available"
         case .query(let reason):
             "query error: \(reason)"
         case .pattern(let reason):

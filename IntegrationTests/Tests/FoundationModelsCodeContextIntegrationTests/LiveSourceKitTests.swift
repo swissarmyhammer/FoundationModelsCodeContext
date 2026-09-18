@@ -206,11 +206,13 @@ struct LiveSourceKitTests {
 
             try await Self.withLiveContext(rootDirectory: root) { context in
                 try await context.start()
+                await context.waitForFirstIndexPass()
 
-                // `start()` returns once the *tree-sitter/embedding* settle is synchronous, but a
-                // Swift-backed workspace's LSP indexing layer only drains via the background
-                // `LSPIndexWorker` task it spawns — so `state.isReady` may still read `false` for a
-                // moment after `start()` returns. Poll for it rather than asserting immediately.
+                // `start()` returns before the first index pass is complete. The call above waits
+                // for the tree-sitter layer and the embedding layer. The LSP indexing layer of a
+                // Swift workspace is not part of that pass: it drains only in the background
+                // `LSPIndexWorker` task. Thus `state.isReady` can stay `false` for some time after
+                // the wait. Poll for it, and do not assert immediately.
                 let becameReady = try await Self.poll(budget: .seconds(90)) {
                     await context.state.isReady
                 }

@@ -105,11 +105,16 @@ internal enum ToolSupport {
     /// example in a directory that is not a git repository, or for a commit
     /// that does not exist.
     ///
+    /// `.embeddingDisabled` is recoverable because the model can use an
+    /// operation that does not need the embedding layer.
+    ///
     /// - Parameter error: The error that a `CodeContext` operation threw.
     /// - Returns: The corrective message, or `nil` when the model cannot
     ///   correct the error.
     static func correctiveMessage(for error: CodeContextError) -> String? {
         switch error {
+        case .embeddingDisabled:
+            "The embedding layer is off for this workspace, thus this operation is not available. Use `grep code` or `search symbol` instead."
         case .notFound(let reason):
             "Not found: \(reason). Make sure that the name or the path is correct, then try again."
         case .pattern(let reason):

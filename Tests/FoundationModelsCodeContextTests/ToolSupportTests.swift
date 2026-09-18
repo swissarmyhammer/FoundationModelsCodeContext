@@ -49,7 +49,7 @@ struct ToolSupportTests {
         let text = try Self.encodedText(ToolOutcome.success(progress))
 
         #expect(text == (try Self.encodedText(progress)))
-        #expect(text == #"{"filesEmbedded":2,"filesLspIndexed":1,"filesParsed":3,"filesWalked":4}"#)
+        #expect(text == #"{"filesEmbedded":2,"filesLspIndexed":1,"filesParsed":3,"filesWalked":4,"isEmbeddingEnabled":true}"#)
     }
 
     @Test
@@ -118,6 +118,15 @@ struct ToolSupportTests {
             #expect(message.contains(recoverable.reason), "message: \(message)")
             #expect(message.hasSuffix("then try again."), "message: \(message)")
         }
+    }
+
+    @Test
+    func theEmbeddingDisabledErrorGivesACorrectiveMessageThatNamesOtherOperations() throws {
+        let message = try #require(ToolSupport.correctiveMessage(for: .embeddingDisabled))
+
+        #expect(message.contains("embedding layer is off"), "message: \(message)")
+        #expect(message.contains("`grep code`"), "message: \(message)")
+        #expect(message.contains("`search symbol`"), "message: \(message)")
     }
 
     @Test

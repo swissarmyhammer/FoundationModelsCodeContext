@@ -288,7 +288,7 @@ struct ResultEncodingTests {
 
         #expect(
             try Self.encodedText(progress)
-                == #"{"filesEmbedded":2,"filesLspIndexed":1,"filesParsed":3,"filesWalked":4}"#
+                == #"{"filesEmbedded":2,"filesLspIndexed":1,"filesParsed":3,"filesWalked":4,"isEmbeddingEnabled":true}"#
         )
     }
 }

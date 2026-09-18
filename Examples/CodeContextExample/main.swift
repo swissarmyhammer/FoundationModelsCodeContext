@@ -55,6 +55,10 @@ private let embedder = HashingEmbedder(dimension: embeddingDimension)
 let context = try await CodeContext(rootDirectory: rootDirectory, embedder: embedder)
 try await context.start()
 
+// `start()` returns before the index is complete. This call waits for the
+// complete first index pass, thus each query below reads a complete index.
+await context.waitForFirstIndexPass()
+
 // MARK: - The FoundationModels tools of this context
 
 // `CodeContextTools.make(context:)` gives the three tools of one `CodeContext`.

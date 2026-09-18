@@ -9,8 +9,9 @@ import Observation
 /// finished that layer. `CodeContextState.isReady` treats a layer as drained once its count has
 /// caught up to `filesWalked` (see `isDrained`).
 ///
-/// The JSON keys are the four stored property names. `isDrained` is a
-/// computed value, so the JSON does not include it.
+/// The JSON keys are the stored property names: the four file counts and
+/// `isEmbeddingEnabled`. `isDrained` is a computed value, so the JSON does not
+/// include it.
 public struct IndexProgress: Sendable, Equatable, Encodable {
     /// The number of files discovered by the startup walk/reconcile pass.
     public let filesWalked: Int
@@ -24,17 +25,25 @@ public struct IndexProgress: Sendable, Equatable, Encodable {
     /// The number of files with LSP indexing complete (`lsp_indexed = 1`).
     public let filesLspIndexed: Int
 
+    /// Whether the embedding layer is on.
+    ///
+    /// The layer is off when the host gave no embedder to `CodeContext`. Then
+    /// `filesEmbedded` does not increase, and `isDrained` ignores it.
+    public let isEmbeddingEnabled: Bool
+
     /// Creates an indexing-progress snapshot.
     /// - Parameters:
     ///   - filesWalked: The number of files discovered by the startup walk/reconcile pass.
     ///   - filesParsed: The number of files with tree-sitter parsing complete.
     ///   - filesEmbedded: The number of files with embedding complete.
     ///   - filesLspIndexed: The number of files with LSP indexing complete.
-    public init(filesWalked: Int, filesParsed: Int, filesEmbedded: Int, filesLspIndexed: Int) {
+    ///   - isEmbeddingEnabled: Whether the embedding layer is on. Defaults to `true`.
+    public init(filesWalked: Int, filesParsed: Int, filesEmbedded: Int, filesLspIndexed: Int, isEmbeddingEnabled: Bool = true) {
         self.filesWalked = filesWalked
         self.filesParsed = filesParsed
         self.filesEmbedded = filesEmbedded
         self.filesLspIndexed = filesLspIndexed
+        self.isEmbeddingEnabled = isEmbeddingEnabled
     }
 
     /// The initial progress snapshot before any file has been walked: every layer trivially
@@ -43,8 +52,12 @@ public struct IndexProgress: Sendable, Equatable, Encodable {
 
     /// Whether every indexing layer has caught up to `filesWalked` — no indexing work remains
     /// outstanding for any layer.
+    ///
+    /// When the embedding layer is off (`isEmbeddingEnabled == false`), `filesEmbedded` is not
+    /// part of the comparison, because no pass makes embeddings.
     public var isDrained: Bool {
-        filesParsed >= filesWalked && filesEmbedded >= filesWalked && filesLspIndexed >= filesWalked
+        let isEmbeddingDrained = !isEmbeddingEnabled || filesEmbedded >= filesWalked
+        return filesParsed >= filesWalked && isEmbeddingDrained && filesLspIndexed >= filesWalked
     }
 }
 

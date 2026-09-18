@@ -23,6 +23,37 @@ struct CodeContextStateTests {
         filesWalked: 10, filesParsed: 5, filesEmbedded: 10, filesLspIndexed: 10
     )
 
+    // MARK: - IndexProgress with the embedding layer off
+
+    @Test
+    func isDrainedIgnoresTheEmbeddingCountWhenTheEmbeddingLayerIsOff() {
+        let progress = IndexProgress(
+            filesWalked: 10, filesParsed: 10, filesEmbedded: 0, filesLspIndexed: 10, isEmbeddingEnabled: false
+        )
+
+        #expect(progress.isDrained)
+    }
+
+    @Test
+    func isDrainedNeedsTheEmbeddingCountWhenTheEmbeddingLayerIsOn() {
+        let progress = IndexProgress(filesWalked: 10, filesParsed: 10, filesEmbedded: 0, filesLspIndexed: 10)
+
+        #expect(progress.isEmbeddingEnabled)
+        #expect(!progress.isDrained)
+    }
+
+    @Test
+    func isReadyTrueWhenOnlyTheDisabledEmbeddingLayerIsBehind() async {
+        let state = await CodeContextState(rootDirectory: Self.workspaceRoot)
+
+        await state.publishIndexing(
+            IndexProgress(filesWalked: 10, filesParsed: 10, filesEmbedded: 0, filesLspIndexed: 10, isEmbeddingEnabled: false)
+        )
+
+        let isReady = await state.isReady
+        #expect(isReady)
+    }
+
     // MARK: - Publisher -> main-actor mutation
 
     @Test

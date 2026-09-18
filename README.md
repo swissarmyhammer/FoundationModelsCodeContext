@@ -22,13 +22,25 @@ let context = try await CodeContext(
     rootDirectory: URL(fileURLWithPath: "/path/to/repo", isDirectory: true),
     embedder: embedder
 )
-try await context.start()  // walk, index, monitor files, start LSP servers
+try await context.start()  // monitor files, start LSP servers, start the index in the background
+await context.waitForFirstIndexPass()  // optional: wait for the complete first index pass
 
 let symbols = try await context.searchSymbol(query: "parseConfig")
 let hits = try await context.searchCode(query: "retry with backoff")
 
 await context.stop()
 ```
+
+`start()` returns before the index is complete. The first index pass runs in
+the background. While it runs, the symbol operations and the language-server
+operations answer from the partial index, and `indexStatus()` shows how much
+of the index is complete. `await context.waitForFirstIndexPass()` waits for
+the complete first pass.
+
+`embedder: nil` turns the embedding layer off. Then there is no semantic
+search: `searchCode` and `findDuplicates` throw
+`CodeContextError.embeddingDisabled`, and `indexStatus().isEmbeddingEnabled`
+is `false`. The other operations stay available.
 
 Above the indexed layer, `CodeContext` gives live LSP operations —
 `definition`, `hover`, `references`, `renameEdits`, and `codeActions` — and

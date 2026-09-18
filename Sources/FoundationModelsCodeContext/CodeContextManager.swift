@@ -14,6 +14,10 @@ import Foundation
 /// every accessor below hands back the real `CodeContext` instance a caller can keep using
 /// directly. This is a keep-all-started lifecycle — every successful `context(for:)` call has
 /// already run `start()` on the context it returns.
+///
+/// `start()` does not wait for the first index pass. Thus a context that `context(for:)` returns
+/// can have a partial index. A caller that needs the complete index calls
+/// `waitForFirstIndexPass()` on the returned context.
 public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// One entry per open root's context, keyed by that root's standardized URL.
     private var contexts: [URL: CodeContext<Connection>] = [:]
@@ -34,8 +38,10 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// read-only surface those queries iterate over.
     var openContexts: [URL: CodeContext<Connection>] { contexts }
 
-    /// The embedder handed to every `CodeContext` this manager creates.
-    private let embedder: TextEmbedding
+    /// The embedder that each `CodeContext` of this manager receives. `nil` turns the embedding
+    /// layer off for each `CodeContext` that this manager creates. Then `searchCode` and
+    /// `findDuplicates` throw `CodeContextError.embeddingDisabled`.
+    private let embedder: TextEmbedding?
 
     /// The clock handed to every `CodeContext` this manager creates. Defaults to
     /// `ContinuousClock()`; tests inject a fake or manually-driven clock.
@@ -75,7 +81,9 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// that hands back `FakeLanguageServerConnection`s.
     ///
     /// - Parameters:
-    ///   - embedder: The embedder handed to every `CodeContext` this manager creates.
+    ///   - embedder: The embedder that each `CodeContext` of this manager receives. `nil` turns
+    ///     the embedding layer off for each `CodeContext` that this manager creates. Then
+    ///     `searchCode` and `findDuplicates` throw `CodeContextError.embeddingDisabled`.
     ///   - clock: The clock handed to every `CodeContext` this manager creates. Defaults to
     ///     `ContinuousClock()`; tests inject a faster or manually-driven clock.
     ///   - eventSource: The filesystem-change event source handed to every `CodeContext` this
@@ -91,7 +99,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     ///   - connectionFactory: Spawns a fresh connection for every LSP daemon any created
     ///     `CodeContext`'s supervisor ends up needing.
     init(
-        embedder: TextEmbedding,
+        embedder: TextEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
         eventSource: any FileEventSource = FSEventsFileEventSource(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
@@ -148,7 +156,9 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// Accepts any directory, git repo or not: non-git workspaces are an explicit-open feature —
     /// only `context(containing:)`'s lazy routing through `RootDiscovery` is git-scoped.
     /// - Parameter root: The workspace root to open or fetch.
-    /// - Returns: `root`'s `CodeContext`, already started.
+    /// - Returns: `root`'s `CodeContext`, already started. `start()` does not wait for the first
+    ///   index pass, thus the index can be partial. A caller that needs the complete index calls
+    ///   `waitForFirstIndexPass()` on the returned context.
     /// - Throws: `CodeContextError.overlappingRoot` if `root` is an ancestor of one or more
     ///   already-open or still-opening roots; otherwise rethrows `CodeContext.init`'s or
     ///   `start()`'s errors (including a still-opening ancestor's own failure, when `root` is a
@@ -368,11 +378,13 @@ extension CodeContextManager where Connection == ProcessLanguageServerConnection
     /// This is the only initializer visible outside this module — mirrors `CodeContext`'s own
     /// `where Connection == ProcessLanguageServerConnection` convenience initializer.
     /// - Parameters:
-    ///   - embedder: The embedder handed to every `CodeContext` this manager creates.
+    ///   - embedder: The embedder that each `CodeContext` of this manager receives. `nil` turns
+    ///     the embedding layer off for each `CodeContext` that this manager creates. Then
+    ///     `searchCode` and `findDuplicates` throw `CodeContextError.embeddingDisabled`.
     ///   - autoInstall: The opt-out policy handed to every `CodeContext` this manager creates.
     ///     Defaults to `LspAutoInstall()` (enabled, 300-second timeout); existing callers compile
     ///     unchanged.
-    public init(embedder: TextEmbedding, autoInstall: LspAutoInstall = LspAutoInstall()) async {
+    public init(embedder: TextEmbedding?, autoInstall: LspAutoInstall = LspAutoInstall()) async {
         await self.init(
             embedder: embedder,
             autoInstall: autoInstall,

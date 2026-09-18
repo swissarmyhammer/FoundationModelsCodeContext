@@ -31,6 +31,7 @@ struct DiagnosticsReportPublicVisibilityTests {
 
             let context = try await CodeContext(rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
             try await context.start()
+            await context.waitForFirstIndexPass()
 
             let report = try await context.diagnostics(scope: .file("a.swift"))
 
