@@ -110,10 +110,37 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// after `stop()`.
     private var watcher: Watcher?
 
-    /// The background task that periodically drains the tree-sitter/embedding layers and
-    /// publishes fresh `state.indexing`/`state.servers` snapshots. Cancelled and awaited in
-    /// `stop()`.
+    /// The background task that periodically requests an index pass (the pass task drains the
+    /// tree-sitter/embedding layers) and publishes fresh `state.indexing`/`state.servers`
+    /// snapshots. Cancelled and awaited in `stop()`.
     private var indexLoopTask: Task<Void, Never>?
+
+    /// One caller that waits for an index pass.
+    private struct IndexPassWaiter {
+        /// The number of the pass request of the caller. The wait ends when a pass that started
+        /// after this request is complete.
+        let request: Int
+
+        /// The continuation of the caller. It gets the result of the pass.
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    /// The task that runs the index passes, one at a time. It is `nil` while no pass runs and no
+    /// request waits. `stop()` cancels it and awaits it.
+    private var indexPassTask: Task<Void, Never>?
+
+    /// The number of pass requests up to now. Each `requestIndexPass()` call adds one.
+    private var requestedIndexPassCount = 0
+
+    /// The highest request number that a pass included. A pass includes each request that came
+    /// before the pass started.
+    private var servedIndexPassCount = 0
+
+    /// The callers that wait for a pass, by wait identifier.
+    private var indexPassWaiters: [Int: IndexPassWaiter] = [:]
+
+    /// The wait identifier of the subsequent `requestIndexPassAndWait()` call.
+    private var nextIndexPassWaiterID = 0
 
     /// One continuous drain task per LSP server spec with a non-empty extension set, each running
     /// `LSPIndexWorker.run(...)` until cancelled. Cancelled and awaited in `stop()`.
@@ -189,6 +216,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// `await`): `stop()` is the real, awaited teardown path this exists only as a safety net for.
     deinit {
         indexLoopTask?.cancel()
+        indexPassTask?.cancel()
         for task in lspIndexTasks {
             task.cancel()
         }
@@ -243,7 +271,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
                 eventSource: eventSource,
                 clock: clock,
                 nudgeWorkers: { [weak self] in
-                    try? await self?.runOneIndexPass()
+                    await self?.nudgeIndexPass()
                 }
             )
             await watcher.start()
@@ -288,9 +316,10 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// each fully awaited before the next step starts, so no task, subprocess, or in-flight
     /// request from this workspace is still running once this method returns.
     ///
-    /// A call during the first index pass cancels that pass. The pass looks for cancellation
+    /// A call during an index pass cancels that pass. The pass looks for cancellation
     /// before each file and before each embedding batch, thus this method waits for one
-    /// embedding batch at most. Each `waitForFirstIndexPass()` call that waits then returns.
+    /// embedding batch at most. Each `waitForFirstIndexPass()` call that waits then returns, and
+    /// each `rebuildIndex(layer:)` call that waits throws `CancellationError`.
     ///
     /// Does not close `store` itself: this facade's indexed ops (`getSymbol(...)`,
     /// `searchSymbol(...)`, etc.) remain queryable against the on-disk index after `stop()`, so
@@ -305,6 +334,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         isStarted = false
 
         indexLoopTask?.cancel()
+        await cancelIndexPasses()
         await indexLoopTask?.value
         indexLoopTask = nil
         finishFirstIndexPass()
@@ -403,13 +433,18 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// Marks `layer` dirty across the whole workspace (via `IndexAdmin.rebuildIndex`), then
     /// immediately re-drains so `indexStatus()` reflects the rebuild rather than staying stale
     /// until the background index loop's next tick.
+    ///
+    /// Only one index pass runs at a time. When a pass runs during this call, the method does not
+    /// start a second pass. It waits for a pass that started after the rebuild, because only
+    /// such a pass is sure to drain each file that the rebuild marked.
     /// - Parameter layer: Which layer(s) to reset and re-drain.
     /// - Returns: Which layer was reset and how many files were marked dirty.
-    /// - Throws: Rethrows `Store`'s storage errors.
+    /// - Throws: Rethrows `Store`'s storage errors, and `CancellationError` when `stop()` cancels
+    ///   the pass or when the task of the caller is cancelled.
     @discardableResult
     public func rebuildIndex(layer: RebuildLayer) async throws -> RebuildIndexResult {
         let result = try await IndexAdmin.rebuildIndex(store: store, layer: layer)
-        try await runOneIndexPass()
+        try await requestIndexPassAndWait()
         return result
     }
 
@@ -636,7 +671,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
                 return
             }
             guard !Task.isCancelled else { return }
-            try? await runOneIndexPass()
+            try? await requestIndexPassAndWait()
             await publishServersStatus()
         }
     }
@@ -648,7 +683,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// failure writes a log entry, and the subsequent passes of the loop try again.
     private func runFirstIndexPass() async {
         do {
-            try await runOneIndexPass()
+            try await requestIndexPassAndWait()
         } catch is CancellationError {
             // `stop()` cancelled the pass. `stop()` reports nothing, thus no log entry.
         } catch {
@@ -658,11 +693,137 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         finishFirstIndexPass()
     }
 
+    // MARK: - One index pass at a time
+
+    /// Requests an index pass for the watcher, and does not wait for the pass.
+    ///
+    /// The watcher calls this method in its debounce task, and a new file event cancels that
+    /// task. Thus the pass must not run in the task of the watcher. A call while this context is
+    /// not started is a no-op, because `stop()` must not leave a pass that runs.
+    private func nudgeIndexPass() {
+        guard isStarted else { return }
+        requestIndexPass()
+    }
+
+    /// Requests an index pass, and starts the pass task when no pass task runs.
+    ///
+    /// A request during a pass does not start a second pass. The pass task runs one more pass
+    /// after the current pass is complete, and that one pass serves all the requests that came
+    /// during the current pass.
+    /// - Returns: The number of this request, for `addIndexPassWaiter(_:id:)`.
+    @discardableResult
+    private func requestIndexPass() -> Int {
+        requestedIndexPassCount += 1
+        if indexPassTask == nil {
+            indexPassTask = Task { [weak self] in
+                await self?.runRequestedIndexPasses()
+            }
+        }
+        return requestedIndexPassCount
+    }
+
+    /// Requests an index pass, then waits until a pass that started after the request is
+    /// complete. The index loop (the first pass included) and `rebuildIndex(layer:)` call this
+    /// method.
+    ///
+    /// The pass runs in the pass task, not in the task of the caller. Thus the cancellation of
+    /// the caller stops only this wait, and the pass continues for the other callers.
+    /// - Throws: The error of the pass, and `CancellationError` when `stop()` cancels the pass or
+    ///   when the task of the caller is cancelled.
+    private func requestIndexPassAndWait() async throws {
+        let request = requestIndexPass()
+        let waiterID = nextIndexPassWaiterID
+        nextIndexPassWaiterID += 1
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                addIndexPassWaiter(IndexPassWaiter(request: request, continuation: continuation), id: waiterID)
+            }
+        } onCancel: {
+            // The cancellation handler is synchronous, thus it needs a task to get into the actor.
+            Task { await self.cancelIndexPassWaiter(id: waiterID) }
+        }
+    }
+
+    /// Records one caller that waits for a pass.
+    ///
+    /// The caller does not wait when its task is already cancelled, because the cancellation
+    /// handler ran before this record and found no waiter. The caller also does not wait when no
+    /// pass task runs, because no pass can then end the wait.
+    /// - Parameters:
+    ///   - waiter: The caller that waits.
+    ///   - id: The wait identifier of the caller.
+    private func addIndexPassWaiter(_ waiter: IndexPassWaiter, id: Int) {
+        guard !Task.isCancelled, indexPassTask != nil else {
+            waiter.continuation.resume(throwing: CancellationError())
+            return
+        }
+        indexPassWaiters[id] = waiter
+    }
+
+    /// Ends the wait of one caller whose task is cancelled. A call for a caller that does not
+    /// wait is a no-op.
+    /// - Parameter id: The wait identifier of the caller.
+    private func cancelIndexPassWaiter(id: Int) {
+        indexPassWaiters.removeValue(forKey: id)?.continuation.resume(throwing: CancellationError())
+    }
+
+    /// Gives `result` to each caller whose request is not after `request`.
+    /// - Parameters:
+    ///   - request: The highest request number that the result is applicable to.
+    ///   - result: The result of the pass.
+    private func resumeIndexPassWaiters(upTo request: Int, with result: Result<Void, any Error>) {
+        for (id, waiter) in indexPassWaiters where waiter.request <= request {
+            indexPassWaiters[id] = nil
+            waiter.continuation.resume(with: result)
+        }
+    }
+
+    /// The body of the pass task: runs one pass at a time while a request is not served and the
+    /// task is not cancelled.
+    ///
+    /// A failed pass also serves its requests, and its callers get the error. Thus a fault that
+    /// stays does not make a loop without end, and the index loop tries again after its sleep.
+    /// When `stop()` cancels the task, each caller that continues to wait gets
+    /// `CancellationError`.
+    private func runRequestedIndexPasses() async {
+        while servedIndexPassCount < requestedIndexPassCount, !Task.isCancelled {
+            let request = requestedIndexPassCount
+            let result = await indexPassResult()
+            servedIndexPassCount = request
+            resumeIndexPassWaiters(upTo: request, with: result)
+        }
+        indexPassTask = nil
+        resumeIndexPassWaiters(upTo: requestedIndexPassCount, with: .failure(CancellationError()))
+    }
+
+    /// Cancels the pass task and waits until it is complete, for `stop()`.
+    ///
+    /// A `rebuildIndex(layer:)` call during the wait can start a new pass task. The loop cancels
+    /// that task also, thus no pass runs when this method returns.
+    private func cancelIndexPasses() async {
+        while let task = indexPassTask {
+            task.cancel()
+            await task.value
+        }
+    }
+
+    /// Runs one index pass and gives its result as a value.
+    /// - Returns: `.success` for a complete pass, or `.failure` with the error of the pass.
+    private func indexPassResult() async -> Result<Void, any Error> {
+        do {
+            try await runOneIndexPass()
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
+
     /// Drains the tree-sitter/embedding layers for every currently dirty file, marks every file
     /// whose language has no registered LSP server as trivially LSP-indexed, and republishes
-    /// `state.indexing`. Shared by the background index loop (the first pass included), the
-    /// watcher's `nudgeWorkers` callback, and `rebuildIndex(layer:)` — every place that needs "redo
-    /// a pass and make `state`/`indexStatus()` reflect it" goes through this one method.
+    /// `state.indexing`.
+    ///
+    /// Only the pass task calls this method, thus two passes cannot run at the same time. Each
+    /// other place that needs a pass calls `requestIndexPass()` or `requestIndexPassAndWait()`.
     /// - Throws: Rethrows `Store`'s storage errors, and `CancellationError` when the task is
     ///   cancelled during the pass.
     private func runOneIndexPass() async throws {

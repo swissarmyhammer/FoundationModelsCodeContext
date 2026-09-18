@@ -60,8 +60,24 @@ comments:
     - evidence: staged all source, tests, and .kanban files; one local commit follows this comment
     - next: none
   timestamp: 2026-09-18T15:36:02.345828+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m2tk0yfx55w94e070sve8d1c
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit 3c4605a). Counts: 0 findings, 0 confirmed, 2 refuted, 14 attempted, 0 failed. 20 files reviewed. 10 files not reviewed: 8 files in `.kanban/` (excluded by `.reviewignore`), and `README.md` and `plan.md` (no validator matches these files).
+    - next: none. The task has no prior `## Review Findings` section, thus the task moved to `done`.
+  timestamp: 2026-09-18T15:44:08.189364+00:00
+- actor: claude-code
+  id: 01m2tk19tp12yjn9xvddkr0y9y
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 22 files
+    - test: green — swift test, 631 tests in 59 suites passed, 0 failed, 0 skipped
+    - commit: 3c4605a
+    - review: clean — 0 findings, 20 files reviewed
+  timestamp: 2026-09-18T15:44:19.798091+00:00
+position_column: done
+position_ordinal: ca80
 title: start() does not return until the full embedding pass is complete, and a host cannot turn the embedding off
 ---
 ## What
