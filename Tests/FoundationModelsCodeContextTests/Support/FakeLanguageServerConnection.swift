@@ -77,11 +77,15 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
     /// Scripted `references(in:at:includeDeclaration:)` results for one
     /// (document, position) pair each. A pair with no entry here gets
     /// `referencesResult`.
-    private var referencesResultsByPosition: [ReferenceQuery: Result<[Location], Error>] = [:]
+    private var referencesResultsByPosition: [PositionQuery: Result<[Location], Error>] = [:]
 
-    /// The document and the position of one `references` request, the key
-    /// of `referencesResultsByPosition`.
-    private struct ReferenceQuery: Hashable {
+    /// Scripted `definition(in:at:)` results for one (document, position)
+    /// pair each. A pair with no entry here gets `definitionResult`.
+    private var definitionResultsByPosition: [PositionQuery: Result<[Location], Error>] = [:]
+
+    /// The document and the position of one request, the key of
+    /// `referencesResultsByPosition` and `definitionResultsByPosition`.
+    private struct PositionQuery: Hashable {
         /// The document the request is about.
         let uri: DocumentURI
 
@@ -104,7 +108,17 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
     ///   - uri: The document the request is about.
     ///   - position: The cursor position of the request.
     func setReferencesResult(_ result: Result<[Location], Error>, in uri: DocumentURI, at position: Position) {
-        referencesResultsByPosition[ReferenceQuery(uri: uri, position: position)] = result
+        referencesResultsByPosition[PositionQuery(uri: uri, position: position)] = result
+    }
+
+    /// Scripts the result `definition(in:at:)` returns (or throws) for one
+    /// (document, position) pair.
+    /// - Parameters:
+    ///   - result: The scripted outcome for the pair.
+    ///   - uri: The document the request is about.
+    ///   - position: The cursor position of the request.
+    func setDefinitionResult(_ result: Result<[Location], Error>, in uri: DocumentURI, at position: Position) {
+        definitionResultsByPosition[PositionQuery(uri: uri, position: position)] = result
     }
 
     /// Optional hook invoked right after `prepareRename`/`rename` record their call and before
@@ -288,7 +302,7 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
 
     func definition(in uri: DocumentURI, at position: Position) async throws -> [Location] {
         calls.append(.definition(uri: uri, position: position))
-        return try definitionResult.get()
+        return try (definitionResultsByPosition[PositionQuery(uri: uri, position: position)] ?? definitionResult).get()
     }
 
     func typeDefinition(in uri: DocumentURI, at position: Position) async throws -> [Location] {
@@ -303,7 +317,7 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
 
     func references(in uri: DocumentURI, at position: Position, includeDeclaration: Bool) async throws -> [Location] {
         calls.append(.references(uri: uri, position: position, includeDeclaration: includeDeclaration))
-        return try (referencesResultsByPosition[ReferenceQuery(uri: uri, position: position)] ?? referencesResult).get()
+        return try (referencesResultsByPosition[PositionQuery(uri: uri, position: position)] ?? referencesResult).get()
     }
 
     func implementations(in uri: DocumentURI, at position: Position) async throws -> [Location] {

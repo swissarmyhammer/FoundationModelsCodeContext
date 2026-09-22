@@ -54,6 +54,9 @@ enum SessionRequest: String, Sendable, Hashable {
     /// `textDocument/references`.
     case references
 
+    /// `textDocument/definition`.
+    case definition
+
     /// `textDocument/implementation`, gated on implementations.
     case implementations
 

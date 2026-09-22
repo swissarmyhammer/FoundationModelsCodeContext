@@ -17,6 +17,12 @@ enum Schema {
         static let tsIndexed = "ts_indexed"
         static let lspIndexed = "lsp_indexed"
         static let embedded = "embedded"
+        /// The `content_hash` of the file at its last LSP index pass, or
+        /// `NULL` before the first pass. A pass whose file has a different
+        /// `content_hash` indexes an edited file; a pass whose file has the
+        /// same `content_hash` indexes a file that only an invalidation
+        /// marked dirty.
+        static let lspContentHash = "lsp_content_hash"
     }
 
     /// Tree-sitter semantic chunks, one row per definition-like node.
@@ -148,6 +154,12 @@ enum Migrations {
             try db.create(table: Schema.Meta.table) { t in
                 t.primaryKey(Schema.Meta.key, .text)
                 t.column(Schema.Meta.value, .text).notNull()
+            }
+        }
+
+        migrator.registerMigration("v2_lspContentHash") { db in
+            try db.alter(table: Schema.IndexedFiles.table) { t in
+                t.add(column: Schema.IndexedFiles.lspContentHash, .blob)
             }
         }
 

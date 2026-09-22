@@ -155,7 +155,7 @@ minimal event-callback seam later — but don't build it now.
 
 Start from the Rust schema — it's proven and simple — but it's ours to evolve:
 
-- `indexed_files(file_path PK, content_hash, file_size, last_seen_at, ts_indexed, lsp_indexed, embedded)` — per-layer dirty flags
+- `indexed_files(file_path PK, content_hash, file_size, last_seen_at, ts_indexed, lsp_indexed, embedded, lsp_content_hash?)` — per-layer dirty flags; `lsp_content_hash` (migration `v2`) is the `content_hash` at the last LSP index pass of the file, `NULL` before the first pass
 - `ts_chunks(file_path FK CASCADE, byte/line ranges, text, symbol_path, kind, embedding BLOB?)` — embedding is a little-endian Float32 blob; `kind` is the chunk's **meta-type** (`function | method | type | other`, from the language module's `chunkKinds` map — one addition over the Rust schema, so kind-aware ops don't re-parse)
 - `lsp_symbols(id PK, name, kind, file_path FK CASCADE, ranges, detail)`
 - `lsp_call_edges(caller_id, callee_id, files, from_ranges, source: 'lsp'|'treesitter')`
@@ -190,6 +190,17 @@ all layers dirty, new → INSERT dirty.
    `didClose` → persist symbols + edges (`source = 'lsp'`) → mark done.
    Includes the Rust invalidation rule: when a file's symbol set shrinks,
    files with edges into removed symbols get `lsp_indexed = 0`.
+   A server without call hierarchy (for example `pylsp`) gets the
+   references fallback: the edges into each function-like symbol come from
+   `textDocument/references`, and the indexed (callee) file owns them. When
+   the content of such a file changed since its last LSP pass
+   (`content_hash` is not `lsp_content_hash`), the worker sends
+   `textDocument/definition` at the callee name of each call (found by
+   tree-sitter). Each file whose called symbol has no edge from the caller
+   yet gets `lsp_indexed = 0`, so its next pass writes the new caller. A
+   pass of a file that only an invalidation marked dirty sends no such
+   request, so two files that call each other do not mark each other dirty
+   without end.
 
 **File watching**: FSEvents (recursive on root) debounced ~1s, filtered to
 source extensions → mark dirty / delete rows → nudge workers. This replaces

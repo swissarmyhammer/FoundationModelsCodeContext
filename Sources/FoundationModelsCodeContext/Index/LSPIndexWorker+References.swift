@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// The references fallback of `LSPIndexWorker`, for a server that does not
 /// advertise call hierarchy.
@@ -24,10 +25,17 @@ import Foundation
 /// graph, not an exact copy of it.
 ///
 /// The indexed file (the callee file) owns the edges it writes, so its next
-/// index pass replaces them. An edge thus stays until the callee file is
-/// indexed again: a new call in another file shows only after that. A caller
-/// that another file deletes marks the owner file dirty (see
-/// `reverseEdgeFiles(db:symbolIDs:excludingFile:)`).
+/// index pass replaces them. Two rules mark the owner file dirty when an
+/// edge into it goes out of date because of a change in another file:
+///
+/// - A caller that another file deletes marks the owner file dirty (see
+///   `reverseEdgeFiles(db:symbolIDs:excludingFile:)`).
+/// - A new or changed call in another file marks the file of the called
+///   symbol dirty (see
+///   `collectCallSiteTargets(filePath:uri:contents:flatSymbols:rootDirectory:session:store:)`
+///   and `calleeFilesMissingAnEdge(db:targets:symbolIDsByStartLine:)`).
+///   The next pass of the called file then finds the new caller among the
+///   references.
 extension LSPIndexWorker {
     /// The callable symbols of each file the fallback has read in one index
     /// pass, keyed by workspace-relative path.
@@ -221,5 +229,235 @@ extension LSPIndexWorker {
             (first.endLine - first.startLine, first.endColumn - first.startColumn)
                 < (second.endLine - second.startLine, second.endColumn - second.startColumn)
         }
+    }
+
+    // MARK: - Invalidation from a new call site
+
+    /// One call in the indexed file whose `definition` answer is a symbol of
+    /// another file.
+    struct CallSiteTarget: Sendable, Hashable {
+        /// The start line of the callable symbol of the indexed file that
+        /// holds the call.
+        let callerStartLine: Int
+
+        /// The file of the called symbol, relative to the workspace root.
+        let calleeFile: String
+
+        /// The position that the `definition` answer gave in `calleeFile`.
+        let calleePosition: Position
+    }
+
+    /// Finds the symbol of another file that each call in `filePath` refers
+    /// to, with one `textDocument/definition` request at the callee name of
+    /// each call (see `TSCallGraph.calleeNamePositions(in:module:)`).
+    ///
+    /// Only a call inside a callable symbol of `filePath` counts: the
+    /// references fallback gives no edge for a call outside a callable
+    /// symbol either. A definition in `filePath` itself, or outside the
+    /// workspace, gives no target.
+    ///
+    /// No request is sent, and the result is empty, in two cases:
+    /// - The server advertises call hierarchy. The caller file then owns
+    ///   its edges, and its own index pass writes a new call.
+    /// - The content of `filePath` is the same as at its last LSP index
+    ///   pass (see `Schema.IndexedFiles.lspContentHash`). Only an
+    ///   invalidation from another file marked it dirty, so it has no new
+    ///   call. This stops the chain of marks: two files that call each
+    ///   other cannot mark each other dirty without end, also when the
+    ///   `definition` and `references` answers of the server do not agree.
+    /// - Parameters:
+    ///   - filePath: The file `flatSymbols` were flattened from.
+    ///   - uri: `filePath`'s document uri, already synced via `syncOpen`.
+    ///   - contents: The text of `filePath`, where the calls are found.
+    ///   - flatSymbols: The file's flattened symbols.
+    ///   - rootDirectory: The workspace root the definition uris are resolved against.
+    ///   - session: The live session to send the requests through.
+    ///   - store: The workspace's index store, where the content hashes are.
+    /// - Returns: The distinct targets of the calls of `filePath`.
+    static func collectCallSiteTargets(
+        filePath: String,
+        uri: DocumentURI,
+        contents: String,
+        flatSymbols: [FlatSymbol],
+        rootDirectory: URL,
+        session: LspSession<Connection>,
+        store: Store
+    ) async -> Set<CallSiteTarget> {
+        guard !session.capabilities.callHierarchy, await isChangedSinceLastPass(filePath: filePath, store: store) else {
+            return []
+        }
+        let callables = flatSymbols.filter { callableKinds.contains($0.kind) }
+        var targets: Set<CallSiteTarget> = []
+        for call in calls(in: filePath, contents: contents, callables: callables) {
+            let locations = await definitionLocations(at: call.position, uri: uri, filePath: filePath, session: session)
+            targets.formUnion(
+                locations.compactMap { location in
+                    guard let calleeFile = relativePath(of: location.uri, rootDirectory: rootDirectory), calleeFile != filePath else {
+                        return nil
+                    }
+                    return CallSiteTarget(callerStartLine: call.caller.startLine, calleeFile: calleeFile, calleePosition: location.range.start)
+                })
+        }
+        return targets
+    }
+
+    /// The position of the callee name of each call in `contents` that a
+    /// callable symbol holds, together with that symbol.
+    /// - Parameters:
+    ///   - filePath: The file of `contents`; its extension selects the grammar.
+    ///   - contents: The text of the file.
+    ///   - callables: The callable symbols of the file.
+    /// - Returns: One entry for each call inside a callable symbol; empty
+    ///   when no language module parses the file.
+    private static func calls(in filePath: String, contents: String, callables: [FlatSymbol]) -> [(caller: FlatSymbol, position: Position)] {
+        guard let module = Languages.module(forFileExtension: URL(fileURLWithPath: filePath).pathExtension) else {
+            return []
+        }
+        let file = SourceFile(relativePath: filePath, contents: contents)
+        return TSCallGraph.calleeNamePositions(in: file, module: module).compactMap { position in
+            narrowestSymbol(in: callables, containing: position).map { caller in (caller, position) }
+        }
+    }
+
+    /// Asks the server for the definition of the symbol at `position`.
+    /// - Parameters:
+    ///   - position: The position of a callee name.
+    ///   - uri: The document of `position`, already synced via `syncOpen`.
+    ///   - filePath: The file of `uri`, used only for the log line.
+    ///   - session: The live session to send the request through.
+    /// - Returns: The definition locations; empty when the request failed
+    ///   (a failure is logged one time for each server).
+    private static func definitionLocations(
+        at position: Position,
+        uri: DocumentURI,
+        filePath: String,
+        session: LspSession<Connection>
+    ) async -> [Location] {
+        do {
+            return try await session.definition(uri: uri, at: position)
+        } catch {
+            await session.logFailure(of: .definition, context: "\(filePath):\(position.line):\(position.character)", error: error)
+            return []
+        }
+    }
+
+    /// Whether the content of `filePath` changed since its last LSP index
+    /// pass: its `content_hash` is not the `lsp_content_hash` that
+    /// `recordLspContentHash(db:filePath:)` wrote. A file with no LSP index
+    /// pass yet (a `NULL` hash) counts as changed.
+    /// - Parameters:
+    ///   - filePath: The file to check.
+    ///   - store: The workspace's index store.
+    /// - Returns: `true` when the content changed; `false` when it did not,
+    ///   or when the store cannot be read (the failure is logged).
+    private static func isChangedSinceLastPass(filePath: String, store: Store) async -> Bool {
+        do {
+            return try await store.read { db in
+                try Bool.fetchOne(
+                    db,
+                    sql: """
+                        SELECT \(Schema.IndexedFiles.lspContentHash) IS NOT \(Schema.IndexedFiles.contentHash) \
+                        FROM \(Schema.IndexedFiles.table) WHERE \(Schema.IndexedFiles.filePath) = ?
+                        """,
+                    arguments: [filePath]
+                ) ?? false
+            }
+        } catch {
+            Log.lsp.error(
+                "failed to read the content hashes of \(filePath, privacy: .public); no call-site check: \(error.localizedDescription, privacy: .public)"
+            )
+            return false
+        }
+    }
+
+    /// Records the current `content_hash` of `filePath` as its
+    /// `lsp_content_hash`, the content of its last LSP index pass (see
+    /// `isChangedSinceLastPass(filePath:store:)`).
+    /// - Parameters:
+    ///   - db: The write-transaction database connection.
+    ///   - filePath: The file that the pass indexed.
+    /// - Throws: Rethrows any error the statement throws.
+    static func recordLspContentHash(db: Database, filePath: String) throws {
+        try db.execute(
+            sql: """
+                UPDATE \(Schema.IndexedFiles.table) \
+                SET \(Schema.IndexedFiles.lspContentHash) = \(Schema.IndexedFiles.contentHash) \
+                WHERE \(Schema.IndexedFiles.filePath) = ?
+                """,
+            arguments: [filePath]
+        )
+    }
+
+    /// The files of the symbols that `targets` call with no stored edge from
+    /// the caller to the called symbol.
+    ///
+    /// Such a call is new or changed since the last index pass of the callee
+    /// file, which owns the edges into its symbols. A target whose position
+    /// is in no callable symbol of the stored index gives no file: the
+    /// references fallback gives edges into callable symbols only.
+    /// - Parameters:
+    ///   - db: The write-transaction database connection.
+    ///   - targets: The call-site targets of the indexed file.
+    ///   - symbolIDsByStartLine: The indexed file's freshly written symbol row ids, keyed by start line.
+    /// - Returns: The distinct callee files to mark `lsp_indexed = 0`.
+    /// - Throws: Rethrows any error the queries throw.
+    static func calleeFilesMissingAnEdge(db: Database, targets: Set<CallSiteTarget>, symbolIDsByStartLine: [Int: Int64]) throws -> Set<String> {
+        let missing = try targets.filter { target in
+            guard let callerID = symbolIDsByStartLine[target.callerStartLine],
+                let calleeID = try callableSymbolID(db: db, filePath: target.calleeFile, containing: target.calleePosition)
+            else {
+                return false
+            }
+            return try !hasCallEdge(db: db, callerID: callerID, calleeID: calleeID)
+        }
+        return Set(missing.map(\.calleeFile))
+    }
+
+    /// The row id of the narrowest stored callable symbol of `filePath`
+    /// whose range holds `position`.
+    /// - Parameters:
+    ///   - db: The database connection to query.
+    ///   - filePath: The file of the symbol.
+    ///   - position: A position inside the symbol, for example its name.
+    /// - Returns: The symbol's row id, or `nil` when no callable symbol holds `position`.
+    /// - Throws: Rethrows any error the query throws.
+    private static func callableSymbolID(db: Database, filePath: String, containing position: Position) throws -> Int64? {
+        let kinds = callableKinds.map(kindString(for:))
+        let kindPlaceholders = kinds.map { _ in "?" }.joined(separator: ", ")
+        let line = position.line
+        let column = position.character
+        return try Int64.fetchOne(
+            db,
+            sql: """
+                SELECT \(Schema.LspSymbols.id) FROM \(Schema.LspSymbols.table) \
+                WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.kind) IN (\(kindPlaceholders)) \
+                AND (\(Schema.LspSymbols.startLine) < ? OR (\(Schema.LspSymbols.startLine) = ? AND \(Schema.LspSymbols.startColumn) <= ?)) \
+                AND (\(Schema.LspSymbols.endLine) > ? OR (\(Schema.LspSymbols.endLine) = ? AND \(Schema.LspSymbols.endColumn) >= ?)) \
+                ORDER BY (\(Schema.LspSymbols.endLine) - \(Schema.LspSymbols.startLine)), \
+                         (\(Schema.LspSymbols.endColumn) - \(Schema.LspSymbols.startColumn)) \
+                LIMIT 1
+                """,
+            arguments: StatementArguments([filePath]) + StatementArguments(kinds)
+                + StatementArguments([line, line, column, line, line, column])
+        )
+    }
+
+    /// Whether the index holds an LSP call edge from `callerID` to `calleeID`.
+    /// - Parameters:
+    ///   - db: The database connection to query.
+    ///   - callerID: The row id of the calling symbol.
+    ///   - calleeID: The row id of the called symbol.
+    /// - Returns: `true` when such an edge exists, whichever file owns it.
+    /// - Throws: Rethrows any error the query throws.
+    private static func hasCallEdge(db: Database, callerID: Int64, calleeID: Int64) throws -> Bool {
+        try Bool.fetchOne(
+            db,
+            sql: """
+                SELECT EXISTS(SELECT 1 FROM \(Schema.LspCallEdges.table) \
+                WHERE \(Schema.LspCallEdges.callerId) = ? AND \(Schema.LspCallEdges.calleeId) = ? \
+                AND \(Schema.LspCallEdges.source) = 'lsp')
+                """,
+            arguments: [callerID, calleeID]
+        ) ?? false
     }
 }

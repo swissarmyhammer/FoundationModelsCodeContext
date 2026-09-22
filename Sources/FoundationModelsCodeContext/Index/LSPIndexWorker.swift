@@ -68,7 +68,9 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
 ///   it (`LspSession.capabilities`). A server without call hierarchy (for
 ///   example `pylsp`) gets no `prepareCallHierarchy` request: the worker
 ///   finds the callers of each callable symbol with `textDocument/references`
-///   instead (see `LSPIndexWorker+References.swift`).
+///   instead (see `LSPIndexWorker+References.swift`). A pass of an edited
+///   file of such a server also marks the files of the symbols that its new
+///   calls call `lsp_indexed = 0`, so their next pass writes the new caller.
 /// - A request failure is logged through `LspSession.logFailure(of:context:error:)`,
 ///   one time for each (server, request) pair. A server that refuses a
 ///   request for each symbol thus writes one log line, not one line for each
@@ -76,7 +78,7 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
 ///
 /// Every symbol/edge write and the `lsp_indexed` flag flip for one file
 /// happen inside a single `Store.write` transaction (see
-/// `writeFile(db:filePath:flatSymbols:pendingEdges:)`), matching
+/// `writeFile(db:filePath:flatSymbols:pendingEdges:callSiteTargets:)`), matching
 /// `TreeSitterWorker`'s established atomicity pattern: a process
 /// interrupted mid-drain never leaves a file's rows committed with its flag
 /// still `0`, or vice versa.
@@ -311,12 +313,27 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             rootDirectory: rootDirectory,
             session: session
         )
+        let callSiteTargets = await collectCallSiteTargets(
+            filePath: relativePath,
+            uri: uri,
+            contents: contents,
+            flatSymbols: flatSymbols,
+            rootDirectory: rootDirectory,
+            session: session,
+            store: store
+        )
 
         await closeDocument(uri: uri, relativePath: relativePath, session: session)
 
         do {
             try await store.write { db in
-                try writeFile(db: db, filePath: relativePath, flatSymbols: flatSymbols, pendingEdges: pendingEdges)
+                try writeFile(
+                    db: db,
+                    filePath: relativePath,
+                    flatSymbols: flatSymbols,
+                    pendingEdges: pendingEdges,
+                    callSiteTargets: callSiteTargets
+                )
             }
         } catch {
             Log.lsp.error(
@@ -732,22 +749,34 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// them); symbols whose start line disappears are deleted, cascading
     /// away their edges, after first collecting which other files had an
     /// edge into one of them — those files are the ones marked
-    /// `lsp_indexed = 0` for a later pass to refresh.
+    /// `lsp_indexed = 0` for a later pass to refresh. The files of the
+    /// symbols that a call of `callSiteTargets` calls with no stored edge
+    /// yet are marked `lsp_indexed = 0` too (see
+    /// `calleeFilesMissingAnEdge(db:targets:symbolIDsByStartLine:)`).
     /// - Parameters:
     ///   - db: The write-transaction database connection.
     ///   - filePath: The file being indexed.
     ///   - flatSymbols: The file's freshly flattened symbols.
     ///   - pendingEdges: The file's freshly collected outgoing call edges.
+    ///   - callSiteTargets: The symbols of other files that the calls of the
+    ///     file refer to; empty when the pass collected none.
     /// - Throws: Rethrows any error `db`'s statements throw.
     private static func writeFile(
         db: Database,
         filePath: String,
         flatSymbols: [FlatSymbol],
-        pendingEdges: [PendingCallEdge]
+        pendingEdges: [PendingCallEdge],
+        callSiteTargets: Set<CallSiteTarget>
     ) throws {
         let reextraction = try reextractSymbols(db: db, filePath: filePath, flatSymbols: flatSymbols)
         try writeCallEdges(db: db, filePath: filePath, pendingEdges: pendingEdges, symbolIDsByStartLine: reextraction.symbolIDsByStartLine)
-        try applyInvalidation(db: db, affectedFiles: reextraction.affectedFiles)
+        let staleCalleeFiles = try calleeFilesMissingAnEdge(
+            db: db,
+            targets: callSiteTargets,
+            symbolIDsByStartLine: reextraction.symbolIDsByStartLine
+        )
+        try applyInvalidation(db: db, affectedFiles: reextraction.affectedFiles + staleCalleeFiles)
+        try recordLspContentHash(db: db, filePath: filePath)
         try setLSPIndexed(db: db, filePath: filePath, indexed: true)
     }
 

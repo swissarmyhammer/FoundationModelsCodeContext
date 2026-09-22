@@ -378,4 +378,36 @@ struct TSCallGraphTests {
             #expect(edges == [EdgeRow(callerSymbolPath: "deepSpine", calleeSymbolPath: "helper", source: "treesitter")])
         }
     }
+
+    // MARK: - Callee name positions
+
+    @Test
+    func calleeNamePositionsPointAtTheLastNameOfEachCall() {
+        let file = SourceFile(relativePath: "calls.py", contents: "def main():\n    helper()\n    module.helper()\n")
+
+        let positions = TSCallGraph.calleeNamePositions(in: file, module: PythonLanguage.self)
+
+        #expect(positions == [Position(line: 1, character: 4), Position(line: 2, character: 11)])
+    }
+
+    @Test
+    func calleeNamePositionsCountColumnsInUTF16CodeUnits() {
+        // `é` is one UTF-16 code unit and two UTF-8 bytes; `😀` is two UTF-16
+        // code units and four UTF-8 bytes. The name `helper` starts at UTF-16
+        // column 15, but at byte column 18.
+        let file = SourceFile(relativePath: "wide.py", contents: "def main():\n    s = \"é😀\"; helper()\n")
+
+        let positions = TSCallGraph.calleeNamePositions(in: file, module: PythonLanguage.self)
+
+        #expect(positions == [Position(line: 1, character: 15)])
+    }
+
+    @Test
+    func calleeNamePositionsSkipACallWhoseCalleeDoesNotEndInAName() {
+        let file = SourceFile(relativePath: "factory.py", contents: "def main():\n    make()()\n")
+
+        let positions = TSCallGraph.calleeNamePositions(in: file, module: PythonLanguage.self)
+
+        #expect(positions == [Position(line: 1, character: 4)])
+    }
 }

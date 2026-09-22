@@ -168,10 +168,70 @@ enum TSCallGraph {
         }
     }
 
+    // MARK: - Callee name positions
+
+    /// Finds the position of the callee name of each call expression in
+    /// `file`, the position where a `textDocument/definition` request for
+    /// the called symbol must point.
+    ///
+    /// The name is the run of identifier characters at the end of the
+    /// callee: `helper` in `helper()`, in `module.helper()` and in
+    /// `Type::helper()`. A call whose callee does not end in a name (for
+    /// example the outer call of `make()()`) gives no position. The column
+    /// of each position is in UTF-16 code units, as LSP positions are.
+    ///
+    /// - Parameters:
+    ///   - file: The source file to find the calls in.
+    ///   - module: The language module supplying the grammar to parse `file`
+    ///     with.
+    /// - Returns: One position for each call with a callee name, in AST
+    ///   traversal order; empty when `file` cannot be parsed.
+    static func calleeNamePositions(in file: SourceFile, module: any LanguageModule.Type) -> [Position] {
+        guard let (_, root) = Chunker.parseFile(contents: file.contents, module: module) else {
+            return []
+        }
+        let lineStarts = utf16LineStarts(of: file.contents)
+        return callNodes(under: root).compactMap { node in
+            calleeNode(of: node).flatMap { callee in
+                namePosition(atEndOf: callee, in: file.contents, lineStarts: lineStarts)
+            }
+        }
+    }
+
+    /// The UTF-16 code unit of a line feed, the character that ends a line.
+    private static let lineFeed = UInt16(UInt8(ascii: "\n"))
+
+    /// The UTF-16 offset where each line of `contents` starts.
+    /// - Parameter contents: The text of a file.
+    /// - Returns: The offset of each line start, the first line (offset `0`)
+    ///   included, in line order.
+    private static func utf16LineStarts(of contents: String) -> [Int] {
+        [0] + contents.utf16.enumerated().filter { $0.element == lineFeed }.map { $0.offset + 1 }
+    }
+
+    /// The position of the name at the end of `callee`.
+    /// - Parameters:
+    ///   - callee: The callee node of a call expression.
+    ///   - contents: The text of the file `callee` was parsed from.
+    ///   - lineStarts: The UTF-16 offset of each line start of `contents`.
+    /// - Returns: The position of the first character of the name, or `nil`
+    ///   when the callee does not end in a name.
+    private static func namePosition(atEndOf callee: Node, in contents: String, lineStarts: [Int]) -> Position? {
+        guard let calleeText = Chunker.extractTextAndRange(of: callee, in: contents)?.text else {
+            return nil
+        }
+        let nameLength = String(calleeText.reversed().prefix(while: SymbolNameLocator.isIdentifierCharacter)).utf16.count
+        let line = Int(callee.pointRange.upperBound.row)
+        guard nameLength > 0, line < lineStarts.count else {
+            return nil
+        }
+        return Position(line: line, character: callee.range.upperBound - nameLength - lineStarts[line])
+    }
+
     // MARK: - AST walk
 
-    /// Walks `root` and its descendants, collecting a `CallSite` for every node
-    /// whose kind is in `callNodeKinds` and whose callee can be extracted.
+    /// Makes a `CallSite` for every call-expression node under `root` (see
+    /// `callNodes(under:)`) whose callee can be extracted.
     ///
     /// Runs on `Chunker.walk(from:direction:visit:)` in
     /// `Chunker.WalkDirection.children`, the same traversal
@@ -189,25 +249,39 @@ enum TSCallGraph {
     /// - Returns: One call site per recognized call expression, in AST traversal
     ///   order.
     private static func collectCallSites(root: Node, file: SourceFile) -> [CallSite] {
-        var sites: [CallSite] = []
-        Chunker.walk(from: root, direction: .children) { node in
-            guard let kind = node.nodeType, callNodeKinds.contains(kind),
-                let calleeName = extractCalleeName(node: node, file: file),
+        callNodes(under: root).compactMap { node in
+            guard let calleeName = extractCalleeName(node: node, file: file),
                 let (_, startByte, endByte) = Chunker.extractTextAndRange(of: node, in: file.contents)
             else {
-                return
+                return nil
             }
 
-            sites.append(
-                CallSite(
-                    calleeName: calleeName,
-                    startByte: startByte,
-                    endByte: endByte,
-                    startLine: Int(node.pointRange.lowerBound.row),
-                    endLine: Int(node.pointRange.upperBound.row)
-                ))
+            return CallSite(
+                calleeName: calleeName,
+                startByte: startByte,
+                endByte: endByte,
+                startLine: Int(node.pointRange.lowerBound.row),
+                endLine: Int(node.pointRange.upperBound.row)
+            )
         }
-        return sites
+    }
+
+    /// Walks `root` and its descendants, collecting every node whose kind is
+    /// in `callNodeKinds`.
+    ///
+    /// The walk is the one `collectCallSites(root:file:)` describes: every
+    /// child is visited, so a call nested in another call is found too, and
+    /// the walk stops at `Chunker.maxASTDepth`.
+    /// - Parameter root: The node to walk, itself included.
+    /// - Returns: The call-expression nodes, in AST traversal order.
+    private static func callNodes(under root: Node) -> [Node] {
+        var nodes: [Node] = []
+        Chunker.walk(from: root, direction: .children) { node in
+            if let kind = node.nodeType, callNodeKinds.contains(kind) {
+                nodes.append(node)
+            }
+        }
+        return nodes
     }
 
     /// Extracts a call expression node's callee name.
@@ -233,12 +307,7 @@ enum TSCallGraph {
     /// - Returns: The extracted callee name, or `nil` if none could be
     ///   recognized.
     private static func extractCalleeName(node: Node, file: SourceFile) -> String? {
-        let callee =
-            calleeFieldNames.lazy.compactMap { fieldName in
-                node.child(byFieldName: fieldName)
-            }.first ?? node.namedChild(at: 0)
-
-        guard let callee,
+        guard let callee = calleeNode(of: node),
             let calleeText = Chunker.extractTextAndRange(of: callee, in: file.contents)?.text
         else {
             return nil
@@ -250,6 +319,17 @@ enum TSCallGraph {
 
         let afterSeparator = String(calleeText[calleeText.index(after: lastSeparatorIndex)...])
         return afterSeparator.isEmpty ? nil : afterSeparator
+    }
+
+    /// Finds the callee sub-node of a call expression: the `"function"` or
+    /// `"method"` field, else the first named child (see
+    /// `extractCalleeName(node:file:)` for why).
+    /// - Parameter node: A call-expression node.
+    /// - Returns: The callee node, or `nil` when the call has none.
+    private static func calleeNode(of node: Node) -> Node? {
+        calleeFieldNames.lazy.compactMap { fieldName in
+            node.child(byFieldName: fieldName)
+        }.first ?? node.namedChild(at: 0)
     }
 
     // MARK: - Callee resolution

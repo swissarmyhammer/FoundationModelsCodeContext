@@ -84,7 +84,12 @@ enum SymbolNameLocator {
 
     /// Whether `character` can be part of an identifier: a letter, a digit,
     /// `_` or `$`.
-    private static func isIdentifierCharacter(_ character: Character) -> Bool {
+    ///
+    /// Not `private`: `TSCallGraph.calleeNamePositions(in:module:)` uses the
+    /// same rule to find the name at the end of a callee.
+    /// - Parameter character: The character to test.
+    /// - Returns: `true` when `character` can be part of an identifier.
+    static func isIdentifierCharacter(_ character: Character) -> Bool {
         character.isLetter || character.isNumber || character == "_" || character == "$"
     }
 }

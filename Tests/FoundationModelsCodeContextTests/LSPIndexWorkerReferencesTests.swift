@@ -83,7 +83,9 @@ struct LSPIndexWorkerReferencesTests {
     }
 
     /// Drains every dirty Python file through `session`.
-    private static func drainPython(store: Store, root: URL, session: LspSession<FakeLanguageServerConnection>) async throws {
+    /// - Returns: The number of files the pass indexed.
+    @discardableResult
+    private static func drainPython(store: Store, root: URL, session: LspSession<FakeLanguageServerConnection>) async throws -> Int {
         try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
             store: store, rootDirectory: root, extensions: ["py"], session: session
         )
@@ -309,6 +311,160 @@ struct LSPIndexWorkerReferencesTests {
 
             let dirty = try await store.drainLspDirty()
             #expect(dirty.contains("sample.py"))
+        }
+    }
+
+    // MARK: - Invalidation from a new call site
+
+    /// `otherSource` with a new function `caller_three` that calls `helper`
+    /// at line 9, column 11.
+    private static let otherSourceWithNewCaller = otherSource + "\n\ndef caller_three():\n    return helper()\n"
+
+    /// The location of the name `helper` in `sample.py`, which a
+    /// `definition` request at a call of `helper` gives.
+    private static func helperDefinition(in root: URL) -> Location {
+        location("sample.py", in: root, line: 0, from: 4, to: 10)
+    }
+
+    /// Writes `contents` to `other.py`, marks it dirty with a new content
+    /// hash, and scripts its `documentSymbol` answer and the `definition`
+    /// answer at each of its calls of `helper`.
+    /// - Parameters:
+    ///   - contents: The new text of `other.py`.
+    ///   - symbols: The `documentSymbol` answer for the new text.
+    ///   - helperCalls: The position of each call of `helper` in the new text.
+    ///   - root: The workspace root.
+    ///   - store: The index store.
+    ///   - connection: The fake server.
+    private static func changeOtherFile(
+        to contents: String,
+        symbols: [DocumentSymbol],
+        helperCalls: [Position],
+        root: URL,
+        store: Store,
+        connection: FakeLanguageServerConnection
+    ) async throws {
+        try write(contents, to: "other.py", in: root)
+        try await store.markDirty(filePath: "other.py", contentHash: Data(contents.utf8), fileSize: 1)
+        await connection.setDocumentSymbolsResult(.success(symbols), for: uri(for: "other.py", in: root))
+        for call in helperCalls {
+            await connection.setDefinitionResult(.success([helperDefinition(in: root)]), in: uri(for: "other.py", in: root), at: call)
+        }
+    }
+
+    @Test
+    func aNewCallerInAnotherFileShowsInTheInboundCallGraphWithNoChangeToTheCalleeFile() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let connection = FakeLanguageServerConnection()
+            try await Self.seedPythonFixture(root: root, store: store, connection: connection)
+            let session = LspSession.makePylsp(over: connection)
+            try await Self.drainPython(store: store, root: root, session: session)
+
+            try await Self.changeOtherFile(
+                to: Self.otherSourceWithNewCaller,
+                symbols: [
+                    Self.flatSymbol(name: "caller_two", kind: .function, startLine: 3, endLine: 6),
+                    Self.flatSymbol(name: "caller_three", kind: .function, startLine: 8, endLine: 10),
+                ],
+                helperCalls: [Position(line: 4, character: 8), Position(line: 9, character: 11)],
+                root: root,
+                store: store,
+                connection: connection
+            )
+            // The server knows the new call too, so the next pass of
+            // `sample.py` finds it among the references of `helper`.
+            await connection.setReferencesResult(
+                .success([
+                    Self.location("sample.py", in: root, line: 5, from: 11, to: 17),
+                    Self.location("other.py", in: root, line: 4, from: 8, to: 14),
+                    Self.location("other.py", in: root, line: 9, from: 11, to: 17),
+                ]),
+                in: Self.uri(for: "sample.py", in: root),
+                at: Self.helperName
+            )
+            try await Self.drainPython(store: store, root: root, session: session)
+            try await Self.drainPython(store: store, root: root, session: session)
+
+            let graph = try await CallGraphOps.callGraph(store: store, of: "sample.py:0:4", direction: .inbound, maxDepth: 1)
+
+            let lspCallers = graph.edges.filter { $0.source == .lsp }.map(\.caller.name).sorted()
+            #expect(lspCallers == ["caller_three", "caller_two", "main"])
+        }
+    }
+
+    @Test
+    func aChangedFileWhoseCallsAllHaveAnEdgeMarksNoCalleeFileDirty() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let connection = FakeLanguageServerConnection()
+            try await Self.seedPythonFixture(root: root, store: store, connection: connection)
+            let session = LspSession.makePylsp(over: connection)
+            try await Self.drainPython(store: store, root: root, session: session)
+
+            // A comment at the end changes the text but not the calls.
+            try await Self.changeOtherFile(
+                to: Self.otherSource + "# no new call\n",
+                symbols: [Self.flatSymbol(name: "caller_two", kind: .function, startLine: 3, endLine: 6)],
+                helperCalls: [Position(line: 4, character: 8)],
+                root: root,
+                store: store,
+                connection: connection
+            )
+            let callCountBefore = await connection.calls.count
+            try await Self.drainPython(store: store, root: root, session: session)
+
+            let definitionRequests = await connection.calls.dropFirst(callCountBefore).filter { if case .definition = $0 { true } else { false } }
+            #expect(definitionRequests == [.definition(uri: Self.uri(for: "other.py", in: root), position: Position(line: 4, character: 8))])
+            #expect(try await store.drainLspDirty().isEmpty)
+        }
+    }
+
+    /// `ping.py`: `ping` calls `pong` of `pong.py` at line 4, column 11.
+    private static let pingSource = "from pong import pong\n\n\ndef ping():\n    return pong()\n"
+
+    /// `pong.py`: `pong` calls `ping` of `ping.py` at line 4, column 11.
+    private static let pongSource = "from ping import ping\n\n\ndef pong():\n    return ping()\n"
+
+    /// The most drain passes `twoFilesThatCallEachOtherStopIndexingEachOtherAgain`
+    /// runs before it decides that the files index each other without end.
+    private static let maximumDrainPasses = 10
+
+    /// Writes `ping.py` and `pong.py`, marks them dirty, and scripts a
+    /// server whose `definition` answers find the other file but whose
+    /// `references` answers are empty, so no edge between the two files is
+    /// ever written.
+    private static func seedFilesThatCallEachOther(root: URL, store: Store, connection: FakeLanguageServerConnection) async throws {
+        let files = [("ping.py", pingSource, "ping", "pong.py"), ("pong.py", pongSource, "pong", "ping.py")]
+        for (path, source, function, otherPath) in files {
+            try write(source, to: path, in: root)
+            try await store.markDirty(filePath: path, contentHash: Data(source.utf8), fileSize: 1)
+            await connection.setDocumentSymbolsResult(
+                .success([flatSymbol(name: function, kind: .function, startLine: 3, endLine: 5)]),
+                for: uri(for: path, in: root)
+            )
+            await connection.setDefinitionResult(
+                .success([location(otherPath, in: root, line: 3, from: 4, to: 8)]),
+                in: uri(for: path, in: root),
+                at: Position(line: 4, character: 11)
+            )
+        }
+    }
+
+    @Test
+    func twoFilesThatCallEachOtherStopIndexingEachOtherAgain() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let connection = FakeLanguageServerConnection()
+            try await Self.seedFilesThatCallEachOther(root: root, store: store, connection: connection)
+            let session = LspSession.makePylsp(over: connection)
+
+            var indexedCounts: [Int] = []
+            while indexedCounts.last != 0 && indexedCounts.count < Self.maximumDrainPasses {
+                indexedCounts.append(try await Self.drainPython(store: store, root: root, session: session))
+            }
+
+            #expect(indexedCounts.last == 0)
         }
     }
 }
