@@ -216,7 +216,7 @@ extension LSPIndexWorker {
     ///   - symbols: The candidate symbols, all in the file of `position`.
     ///   - position: The position of a reference.
     /// - Returns: The narrowest symbol that holds `position`, or `nil` when none does.
-    static func narrowestSymbol(in symbols: [FlatSymbol], containing position: Position) -> FlatSymbol? {
+    private static func narrowestSymbol(in symbols: [FlatSymbol], containing position: Position) -> FlatSymbol? {
         symbols.filter { $0.contains(position) }.min { first, second in
             (first.endLine - first.startLine, first.endColumn - first.startColumn)
                 < (second.endLine - second.startLine, second.endColumn - second.startColumn)

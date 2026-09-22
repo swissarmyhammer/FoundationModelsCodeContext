@@ -27,18 +27,27 @@ func write(_ content: String, to relativePath: String, in root: URL) throws {
     try content.write(to: url, atomically: true, encoding: .utf8)
 }
 
+/// The default time between two polls of `poll(budget:interval:until:)`,
+/// in milliseconds.
+let defaultPollIntervalMilliseconds = 250
+
+/// The vector length of the `FakeEmbedder` that `withLiveContext` gives to
+/// each live context. The live suites do not test the embeddings, thus a
+/// small length is sufficient.
+let liveEmbeddingDimension = 8
+
 /// Polls `condition` at `interval` until it returns `true` or `budget` elapses
 /// (real wall-clock time: the live suites drive a real subprocess, so no
 /// injectable clock applies).
 /// - Parameters:
 ///   - budget: The total time to keep polling before giving up.
-///   - interval: How long to sleep between polls. Defaults to 250ms.
+///   - interval: How long to sleep between polls. Defaults to `defaultPollIntervalMilliseconds`.
 ///   - condition: Checked before every sleep; polling stops the moment it returns `true`.
 /// - Returns: `true` if `condition` became true within `budget`; `false` otherwise.
 @discardableResult
 func poll(
     budget: Duration,
-    interval: Duration = .milliseconds(250),
+    interval: Duration = .milliseconds(defaultPollIntervalMilliseconds),
     until condition: () async throws -> Bool
 ) async throws -> Bool {
     let clock = ContinuousClock()
@@ -68,7 +77,7 @@ func withLiveContext<T: Sendable>(
 ) async throws -> T {
     let context = try await CodeContext<ProcessLanguageServerConnection>(
         rootDirectory: rootDirectory,
-        embedder: FakeEmbedder(dimension: 8),
+        embedder: FakeEmbedder(dimension: liveEmbeddingDimension),
         connectionFactory: connectionFactory
     )
     do {
@@ -131,6 +140,15 @@ struct FakeEmbedder: TextEmbedding {
 /// A splitmix64 pseudo-random generator, seeded once and then producing a
 /// repeatable, seed-determined stream. Backs `FakeEmbedder`'s determinism.
 private struct SplitMix64: RandomNumberGenerator {
+    /// The increment that each step adds to `state` (the 64-bit golden ratio).
+    private static let increment: UInt64 = 0x9E37_79B9_7F4A_7C15
+
+    /// The multiplier of the first mix step of the output.
+    private static let firstMixMultiplier: UInt64 = 0xBF58_476D_1CE4_E5B9
+
+    /// The multiplier of the second mix step of the output.
+    private static let secondMixMultiplier: UInt64 = 0x94D0_49BB_1331_11EB
+
     private var state: UInt64
 
     /// Creates a generator that will deterministically reproduce the same
@@ -142,10 +160,10 @@ private struct SplitMix64: RandomNumberGenerator {
     }
 
     mutating func next() -> UInt64 {
-        state &+= 0x9E37_79B9_7F4A_7C15
+        state &+= Self.increment
         var result = state
-        result = (result ^ (result >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        result = (result ^ (result >> 27)) &* 0x94D0_49BB_1331_11EB
+        result = (result ^ (result >> 30)) &* Self.firstMixMultiplier
+        result = (result ^ (result >> 27)) &* Self.secondMixMultiplier
         return result ^ (result >> 31)
     }
 }

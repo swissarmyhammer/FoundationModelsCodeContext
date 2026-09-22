@@ -23,9 +23,6 @@ struct LSPIndexWorkerReferencesTests {
     /// as the caller.
     private static let otherSource = "from sample import helper\n\n\ndef caller_two():\n    x = helper()\n    return x\n"
 
-    /// Capabilities of `pylsp` 1.14: no gated method.
-    private static let pylspCapabilities = ServerCapabilities(callHierarchy: false, workspaceSymbol: false, implementation: false)
-
     /// The position of the name `helper` in `sample.py`.
     private static let helperName = Position(line: 0, character: 4)
 
@@ -85,20 +82,6 @@ struct LSPIndexWorkerReferencesTests {
         )
     }
 
-    /// Makes a session over `connection` with the capabilities of `pylsp`.
-    private static func pylspSession(
-        over connection: FakeLanguageServerConnection,
-        failureLog: CapturedLogLines = CapturedLogLines()
-    ) -> LspSession<FakeLanguageServerConnection> {
-        LspSession(
-            connection: connection,
-            languageID: "python",
-            serverName: "pylsp",
-            capabilities: pylspCapabilities,
-            failureLog: failureLog.append
-        )
-    }
-
     /// Drains every dirty Python file through `session`.
     private static func drainPython(store: Store, root: URL, session: LspSession<FakeLanguageServerConnection>) async throws {
         try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
@@ -133,7 +116,7 @@ struct LSPIndexWorkerReferencesTests {
             let connection = FakeLanguageServerConnection()
             try await Self.seedPythonFixture(root: root, store: store, connection: connection)
 
-            try await Self.drainPython(store: store, root: root, session: Self.pylspSession(over: connection))
+            try await Self.drainPython(store: store, root: root, session: LspSession.makePylsp(over: connection))
 
             let calls = await connection.calls
             #expect(!calls.contains { if case .prepareCallHierarchy = $0 { true } else { false } })
@@ -148,7 +131,7 @@ struct LSPIndexWorkerReferencesTests {
             let connection = FakeLanguageServerConnection()
             try await Self.seedPythonFixture(root: root, store: store, connection: connection)
 
-            try await Self.drainPython(store: store, root: root, session: Self.pylspSession(over: connection))
+            try await Self.drainPython(store: store, root: root, session: LspSession.makePylsp(over: connection))
 
             let calls = await connection.calls
             #expect(calls.contains(.references(uri: Self.uri(for: "sample.py", in: root), position: Self.helperName, includeDeclaration: false)))
@@ -164,7 +147,7 @@ struct LSPIndexWorkerReferencesTests {
             let connection = FakeLanguageServerConnection()
             try await Self.seedPythonFixture(root: root, store: store, connection: connection)
 
-            try await Self.drainPython(store: store, root: root, session: Self.pylspSession(over: connection))
+            try await Self.drainPython(store: store, root: root, session: LspSession.makePylsp(over: connection))
 
             #expect(
                 try await Self.edgeRows(store: store) == [
@@ -180,7 +163,7 @@ struct LSPIndexWorkerReferencesTests {
             let store = try Store(rootDirectory: root)
             let connection = FakeLanguageServerConnection()
             try await Self.seedPythonFixture(root: root, store: store, connection: connection)
-            try await Self.drainPython(store: store, root: root, session: Self.pylspSession(over: connection))
+            try await Self.drainPython(store: store, root: root, session: LspSession.makePylsp(over: connection))
 
             let graph = try await CallGraphOps.callGraph(store: store, of: "sample.py:0:4", direction: .inbound, maxDepth: 1)
 
@@ -196,7 +179,7 @@ struct LSPIndexWorkerReferencesTests {
             let store = try Store(rootDirectory: root)
             let connection = FakeLanguageServerConnection()
             try await Self.seedPythonFixture(root: root, store: store, connection: connection)
-            try await Self.drainPython(store: store, root: root, session: Self.pylspSession(over: connection))
+            try await Self.drainPython(store: store, root: root, session: LspSession.makePylsp(over: connection))
 
             let radius = try await BlastRadiusOps.blastRadius(store: store, file: "sample.py", symbol: "helper", maxHops: 1)
 
@@ -211,7 +194,7 @@ struct LSPIndexWorkerReferencesTests {
             let store = try Store(rootDirectory: root)
             let connection = FakeLanguageServerConnection()
             try await Self.seedPythonFixture(root: root, store: store, connection: connection)
-            try await Self.drainPython(store: store, root: root, session: Self.pylspSession(over: connection))
+            try await Self.drainPython(store: store, root: root, session: LspSession.makePylsp(over: connection))
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.inboundCalls(
                 store: store, session: nil, rootDirectory: root, filePath: "sample.py", line: 0, character: 4
@@ -228,7 +211,7 @@ struct LSPIndexWorkerReferencesTests {
             let store = try Store(rootDirectory: root)
             let connection = FakeLanguageServerConnection()
             try await Self.seedPythonFixture(root: root, store: store, connection: connection)
-            let session = Self.pylspSession(over: connection)
+            let session = LspSession.makePylsp(over: connection)
             try await Self.drainPython(store: store, root: root, session: session)
 
             // A new caller in `other.py`. Only `other.py` is indexed again, so
@@ -278,7 +261,7 @@ struct LSPIndexWorkerReferencesTests {
             await connection.setReferencesResult(.failure(Self.methodNotFound))
             let lines = CapturedLogLines()
 
-            try await Self.drainPython(store: store, root: root, session: Self.pylspSession(over: connection, failureLog: lines))
+            try await Self.drainPython(store: store, root: root, session: LspSession.makePylsp(over: connection, failureLog: lines))
 
             #expect(lines.all.count == 1)
             #expect(lines.all.first?.contains("server error -32601: Method Not Found: textDocument/references") == true)
@@ -294,13 +277,7 @@ struct LSPIndexWorkerReferencesTests {
             let refused = WireError.serverError(code: -32601, message: "Method Not Found: textDocument/prepareCallHierarchy")
             await connection.setPrepareCallHierarchyResult(.failure(refused))
             let lines = CapturedLogLines()
-            let session = LspSession(
-                connection: connection,
-                languageID: "python",
-                serverName: "a-server",
-                capabilities: .everyGatedMethod,
-                failureLog: lines.append
-            )
+            let session = LspSession.makePylsp(over: connection, advertising: .everyGatedMethod, failureLog: lines)
 
             try await Self.drainPython(store: store, root: root, session: session)
 
@@ -317,7 +294,7 @@ struct LSPIndexWorkerReferencesTests {
             let store = try Store(rootDirectory: root)
             let connection = FakeLanguageServerConnection()
             try await Self.seedPythonFixture(root: root, store: store, connection: connection)
-            let session = Self.pylspSession(over: connection)
+            let session = LspSession.makePylsp(over: connection)
             try await Self.drainPython(store: store, root: root, session: session)
 
             // `caller_two` moves to another line, so its old row is deleted;
