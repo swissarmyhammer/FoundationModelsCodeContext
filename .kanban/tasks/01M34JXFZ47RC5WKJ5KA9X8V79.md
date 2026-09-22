@@ -30,8 +30,31 @@ comments:
     - evidence: `swift test` — 691 tests, 62 suites, 0 failed, 0 skipped, 0 warnings (in-scope). `swift test --package-path IntegrationTests` — 2 tests, 2 suites, 0 failed (only the out-of-scope third-party mlx-swift "missing creator for mutated node" note). `swift format lint -s -r Sources Tests` — clean, exit 0. `swift format lint -s -r IntegrationTests/Tests` — clean, exit 0. No disabled or skipped tests found in the code.
     - next: ready for review.
   timestamp: 2026-09-22T14:17:27.035534+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m34qp8qde0vkc2mp3jf4vha4
+  text: |-
+    ### commit — changed
+    - evidence: 5080f04 feat(ops): say when a server does not have workspace symbols or implementations
+    - next: review
+  timestamp: 2026-09-22T14:18:05.421632+00:00
+- actor: claude-code
+  id: 01m34qx0rpt88jmjgwtd8wpntj
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD — 0 findings, 0 confirmed, 0 refuted; 7 files reviewed, 4 kanban files and docs/language-servers.md not reviewed
+    - next: all 5 acceptance items are checked and the review gives no finding. The task moves to done.
+  timestamp: 2026-09-22T14:21:46.646568+00:00
+- actor: claude-code
+  id: 01m34qxbq8w5ynz8zejefr0h1x
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 6 files (LspSession.swift, LspSupervisor.swift, LiveOpsCore.swift, LiveOpsExtended.swift, 3 test files, docs/language-servers.md); 10 new tests
+    - test: green — swift test 691 passed; IntegrationTests 2 passed; swift format lint clean
+    - commit: 5080f04
+    - review: clean — 0 findings; task moved to done
+  timestamp: 2026-09-22T14:21:57.864217+00:00
+position_column: done
+position_ordinal: ce80
 title: workspaceSymbols and implementations give an empty result when the server does not have the method
 ---
 Source: a question from foundationmodelsacpagent-08 on 2026-09-22, after ^0ykcm6j.
