@@ -452,6 +452,65 @@ struct LayeredOpsTests {
         }
     }
 
+    // MARK: - implementations: a server without the method
+
+    @Test
+    func implementationsSaysTheServerDoesNotHaveTheMethodAndStillCascadesToTheIndex() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Drawable.swift", content: "protocol Drawable {}\n")
+            try await Self.insertLspSymbol(store: store, id: 1, name: "Drawable", kind: "interface", filePath: "Drawable.swift", startLine: 0, endLine: 0)
+            let connection = FakeLanguageServerConnection()
+            let session = LspSession.makePylsp(over: connection)
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
+                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0
+            )
+
+            #expect(result.notSupportedReason == "The language server pylsp does not have implementations.")
+            #expect(result.sourceLayer == .lspIndex)
+            #expect(result.implementations.count == 1)
+
+            let calls = await connection.calls
+            #expect(
+                !calls.contains {
+                    if case .implementations = $0 { return true }
+                    return false
+                })
+        }
+    }
+
+    @Test
+    func implementationsSaysNothingAboutSupportWhenTheServerHasTheMethodAndNoLayerHasData() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Drawable.swift", content: "protocol Drawable {}\n")
+            let (session, _) = await Self.liveSession()
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
+                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0
+            )
+
+            #expect(result.sourceLayer == .none)
+            #expect(result.notSupportedReason == nil)
+        }
+    }
+
+    @Test
+    func implementationsSaysNothingAboutSupportWhenTheLiveRequestFailsForAnotherReason() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await Self.seedFile(store: store, root: root, relativePath: "Drawable.swift", content: "protocol Drawable {}\n")
+            let (session, _) = await Self.liveSession(induceError: true)
+
+            let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
+                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0
+            )
+
+            #expect(result.notSupportedReason == nil, "only a method the server does not have sets the reason")
+        }
+    }
+
     // MARK: - Fall-through on induced live-LSP error
 
     @Test

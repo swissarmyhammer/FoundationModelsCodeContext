@@ -36,8 +36,31 @@ comments:
     - evidence: swift test — 681 tests, 62 suites, 0 failed, 0 skipped; swift test --package-path IntegrationTests — 2 tests, 2 suites, 0 failed, 0 skipped; swift format lint -s -r Sources Tests — clean; swift format lint -s -r IntegrationTests/Tests — clean
     - next: one build warning found in IntegrationTests build output: "missing creator for mutated node" for mlx-swift_Cmlx.bundle. This comes from the mlx-swift third-party dependency's resource bundle, not code we own, so no fix is needed.
   timestamp: 2026-09-22T13:48:53.341037+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m34p3ds4ays9h8sbcfefwafm
+  text: |-
+    ### commit — changed
+    - evidence: c37a67d
+    - next: review
+  timestamp: 2026-09-22T13:50:19.428929+00:00
+- actor: claude-code
+  id: 01m34p99xemt54qhs12w1r20ss
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (c37a67d). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. The engine did a review of 9 files. It did not review 6 .kanban files (.reviewignore) or plan.md (no validator matches this file). No prior Review Findings sections.
+    - next: None. The task moved to done.
+  timestamp: 2026-09-22T13:53:32.078246+00:00
+- actor: claude-code
+  id: 01m34pj2gpv4d98cqw0r85p36r
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 10 files (6 Sources, 3 Tests, plan.md); new migration v2_lspContentHash
+    - test: green — swift test 681 passed; IntegrationTests 2 passed; swift format lint clean
+    - commit: c37a67d
+    - review: clean — 0 findings; task moved to done
+  timestamp: 2026-09-22T13:58:19.414715+00:00
+position_column: done
+position_ordinal: cd80
 title: References-fallback call edges do not show a new caller until the callee file is indexed again
 ---
 Source: ^0ykcm6j (the references fallback for a server without call hierarchy, for example `pylsp`).

@@ -73,3 +73,38 @@ reference too), so these callers are a close approximation.
 When a request fails, the log shows the server, the request, and the code
 and the message of the server error. The log has one line for each
 (server, request) pair, not one line for each symbol.
+
+## What an empty result means
+
+`search workspace_symbol` and `get implementations` can give an empty result
+for two different reasons: no symbol matches, or the server does not have the
+method. The result tells you which of the two it is. When no server has the
+method, the result has the field `notSupportedReason` with one sentence that
+names the request and the server. In each other case the result does not have
+that field.
+
+| Case | Result |
+|---|---|
+| A server has the method, and it finds matches | The matches. No `notSupportedReason`. |
+| A server has the method, and it finds no match | An empty list. No `notSupportedReason`. |
+| No server that runs has the method | An empty list, with `notSupportedReason`. |
+| No server runs | An empty list. No `notSupportedReason`. |
+| The request fails for a different reason, for example a timeout | An empty list. No `notSupportedReason`. |
+
+`search workspace_symbol` asks each server that runs and advertises
+`workspaceSymbolProvider`. The matches of all these servers go in one list.
+Thus a workspace with Python and Go gets the Go symbols, also when `pylsp`
+has no `workspace/symbol`. The text is:
+
+```text
+No language server that runs has workspaceSymbols. These servers run: gopls, pylsp.
+```
+
+`get implementations` keeps its cascade to the index layers when the server
+of the file does not have `textDocument/implementation`. Thus a result can
+have `notSupportedReason` together with locations from an index layer. The
+field `sourceLayer` tells you which layer gave the locations. The text is:
+
+```text
+The language server pylsp does not have implementations.
+```

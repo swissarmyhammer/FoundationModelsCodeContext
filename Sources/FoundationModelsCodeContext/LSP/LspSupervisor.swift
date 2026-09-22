@@ -421,19 +421,30 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         return await managed.daemon.session()
     }
 
+    /// Every running session among the managed daemons, in command-sorted order.
+    ///
+    /// Useful for a document-less request that each language can answer, for example
+    /// `workspace/symbol`: the caller reads `LspSession.capabilities` to keep only the sessions
+    /// that have the method, and `LspSession.serverName` to name the others.
+    /// - Returns: One session for each managed daemon that is running; empty when none is running.
+    func sessions() async -> [LspSession<Connection>] {
+        var running: [LspSession<Connection>] = []
+        for command in managedDaemons.keys.sorted() {
+            guard let managed = managedDaemons[command] else { continue }
+            if let session = await managed.daemon.session() {
+                running.append(session)
+            }
+        }
+        return running
+    }
+
     /// The first running session among every managed daemon, in command-sorted order.
     ///
     /// Useful for a caller that needs *some* live LSP session regardless of language, e.g. a health
     /// probe.
     /// - Returns: The first non-`nil` session found, or `nil` if no managed daemon is running.
     func anySession() async -> LspSession<Connection>? {
-        for command in managedDaemons.keys.sorted() {
-            guard let managed = managedDaemons[command] else { continue }
-            if let session = await managed.daemon.session() {
-                return session
-            }
-        }
-        return nil
+        await sessions().first
     }
 
     // MARK: - Test support

@@ -280,6 +280,47 @@ struct ResultEncodingTests {
         #expect(json["severity"] as? String == nil)
     }
 
+    // MARK: - WorkspaceSymbolsResult
+
+    /// The text that `workspaceSymbols` gives when no running server has the
+    /// method.
+    private static let noServerHasWorkspaceSymbols = "No language server that runs has workspaceSymbols. These servers run: pylsp."
+
+    /// The text that `implementations` gives when the server of the file does
+    /// not have the method.
+    private static let pylspHasNoImplementations = "The language server pylsp does not have implementations."
+
+    @Test
+    func workspaceSymbolsResultShowsWhyNoRunningServerHasTheMethod() throws {
+        let result = WorkspaceSymbolsResult(symbols: [], notSupportedReason: Self.noServerHasWorkspaceSymbols)
+
+        #expect(try Self.encodedText(result) == #"{"notSupportedReason":"\#(Self.noServerHasWorkspaceSymbols)","symbols":[]}"#)
+    }
+
+    @Test
+    func workspaceSymbolsResultLeavesOutTheReasonWhenAServerHasTheMethod() throws {
+        #expect(try Self.encodedText(WorkspaceSymbolsResult(symbols: [])) == #"{"symbols":[]}"#)
+    }
+
+    // MARK: - ImplementationsResult
+
+    @Test
+    func implementationsResultShowsWhyTheServerDoesNotHaveTheMethod() throws {
+        let result = ImplementationsResult(implementations: [], sourceLayer: .none, notSupportedReason: Self.pylspHasNoImplementations)
+
+        #expect(
+            try Self.encodedText(result)
+                == #"{"implementations":[],"notSupportedReason":"\#(Self.pylspHasNoImplementations)","sourceLayer":"none"}"#
+        )
+    }
+
+    @Test
+    func implementationsResultLeavesOutTheReasonWhenTheServerHasTheMethod() throws {
+        let result = ImplementationsResult(implementations: [], sourceLayer: .none)
+
+        #expect(try Self.encodedText(result) == #"{"implementations":[],"sourceLayer":"none"}"#)
+    }
+
     // MARK: - IndexProgress
 
     @Test

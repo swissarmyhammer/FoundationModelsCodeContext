@@ -14,8 +14,8 @@ private struct InducedExtendedOpsError: Error {}
 /// `prepareRename`/`rename` atomicity under genuine concurrency and its
 /// graceful `canRename: false` degradation with no live session,
 /// `codeActions`'s codeAction-then-resolve flow, `inboundCalls`'s live/index
-/// cascade and mapping, `workspaceSymbols`'s `anySession()` routing, and
-/// `lspStatus`'s supervisor snapshot.
+/// cascade and mapping, `workspaceSymbols`'s routing through each running
+/// session that has the method, and `lspStatus`'s supervisor snapshot.
 struct LiveOpsExtendedTests {
     // MARK: - Fixtures
 
@@ -307,50 +307,168 @@ struct LiveOpsExtendedTests {
 
     // MARK: - workspaceSymbols
 
+    /// Makes a started daemon over `connection`.
+    ///
+    /// The daemon takes its capabilities from the `initialize` result of
+    /// `connection`, and it names its server after `command`. `command` must
+    /// be a binary on `$PATH`, because `LSPDaemon.start()` looks for it there.
+    /// - Parameters:
+    ///   - command: The server command, which is also the name of the server.
+    ///   - connection: The connection that the session of the daemon drives.
+    ///   - root: The workspace root.
+    /// - Returns: The spec of the daemon and the started daemon.
+    /// - Throws: Whatever `LSPDaemon.start()` throws.
+    private static func startedDaemon(
+        command: String,
+        over connection: FakeLanguageServerConnection,
+        root: URL
+    ) async throws -> (spec: ServerSpec, daemon: LSPDaemon<FakeLanguageServerConnection>) {
+        let processState = ProcessState()
+        let spec = Self.serverSpec(command: command)
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: spec,
+            workspaceRoot: root,
+            clock: ManualClock(),
+            connectionFactory: { _, _ in
+                ConnectionHandle(
+                    connection: connection,
+                    pid: 1,
+                    isAlive: { await processState.isAlive },
+                    waitForExit: { await processState.waitForExit() },
+                    terminate: { await processState.markTerminated() }
+                )
+            }
+        )
+        try await daemon.start()
+        return (spec, daemon)
+    }
+
+    /// Runs `workspaceSymbols` against a supervisor with one started daemon
+    /// for each entry of `servers`.
+    ///
+    /// `workspaceSymbols` takes a supervisor and not a session, thus a test of
+    /// it needs started daemons.
+    /// - Parameters:
+    ///   - servers: The command and the connection of each daemon.
+    ///   - root: The workspace root.
+    ///   - query: The search string.
+    /// - Returns: The result of the op.
+    /// - Throws: Whatever `LSPDaemon.start()` or the op throws.
+    private static func workspaceSymbols(
+        over servers: [(command: String, connection: FakeLanguageServerConnection)],
+        root: URL,
+        query: String
+    ) async throws -> WorkspaceSymbolsResult {
+        let supervisor = LspSupervisor<FakeLanguageServerConnection>(
+            workspaceRoot: root, clock: ManualClock(),
+            connectionFactory: fakeConnectionFactory(pid: 2, processState: ProcessState())
+        )
+        for server in servers {
+            let started = try await Self.startedDaemon(command: server.command, over: server.connection, root: root)
+            await supervisor.insertDaemonForTesting(spec: started.spec, daemon: started.daemon)
+        }
+
+        return try await LiveOpsExtended<FakeLanguageServerConnection>.workspaceSymbols(
+            supervisor: supervisor, rootDirectory: root, query: query
+        )
+    }
+
+    /// Runs `workspaceSymbols` against a supervisor with one started daemon
+    /// over `connection`, named `true`.
+    /// - Parameters:
+    ///   - connection: The connection that the session of the daemon drives.
+    ///   - root: The workspace root.
+    ///   - query: The search string.
+    /// - Returns: The result of the op.
+    /// - Throws: Whatever `LSPDaemon.start()` or the op throws.
+    private static func workspaceSymbols(
+        over connection: FakeLanguageServerConnection,
+        root: URL,
+        query: String
+    ) async throws -> WorkspaceSymbolsResult {
+        try await Self.workspaceSymbols(over: [(command: "true", connection: connection)], root: root, query: query)
+    }
+
+    /// Scripts `connection` to answer a workspace-symbol query with one
+    /// symbol named `name` in `Sample.swift`.
+    /// - Parameters:
+    ///   - connection: The connection to script.
+    ///   - name: The name of the symbol.
+    ///   - root: The workspace root that the file of the symbol is under.
+    private static func scriptOneWorkspaceSymbol(on connection: FakeLanguageServerConnection, named name: String, root: URL) async {
+        let symbolURI = DocumentURI(root.appendingPathComponent("Sample.swift").absoluteString)
+        await connection.setWorkspaceSymbolsResult(
+            .success([
+                SymbolInformation(
+                    name: name, kind: .function,
+                    location: Location(uri: symbolURI, range: LSPRange(start: Position(line: 0, character: 0), end: Position(line: 0, character: 6))),
+                    containerName: nil
+                )
+            ]))
+    }
+
     @Test
     func workspaceSymbolsRoutesThroughAnyRunningSession() async throws {
         try await withTemporaryWorkspace { root in
-            let processState = ProcessState()
             let connection = FakeLanguageServerConnection()
-            let symbolURI = DocumentURI(root.appendingPathComponent("Sample.swift").absoluteString)
-            await connection.setWorkspaceSymbolsResult(
-                .success([
-                    SymbolInformation(
-                        name: "sample", kind: .function,
-                        location: Location(uri: symbolURI, range: LSPRange(start: Position(line: 0, character: 0), end: Position(line: 0, character: 6))),
-                        containerName: nil
-                    )
-                ]))
+            await Self.scriptOneWorkspaceSymbol(on: connection, named: "sample", root: root)
 
-            let daemon = LSPDaemon<FakeLanguageServerConnection>(
-                spec: Self.serverSpec(),
-                workspaceRoot: root,
-                clock: ManualClock(),
-                connectionFactory: { _, _ in
-                    ConnectionHandle(
-                        connection: connection,
-                        pid: 1,
-                        isAlive: { await processState.isAlive },
-                        waitForExit: { await processState.waitForExit() },
-                        terminate: { await processState.markTerminated() }
-                    )
-                }
-            )
-            try await daemon.start()
-
-            let supervisor = LspSupervisor<FakeLanguageServerConnection>(
-                workspaceRoot: root, clock: ManualClock(),
-                connectionFactory: fakeConnectionFactory(pid: 2, processState: ProcessState())
-            )
-            await supervisor.insertDaemonForTesting(spec: Self.serverSpec(), daemon: daemon)
-
-            let result = try await LiveOpsExtended<FakeLanguageServerConnection>.workspaceSymbols(
-                supervisor: supervisor, rootDirectory: root, query: "sample"
-            )
+            let result = try await Self.workspaceSymbols(over: connection, root: root, query: "sample")
 
             #expect(result.symbols.count == 1)
             #expect(result.symbols[0].name == "sample")
             #expect(result.symbols[0].filePath == "Sample.swift")
+            #expect(result.notSupportedReason == nil)
+        }
+    }
+
+    /// The op must ask each session that has the method, and not only the
+    /// first running session. The command `false` sorts before `true`, thus
+    /// the server without the method is the first session of the supervisor.
+    @Test
+    func workspaceSymbolsAsksTheServerWithTheMethodAlsoWhenAnotherServerSortsFirst() async throws {
+        try await withTemporaryWorkspace { root in
+            let withoutMethod = FakeLanguageServerConnection()
+            await withoutMethod.setInitializeResult(to: .success(.noGatedMethod))
+            let withMethod = FakeLanguageServerConnection()
+            await Self.scriptOneWorkspaceSymbol(on: withMethod, named: "sample", root: root)
+
+            let result = try await Self.workspaceSymbols(
+                over: [(command: "false", connection: withoutMethod), (command: "true", connection: withMethod)],
+                root: root,
+                query: "sample"
+            )
+
+            #expect(result.symbols.map(\.name) == ["sample"])
+            #expect(result.notSupportedReason == nil)
+        }
+    }
+
+    @Test
+    func workspaceSymbolsSaysNothingAboutSupportWhenTheServerHasTheMethodAndNoSymbolMatches() async throws {
+        try await withTemporaryWorkspace { root in
+            let connection = FakeLanguageServerConnection()
+            await connection.setWorkspaceSymbolsResult(.success([]))
+
+            let result = try await Self.workspaceSymbols(over: connection, root: root, query: "sample")
+
+            #expect(result.symbols.isEmpty)
+            #expect(result.notSupportedReason == nil)
+        }
+    }
+
+    @Test
+    func workspaceSymbolsSaysNoRunningServerHasTheMethodWhenNoneAdvertisesIt() async throws {
+        try await withTemporaryWorkspace { root in
+            let connection = FakeLanguageServerConnection()
+            await connection.setInitializeResult(to: .success(.noGatedMethod))
+
+            let result = try await Self.workspaceSymbols(over: connection, root: root, query: "sample")
+
+            #expect(result.symbols.isEmpty)
+            #expect(result.notSupportedReason == "No language server that runs has workspaceSymbols. These servers run: true.")
+            let calls = await connection.calls
+            #expect(!calls.contains(.workspaceSymbols(query: "sample")))
         }
     }
 
@@ -367,6 +485,7 @@ struct LiveOpsExtendedTests {
             )
 
             #expect(result.symbols.isEmpty)
+            #expect(result.notSupportedReason == nil, "a server that does not run is not a server without the method")
         }
     }
 

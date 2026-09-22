@@ -85,6 +85,38 @@ extension LspSessionError: LocalizedError {
     }
 }
 
+/// Makes the text that tells a caller that a language server does not have
+/// the method of a request.
+///
+/// `LspSessionError.notAdvertised` tells a log line the same fact. An op
+/// result must tell its caller too, because an empty result list alone does
+/// not show the difference between "no results" and "the server does not have
+/// this method". The ops put this text in the `notSupportedReason` field of
+/// their result (`ImplementationsResult`, `WorkspaceSymbolsResult`), and the
+/// tools give that field to the model.
+///
+/// The text names the request with the raw value of `SessionRequest`, the
+/// same name that a log line shows.
+enum NotSupportedText {
+    /// The text for one server that does not have the method.
+    /// - Parameters:
+    ///   - serverName: The name of the server, for example `pylsp`.
+    ///   - request: The request that the server does not have.
+    /// - Returns: One sentence for the result of an op.
+    static func server(_ serverName: String, doesNotHave request: SessionRequest) -> String {
+        "The language server \(serverName) does not have \(request.rawValue)."
+    }
+
+    /// The text for a group of servers when no one of them has the method.
+    /// - Parameters:
+    ///   - request: The request that no server has.
+    ///   - serverNames: The names of the servers that run.
+    /// - Returns: One sentence for the result of an op.
+    static func noRunningServerHas(_ request: SessionRequest, serverNames: [String]) -> String {
+        "No language server that runs has \(request.rawValue). These servers run: \(serverNames.joined(separator: ", "))."
+    }
+}
+
 /// A single owned LSP session over one `LanguageServerConnection`: the
 /// open-document set, the diagnostics cache and its multi-subscriber
 /// fan-out, and the server's observed readiness.

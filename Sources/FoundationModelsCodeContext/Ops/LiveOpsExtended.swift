@@ -104,15 +104,34 @@ struct WorkspaceSymbolInfo: Codable, Sendable, Equatable {
 /// Result of `LiveOpsExtended.workspaceSymbols`.
 ///
 /// Deliberately carries no `sourceLayer`: `workspaceSymbols` is
-/// document-less and answered through whichever session `anySession()`
-/// finds, with no persisted-layer equivalent to cascade through (unlike
-/// `inboundCalls`, there is no per-file cursor position to look up an
-/// `lsp_symbols`/`ts_chunks` row against here) — the only outcome worth
-/// reporting is the (possibly empty) match list itself.
+/// document-less and answered through each running session that advertises
+/// workspace symbols, with no persisted-layer equivalent to cascade through
+/// (unlike `inboundCalls`, there is no per-file cursor position to look up an
+/// `lsp_symbols`/`ts_chunks` row against here) — the only outcomes worth
+/// reporting are the (possibly empty) match list and the fact that no
+/// running server has the method at all.
 public struct WorkspaceSymbolsResult: Codable, Sendable, Equatable {
     /// The matching symbols — empty (never an error) when no session is
     /// running or the live request fails.
     let symbols: [WorkspaceSymbolInfo]
+
+    /// Why no server answered, when servers run but no one of them has
+    /// `workspace/symbol`. It is `nil` in each other case, a timeout and a
+    /// server that does not run included.
+    ///
+    /// An empty `symbols` list alone does not show the difference between
+    /// "no results" and "no server has this method". This field shows it.
+    let notSupportedReason: String?
+
+    /// Makes a workspace-symbols result.
+    /// - Parameters:
+    ///   - symbols: The matching symbols.
+    ///   - notSupportedReason: Why no server answered. Only a server that
+    ///     runs can give this fact, thus the default is `nil`.
+    init(symbols: [WorkspaceSymbolInfo], notSupportedReason: String? = nil) {
+        self.symbols = symbols
+        self.notSupportedReason = notSupportedReason
+    }
 }
 
 /// Result of `LiveOpsExtended.lspStatus`.
@@ -467,43 +486,81 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     // MARK: - workspaceSymbols
 
     /// Searches the workspace for symbols matching a query string, routed
-    /// through any currently running session.
+    /// through each running session that has the method.
     ///
     /// Document-less (per this task's description): unlike every other op in
     /// `LiveOpsCore`/`LiveOpsExtended`, `workspace/symbol` is not scoped to a
-    /// specific open document, so this routes through `supervisor.anySession()`
+    /// specific open document, so this routes through `supervisor.sessions()`
     /// rather than a caller-supplied `session:` — the caller has no single
     /// file to resolve a language-specific session from in the first place.
+    /// A workspace can hold several languages, thus each session that
+    /// advertises `workspaceSymbolProvider` gets the query, and the matches
+    /// of each one go in the result, in the command order of the supervisor.
+    /// A session that does not advertise the method gets no request at all,
+    /// because `LspSession.workspaceSymbols(query:)` throws
+    /// `LspSessionError.notAdvertised` for it.
+    ///
     /// Live-only (see `WorkspaceSymbolsResult`'s doc comment): degrades to an
-    /// empty result (never an error) when no daemon is running or the live
-    /// request fails.
+    /// empty result (never an error) when no daemon is running or a live
+    /// request fails. When servers run but no one of them has the method, the
+    /// result also carries `notSupportedReason`, so that a caller can tell
+    /// this apart from "no results" — for example `pylsp`, which has no
+    /// `workspace/symbol` at all.
     ///
     /// - Parameters:
-    ///   - supervisor: The supervisor to find a running session through.
+    ///   - supervisor: The supervisor to find the running sessions through.
     ///   - rootDirectory: The workspace root each match's file path is made relative to.
     ///   - query: The search string, interpreted by the server (typically fuzzy).
-    /// - Returns: The matching symbols.
+    /// - Returns: The matching symbols, and why no server answered when none has the method.
     static func workspaceSymbols(
         supervisor: LspSupervisor<Connection>,
         rootDirectory: URL,
         query: String
     ) async throws -> WorkspaceSymbolsResult {
-        guard let session = await supervisor.anySession() else {
-            return WorkspaceSymbolsResult(symbols: [])
+        let running = await supervisor.sessions()
+        let advertising = running.filter { $0.capabilities.workspaceSymbol }
+        guard !advertising.isEmpty else {
+            guard !running.isEmpty else {
+                // No server runs at all. That is not the same as a server
+                // without the method, thus the result carries no reason.
+                return WorkspaceSymbolsResult(symbols: [])
+            }
+            return WorkspaceSymbolsResult(
+                symbols: [],
+                notSupportedReason: NotSupportedText.noRunningServerHas(.workspaceSymbols, serverNames: running.map(\.serverName))
+            )
         }
 
+        var symbols: [WorkspaceSymbolInfo] = []
+        for session in advertising {
+            symbols += await liveWorkspaceSymbols(session: session, rootDirectory: rootDirectory, query: query)
+        }
+        return WorkspaceSymbolsResult(symbols: symbols)
+    }
+
+    /// Asks one session for the symbols matching `query`.
+    /// - Parameters:
+    ///   - session: The session to ask. It must advertise workspace symbols.
+    ///   - rootDirectory: The workspace root each match's file path is made relative to.
+    ///   - query: The search string.
+    /// - Returns: The matches of this one server, or an empty array when the
+    ///   request fails — one server that fails must not hide the matches of
+    ///   the other servers.
+    private static func liveWorkspaceSymbols(
+        session: LspSession<Connection>,
+        rootDirectory: URL,
+        query: String
+    ) async -> [WorkspaceSymbolInfo] {
         let rawSymbols: [SymbolInformation]
         do {
             rawSymbols = try await session.workspaceSymbols(query: query)
         } catch {
-            return WorkspaceSymbolsResult(symbols: [])
+            return []
         }
-
-        let symbols = rawSymbols.map { info -> WorkspaceSymbolInfo in
+        return rawSymbols.map { info -> WorkspaceSymbolInfo in
             let path = RelativePath.relativeFilePath(fromURI: info.location.uri, rootDirectory: rootDirectory)
             return WorkspaceSymbolInfo(name: info.name, kind: info.kind, filePath: path, range: info.location.range, containerName: info.containerName)
         }
-        return WorkspaceSymbolsResult(symbols: symbols)
     }
 
     // MARK: - lspStatus

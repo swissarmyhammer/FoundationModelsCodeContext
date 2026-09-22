@@ -96,6 +96,29 @@ public struct ImplementationsResult: Codable, Sendable, Equatable {
 
     /// Which data layer provided the results.
     let sourceLayer: SourceLayer
+
+    /// Why the live layer gave no answer, when the language server of the
+    /// file does not have `textDocument/implementation`. It is `nil` in each
+    /// other case, a timeout and a server that does not run included.
+    ///
+    /// An empty `implementations` list alone does not show the difference
+    /// between "no results" and "the server does not have this method". This
+    /// field shows it. The cascade to the index layers stays the same, thus a
+    /// result can hold this text together with locations that an index layer
+    /// gave.
+    let notSupportedReason: String?
+
+    /// Makes an implementations result.
+    /// - Parameters:
+    ///   - implementations: The implementation locations found.
+    ///   - sourceLayer: The data layer that gave the results.
+    ///   - notSupportedReason: Why the live layer gave no answer. Only the
+    ///     live layer knows this fact, thus the default is `nil`.
+    init(implementations: [DefinitionLocation], sourceLayer: SourceLayer, notSupportedReason: String? = nil) {
+        self.implementations = implementations
+        self.sourceLayer = sourceLayer
+        self.notSupportedReason = notSupportedReason
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -635,7 +658,9 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - maxResults: The maximum number of results to return. Defaults to
     ///     `CodeContextDefaults.implementationsMaxResults`, the value of the Rust reference's
     ///     `DEFAULT_MAX_IMPLEMENTATIONS`.
-    /// - Returns: The implementations result, tagged with the layer that produced it.
+    /// - Returns: The implementations result, tagged with the layer that
+    ///   produced it, and carrying `notSupportedReason` when the language
+    ///   server of the file does not have `textDocument/implementation`.
     /// - Throws: Rethrows `Store`'s storage errors.
     static func implementations(
         store: Store,
@@ -647,13 +672,16 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         includeSource: Bool = CodeContextDefaults.includeSource,
         maxResults: Int = CodeContextDefaults.implementationsMaxResults
     ) async throws -> ImplementationsResult {
-        try await cascade(
-            liveLayer: {
-                try await liveImplementations(
-                    session: session, store: store, rootDirectory: rootDirectory, filePath: filePath,
-                    line: line, character: character, includeSource: includeSource, maxResults: maxResults
-                )
-            },
+        // The live layer runs first here rather than inside `cascade`'s own
+        // `liveLayer` closure, because it reports two things: the result, and
+        // why the server gave none. `cascade` always calls its live layer
+        // first and one time, thus the order of the layers does not change.
+        let live = try await liveImplementations(
+            session: session, store: store, rootDirectory: rootDirectory, filePath: filePath,
+            line: line, character: character, includeSource: includeSource, maxResults: maxResults
+        )
+        let result = try await cascade(
+            liveLayer: { live.result },
             indexedLayers: {
                 try await indexedImplementations(
                     store: store, rootDirectory: rootDirectory, filePath: filePath, line: line, character: character,
@@ -662,8 +690,36 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
             },
             empty: { ImplementationsResult(implementations: [], sourceLayer: .none) }
         )
+        return ImplementationsResult(
+            implementations: result.implementations,
+            sourceLayer: result.sourceLayer,
+            notSupportedReason: live.notSupportedReason
+        )
     }
 
+    /// What the live layer of `implementations` found.
+    ///
+    /// The live layer answers two questions, thus it cannot be one optional
+    /// result: "what are the implementations" and "did the server have the
+    /// method at all". The cascade reads `result`, and the op puts
+    /// `notSupportedReason` in the result it gives its caller.
+    private struct LiveImplementations {
+        /// The live result, or `nil` to tell the cascade to try the next layer.
+        let result: ImplementationsResult?
+
+        /// Why the server gave no live answer, when it does not have the
+        /// method; `nil` in each other case.
+        let notSupportedReason: String?
+    }
+
+    /// Layer 1 for `implementations`.
+    ///
+    /// A server that does not advertise implementations (for example `pylsp`)
+    /// gets no request: `LspSession.implementations(uri:at:)` throws
+    /// `LspSessionError.notAdvertised` instead. That is the one failure that
+    /// the result names, because it is a fact about the server and not about
+    /// the code. Each other failure (a timeout, a transport failure) gives
+    /// `nil` alone, as every other live layer of this type does.
     private static func liveImplementations(
         session: LspSession<Connection>?,
         store: Store,
@@ -673,17 +729,20 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         character: Int,
         includeSource: Bool,
         maxResults: Int
-    ) async throws -> ImplementationsResult? {
+    ) async throws -> LiveImplementations {
+        let noLiveAnswer = LiveImplementations(result: nil, notSupportedReason: nil)
         guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, filePath: filePath) else {
-            return nil
+            return noLiveAnswer
         }
         let rawLocations: [Location]
         do {
             rawLocations = try await session.implementations(uri: uri, at: Position(line: line, character: character))
+        } catch LspSessionError.notAdvertised(let request) {
+            return LiveImplementations(result: nil, notSupportedReason: NotSupportedText.server(session.serverName, doesNotHave: request))
         } catch {
-            return nil
+            return noLiveAnswer
         }
-        guard !rawLocations.isEmpty else { return nil }
+        guard !rawLocations.isEmpty else { return noLiveAnswer }
 
         let implementations = try await store.read { db in
             try rawLocations.prefix(maxResults).map { location -> DefinitionLocation in
@@ -693,7 +752,10 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
                 return DefinitionLocation(filePath: path, range: location.range, sourceText: sourceText, symbol: symbol)
             }
         }
-        return ImplementationsResult(implementations: implementations, sourceLayer: .liveLSP)
+        return LiveImplementations(
+            result: ImplementationsResult(implementations: implementations, sourceLayer: .liveLSP),
+            notSupportedReason: nil
+        )
     }
 
     /// Layer 2/3 for `implementations`.
