@@ -55,3 +55,21 @@ let manager = await CodeContextManager(
 The default `LspAutoInstall()` is on and has a 300-second time limit for
 each installation. Callers that do not give the argument get auto-install
 with no code change.
+
+## Server capabilities
+
+Not all servers have all methods. `CodeContext` reads the capabilities that
+each server gives in its `initialize` result, and it sends call hierarchy,
+workspace symbol and implementation requests only to a server that
+advertises them. For example, `pylsp` has none of these three.
+
+When a server has no call hierarchy, the callers come from
+`textDocument/references` instead. The index keeps a call edge from the
+function or method around each reference to the referenced symbol, and
+`get callgraph`, `get inbound_calls` and `get blastradius` read these edges.
+A reference is not always a call (a function passed as a value is a
+reference too), so these callers are a close approximation.
+
+When a request fails, the log shows the server, the request, and the code
+and the message of the server error. The log has one line for each
+(server, request) pair, not one line for each symbol.

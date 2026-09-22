@@ -1,5 +1,6 @@
 import Foundation
-import FoundationModelsCodeContext
+
+@testable import FoundationModelsCodeContext
 
 // Local copies of the small unit-target helpers this suite uses
 // (`TestSupport.swift`, `Support/FakeEmbedder.swift` in the root package).
@@ -24,6 +25,60 @@ func write(_ content: String, to relativePath: String, in root: URL) throws {
     try FileManager.default.createDirectory(
         at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     try content.write(to: url, atomically: true, encoding: .utf8)
+}
+
+/// Polls `condition` at `interval` until it returns `true` or `budget` elapses
+/// (real wall-clock time: the live suites drive a real subprocess, so no
+/// injectable clock applies).
+/// - Parameters:
+///   - budget: The total time to keep polling before giving up.
+///   - interval: How long to sleep between polls. Defaults to 250ms.
+///   - condition: Checked before every sleep; polling stops the moment it returns `true`.
+/// - Returns: `true` if `condition` became true within `budget`; `false` otherwise.
+@discardableResult
+func poll(
+    budget: Duration,
+    interval: Duration = .milliseconds(250),
+    until condition: () async throws -> Bool
+) async throws -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: budget)
+    while true {
+        if try await condition() { return true }
+        guard clock.now < deadline else { return false }
+        try await Task.sleep(for: interval)
+    }
+}
+
+/// Builds a `CodeContext<ProcessLanguageServerConnection>` for
+/// `rootDirectory`, runs `body` against it, and runs `context.stop()` on
+/// every exit path (success or throw), so that no real language-server
+/// process outlives the test.
+/// - Parameters:
+///   - rootDirectory: The workspace root to open.
+///   - connectionFactory: Spawns the real language-server processes.
+///   - body: The test body, given the live-wired facade.
+/// - Returns: `body`'s result.
+/// - Throws: Rethrows whatever `body` (or the `CodeContext` initializer)
+///   throws, after `stop()` has run.
+func withLiveContext<T: Sendable>(
+    rootDirectory: URL,
+    connectionFactory: @escaping ConnectionFactory<ProcessLanguageServerConnection>,
+    _ body: (CodeContext<ProcessLanguageServerConnection>) async throws -> T
+) async throws -> T {
+    let context = try await CodeContext<ProcessLanguageServerConnection>(
+        rootDirectory: rootDirectory,
+        embedder: FakeEmbedder(dimension: 8),
+        connectionFactory: connectionFactory
+    )
+    do {
+        let result = try await body(context)
+        await context.stop()
+        return result
+    } catch {
+        await context.stop()
+        throw error
+    }
 }
 
 /// A deterministic, hash-based `TextEmbedding` test double.

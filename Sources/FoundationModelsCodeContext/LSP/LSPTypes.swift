@@ -313,3 +313,35 @@ public struct CallHierarchyItem: Sendable, Equatable, Codable {
         self.selectionRange = selectionRange
     }
 }
+
+/// The server capabilities that decide which requests this package sends.
+///
+/// The `initialize` result of a server tells which methods it has. This
+/// package keeps only the three capabilities that it gates on: a server
+/// that does not advertise one of them gets no request for that method.
+/// For example, `pylsp` has no call hierarchy, no workspace symbols and no
+/// implementations, and it answers each of these requests with
+/// `-32601 Method Not Found`.
+public struct ServerCapabilities: Sendable, Equatable {
+    /// Whether the server advertises `callHierarchyProvider`
+    /// (`textDocument/prepareCallHierarchy` and the incoming and outgoing
+    /// calls that follow it).
+    public let callHierarchy: Bool
+
+    /// Whether the server advertises `workspaceSymbolProvider` (`workspace/symbol`).
+    public let workspaceSymbol: Bool
+
+    /// Whether the server advertises `implementationProvider` (`textDocument/implementation`).
+    public let implementation: Bool
+
+    /// Creates a set of server capabilities.
+    /// - Parameters:
+    ///   - callHierarchy: Whether the server advertises call hierarchy.
+    ///   - workspaceSymbol: Whether the server advertises workspace symbols.
+    ///   - implementation: Whether the server advertises implementations.
+    public init(callHierarchy: Bool, workspaceSymbol: Bool, implementation: Bool) {
+        self.callHierarchy = callHierarchy
+        self.workspaceSymbol = workspaceSymbol
+        self.implementation = implementation
+    }
+}

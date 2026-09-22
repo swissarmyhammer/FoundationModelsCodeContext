@@ -151,10 +151,11 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     ///
     /// Live-only (see `CodeActionsResult.sourceLayer`'s doc comment): issues
     /// `textDocument/codeAction`, then `codeAction/resolve` for every action
-    /// returned, unconditionally — this package makes no capability-gating
-    /// distinction between actions that already carry an `edit` and ones
-    /// that don't (per plan.md's "no capability gating" convention), so
-    /// every action is resolved uniformly rather than only the "lazy" ones a
+    /// returned, unconditionally — this package gates only call hierarchy,
+    /// workspace symbols and implementations on the server capabilities
+    /// (plan.md "Capability gating"), and makes no distinction between
+    /// actions that already carry an `edit` and ones that don't, so every
+    /// action is resolved uniformly rather than only the "lazy" ones a
     /// capability-aware client would single out. A per-action resolve
     /// failure degrades to the unresolved action rather than failing the
     /// whole result, matching this package's "partial data over no data"
@@ -289,7 +290,12 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     /// Finds every caller of the symbol (typically a function) at a position.
     ///
     /// Cascades live (`prepareCallHierarchy` + `incomingCalls`) to the
-    /// LSP-index layer, which reuses `LayeredContext.lspCallersOf` — the same
+    /// LSP-index layer. A server that does not advertise call hierarchy (for
+    /// example `pylsp`) gets no call-hierarchy request: its live layer asks
+    /// for `textDocument/references` instead (see
+    /// `referenceInboundCalls(session:store:rootDirectory:uri:position:)`),
+    /// and its index layer holds the edges that the references fallback of
+    /// `LSPIndexWorker` wrote. The LSP-index layer reuses `LayeredContext.lspCallersOf` — the same
     /// "callers of this symbol" query `LiveOpsCore.references`' own
     /// LSP-index layer already runs against `lsp_call_edges` (see
     /// `LiveOpsCore.tryLspIndexReferences`). There is no tree-sitter layer
@@ -344,10 +350,14 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
         guard let session, let uri = await LiveOpsCore<Connection>.syncLiveDocument(session: session, rootDirectory: rootDirectory, filePath: filePath) else {
             return nil
         }
+        let position = Position(line: line, character: character)
+        guard session.capabilities.callHierarchy else {
+            return try await referenceInboundCalls(session: session, store: store, rootDirectory: rootDirectory, uri: uri, position: position)
+        }
 
         let items: [CallHierarchyItem]
         do {
-            items = try await session.prepareCallHierarchy(uri: uri, position: Position(line: line, character: character))
+            items = try await session.prepareCallHierarchy(uri: uri, position: position)
         } catch {
             return nil
         }
@@ -369,6 +379,70 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
             }
         }
         return InboundCallsResult(calls: calls, sourceLayer: .liveLSP)
+    }
+
+    /// Finds the callers of the symbol at `position` from
+    /// `textDocument/references`, for a server that does not advertise call
+    /// hierarchy (for example `pylsp`).
+    ///
+    /// Each reference goes to the callable symbol that holds it
+    /// (`LayeredContext.enclosingCallable(db:filePath:line:)`); a reference
+    /// with no callable symbol around it gives no caller. A reference is not
+    /// always a call, so the result is a close approximation of the callers.
+    /// - Parameters:
+    ///   - session: The live session, already synced with the document.
+    ///   - store: The workspace's index store, to find the caller of each reference.
+    ///   - rootDirectory: The workspace root the reference uris are made relative to.
+    ///   - uri: The document of the symbol.
+    ///   - position: The position of the symbol.
+    /// - Returns: The callers, or `nil` (try the next layer) when the request
+    ///   fails or no reference has a caller.
+    /// - Throws: Rethrows `Store`'s storage errors.
+    private static func referenceInboundCalls(
+        session: LspSession<Connection>,
+        store: Store,
+        rootDirectory: URL,
+        uri: DocumentURI,
+        position: Position
+    ) async throws -> InboundCallsResult? {
+        let locations: [Location]
+        do {
+            locations = try await session.references(uri: uri, at: position, includeDeclaration: false)
+        } catch {
+            return nil
+        }
+
+        let calls = try await store.read { db in
+            try inboundCalls(fromReferences: locations, db: db, rootDirectory: rootDirectory)
+        }
+        guard !calls.isEmpty else { return nil }
+        return InboundCallsResult(calls: calls, sourceLayer: .liveLSP)
+    }
+
+    /// Groups reference locations by the callable symbol that holds each one.
+    /// - Parameters:
+    ///   - locations: The reference locations.
+    ///   - db: The database connection to find the callers through.
+    ///   - rootDirectory: The workspace root the location uris are made relative to.
+    /// - Returns: One inbound call for each caller, with the references as
+    ///   its call sites, ordered by the file and the line of the caller.
+    /// - Throws: Rethrows any error the queries throw.
+    private static func inboundCalls(fromReferences locations: [Location], db: Database, rootDirectory: URL) throws -> [InboundCall] {
+        let callSites = try locations.compactMap { location -> (caller: LayeredSymbolInfo, range: LSPRange)? in
+            let path = RelativePath.relativeFilePath(fromURI: location.uri, rootDirectory: rootDirectory)
+            return try LayeredContext.enclosingCallable(db: db, filePath: path, line: location.range.start.line).map { ($0, location.range) }
+        }
+        let callSitesByCaller = Dictionary(grouping: callSites, by: \.caller)
+        let callers = callSitesByCaller.keys.sorted { ($0.filePath, $0.range.start.line) < ($1.filePath, $1.range.start.line) }
+        return callers.map { caller in
+            InboundCall(
+                callerName: caller.name,
+                filePath: caller.filePath,
+                range: caller.range,
+                callSites: callSitesByCaller[caller, default: []].map(\.range),
+                symbol: caller
+            )
+        }
     }
 
     private static func indexedInboundCalls(store: Store, filePath: String, line: Int, character: Int) async throws -> InboundCallsResult? {

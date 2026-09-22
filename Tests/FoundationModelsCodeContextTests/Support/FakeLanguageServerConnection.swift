@@ -46,7 +46,7 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
 
     // MARK: - Scripted results
 
-    var initializeResult: Result<Void, Error> = .success(())
+    var initializeResult: Result<ServerCapabilities, Error> = .success(.everyGatedMethod)
     var initializedResult: Result<Void, Error> = .success(())
     var shutdownResult: Result<Void, Error> = .success(())
     var exitResult: Result<Void, Error> = .success(())
@@ -69,6 +69,43 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
     var resolveCodeActionResult: Result<CodeActionItem, Error>?
     var workspaceSymbolsResult: Result<[SymbolInformation], Error> = .success([])
     var pullDiagnosticsResult: Result<[Diagnostic], Error> = .success([])
+
+    /// Scripted `documentSymbols(in:)` results for one document each. A
+    /// document with no entry here gets `documentSymbolsResult`.
+    private var documentSymbolsResultsByURI: [DocumentURI: Result<[DocumentSymbol], Error>] = [:]
+
+    /// Scripted `references(in:at:includeDeclaration:)` results for one
+    /// (document, position) pair each. A pair with no entry here gets
+    /// `referencesResult`.
+    private var referencesResultsByPosition: [ReferenceQuery: Result<[Location], Error>] = [:]
+
+    /// The document and the position of one `references` request, the key
+    /// of `referencesResultsByPosition`.
+    private struct ReferenceQuery: Hashable {
+        /// The document the request is about.
+        let uri: DocumentURI
+
+        /// The cursor position of the request.
+        let position: Position
+    }
+
+    /// Scripts the result `documentSymbols(in:)` returns (or throws) for one document.
+    /// - Parameters:
+    ///   - result: The scripted outcome for `uri`.
+    ///   - uri: The document the outcome applies to.
+    func setDocumentSymbolsResult(_ result: Result<[DocumentSymbol], Error>, for uri: DocumentURI) {
+        documentSymbolsResultsByURI[uri] = result
+    }
+
+    /// Scripts the result `references(in:at:includeDeclaration:)` returns (or throws) for one
+    /// (document, position) pair.
+    /// - Parameters:
+    ///   - result: The scripted outcome for the pair.
+    ///   - uri: The document the request is about.
+    ///   - position: The cursor position of the request.
+    func setReferencesResult(_ result: Result<[Location], Error>, in uri: DocumentURI, at position: Position) {
+        referencesResultsByPosition[ReferenceQuery(uri: uri, position: position)] = result
+    }
 
     /// Optional hook invoked right after `prepareRename`/`rename` record their call and before
     /// they return their scripted result — lets a test insert a controlled delay keyed on which
@@ -98,7 +135,7 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
 
     /// Scripts the result `initialize(rootURI:)` returns (or throws) on its next call.
     /// - Parameter result: The scripted outcome to install as `initializeResult`.
-    func setInitializeResult(to result: Result<Void, Error>) {
+    func setInitializeResult(to result: Result<ServerCapabilities, Error>) {
         initializeResult = result
     }
 
@@ -204,9 +241,9 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
 
     // MARK: - LanguageServerConnection
 
-    func initialize(rootURI: DocumentURI?) async throws {
+    func initialize(rootURI: DocumentURI?) async throws -> ServerCapabilities {
         calls.append(.initialize(rootURI: rootURI))
-        try initializeResult.get()
+        return try initializeResult.get()
     }
 
     func initialized() async throws {
@@ -246,7 +283,7 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
 
     func documentSymbols(in uri: DocumentURI) async throws -> [DocumentSymbol] {
         calls.append(.documentSymbols(uri: uri))
-        return try documentSymbolsResult.get()
+        return try (documentSymbolsResultsByURI[uri] ?? documentSymbolsResult).get()
     }
 
     func definition(in uri: DocumentURI, at position: Position) async throws -> [Location] {
@@ -266,7 +303,7 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
 
     func references(in uri: DocumentURI, at position: Position, includeDeclaration: Bool) async throws -> [Location] {
         calls.append(.references(uri: uri, position: position, includeDeclaration: includeDeclaration))
-        return try referencesResult.get()
+        return try (referencesResultsByPosition[ReferenceQuery(uri: uri, position: position)] ?? referencesResult).get()
     }
 
     func implementations(in uri: DocumentURI, at position: Position) async throws -> [Location] {

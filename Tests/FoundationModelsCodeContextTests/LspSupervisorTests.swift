@@ -796,9 +796,9 @@ private actor GatedConnection: LanguageServerConnection {
 
     nonisolated var serverNotifications: AsyncStream<ServerNotification> { inner.serverNotifications }
 
-    func initialize(rootURI: DocumentURI?) async throws {
+    func initialize(rootURI: DocumentURI?) async throws -> ServerCapabilities {
         await gate.waitUntilOpen()
-        try await inner.initialize(rootURI: rootURI)
+        return try await inner.initialize(rootURI: rootURI)
     }
 
     func initialized() async throws { try await inner.initialized() }

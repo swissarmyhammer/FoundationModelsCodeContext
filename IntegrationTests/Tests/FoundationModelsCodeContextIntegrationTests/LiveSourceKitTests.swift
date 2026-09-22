@@ -112,57 +112,7 @@ struct LiveSourceKitTests {
         }
     }
 
-    /// Builds a `CodeContext<ProcessLanguageServerConnection>` for `rootDirectory`, runs `body`
-    /// against it, and guarantees `context.stop()` runs on every exit path (success or throw) —
-    /// see this type's doc comment for why that guarantee matters here.
-    /// - Parameters:
-    ///   - rootDirectory: The workspace root to open.
-    ///   - body: The test body, given the live-wired facade.
-    /// - Returns: `body`'s result.
-    /// - Throws: Rethrows whatever `body` (or `CodeContext.start()`) throws, after `stop()` has
-    ///   already run.
-    private static func withLiveContext<T: Sendable>(
-        rootDirectory: URL,
-        _ body: (CodeContext<ProcessLanguageServerConnection>) async throws -> T
-    ) async throws -> T {
-        let context = try await CodeContext<ProcessLanguageServerConnection>(
-            rootDirectory: rootDirectory,
-            embedder: FakeEmbedder(dimension: 8),
-            connectionFactory: Self.liveConnectionFactory(requestTimeout: .seconds(90))
-        )
-        do {
-            let result = try await body(context)
-            await context.stop()
-            return result
-        } catch {
-            await context.stop()
-            throw error
-        }
-    }
-
-    // MARK: - Polling
-
-    /// Polls `condition` at `interval` until it returns `true` or `budget` elapses (real wall-clock
-    /// time — this suite drives a real subprocess, so no injectable clock applies).
-    /// - Parameters:
-    ///   - budget: The total time to keep polling before giving up.
-    ///   - interval: How long to sleep between polls. Defaults to 250ms.
-    ///   - condition: Checked before every sleep; polling stops the moment it returns `true`.
-    /// - Returns: `true` if `condition` became true within `budget`; `false` otherwise.
-    @discardableResult
-    private static func poll(
-        budget: Duration,
-        interval: Duration = .milliseconds(250),
-        until condition: () async throws -> Bool
-    ) async throws -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: budget)
-        while true {
-            if try await condition() { return true }
-            guard clock.now < deadline else { return false }
-            try await Task.sleep(for: interval)
-        }
-    }
+    // MARK: - Polling (see `poll(budget:interval:until:)` in IntegrationSupport.swift)
 
     /// The current status of the managed `sourcekit-lsp` daemon, if any.
     /// - Parameter context: The facade to read `lspStatus()` from.
@@ -185,7 +135,7 @@ struct LiveSourceKitTests {
         budget: Duration
     ) async throws -> DefinitionResult? {
         var lastResult: DefinitionResult?
-        try await Self.poll(budget: budget, interval: .milliseconds(500)) {
+        try await poll(budget: budget, interval: .milliseconds(500)) {
             let result = try await context.definition(
                 filePath: Self.fixtureRelativePath,
                 line: Self.fixtureCallLine,
@@ -204,7 +154,9 @@ struct LiveSourceKitTests {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
 
-            try await Self.withLiveContext(rootDirectory: root) { context in
+            // The context stops on every exit path (see `withLiveContext` in IntegrationSupport.swift).
+            let factory = Self.liveConnectionFactory(requestTimeout: .seconds(90))
+            try await withLiveContext(rootDirectory: root, connectionFactory: factory) { context in
                 try await context.start()
                 await context.waitForFirstIndexPass()
 
@@ -213,7 +165,7 @@ struct LiveSourceKitTests {
                 // Swift workspace is not part of that pass: it drains only in the background
                 // `LSPIndexWorker` task. Thus `state.isReady` can stay `false` for some time after
                 // the wait. Poll for it, and do not assert immediately.
-                let becameReady = try await Self.poll(budget: .seconds(90)) {
+                let becameReady = try await poll(budget: .seconds(90)) {
                     await context.state.isReady
                 }
                 #expect(becameReady, "workspace never reached state.isReady within budget")
@@ -237,7 +189,7 @@ struct LiveSourceKitTests {
                 // the killed one somehow lingered as "running".
                 var observedFailedWithAttempts = false
                 var restartedPid: Int32?
-                try await Self.poll(budget: .seconds(150), interval: .milliseconds(200)) {
+                try await poll(budget: .seconds(150), interval: .milliseconds(200)) {
                     switch await Self.sourceKitStatus(context)?.state {
                     case .failed(_, let attempts) where attempts >= 1:
                         observedFailedWithAttempts = true

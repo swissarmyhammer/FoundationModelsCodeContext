@@ -286,9 +286,12 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     // MARK: - LanguageServerConnection
 
     /// Sends the LSP `initialize` request that starts the handshake.
-    public func initialize(rootURI: DocumentURI?) async throws {
+    /// - Parameter rootURI: The workspace root to advertise to the server, if any.
+    /// - Returns: The gated capabilities that the server advertises.
+    /// - Throws: If the server rejects the handshake or the connection is unusable.
+    public func initialize(rootURI: DocumentURI?) async throws -> ServerCapabilities {
         let params = InitializeParams(processID: Int(ProcessInfo.processInfo.processIdentifier), rootURI: rootURI)
-        _ = try await request(method: "initialize", params: params, resultType: InitializeResult.self)
+        return try await request(method: "initialize", params: params, resultType: InitializeResult.self).capabilities
     }
 
     /// Sends the `initialized` notification that completes the handshake.

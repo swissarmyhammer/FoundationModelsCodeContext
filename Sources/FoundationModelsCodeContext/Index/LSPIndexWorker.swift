@@ -64,6 +64,15 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
 ///   the Rust reference, which marks a failed file indexed anyway to avoid
 ///   an infinite retry loop. This port instead treats such a failure as
 ///   transient (a connection hiccup, not a permanently broken file).
+/// - The call edges come from call hierarchy only when the server advertises
+///   it (`LspSession.capabilities`). A server without call hierarchy (for
+///   example `pylsp`) gets no `prepareCallHierarchy` request: the worker
+///   finds the callers of each callable symbol with `textDocument/references`
+///   instead (see `LSPIndexWorker+References.swift`).
+/// - A request failure is logged through `LspSession.logFailure(of:context:error:)`,
+///   one time for each (server, request) pair. A server that refuses a
+///   request for each symbol thus writes one log line, not one line for each
+///   symbol.
 ///
 /// Every symbol/edge write and the `lsp_indexed` flag flip for one file
 /// happen inside a single `Store.write` transaction (see
@@ -85,10 +94,11 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// below (an exhaustive mapping from every `SymbolKind` case to a
     /// distinct value), this is a plain "is this kind in a fixed subset?"
     /// test, which a set expresses more directly than a switch with a
-    /// catch-all `default:` arm. Checked inline at its one call site in
-    /// `collectCallEdges(filePath:uri:flatSymbols:rootDirectory:session:)`
-    /// rather than through a wrapper function.
-    private static var callableKinds: Set<SymbolKind> { [.function, .method, .constructor] }
+    /// catch-all `default:` arm. Checked inline at its call sites rather
+    /// than through a wrapper function. Not `private`: the references
+    /// fallback (`LSPIndexWorker+References.swift`) uses it too, to pick
+    /// the callee symbols and the caller symbols.
+    static var callableKinds: Set<SymbolKind> { [.function, .method, .constructor] }
 
     // MARK: - Continuous loop
 
@@ -296,16 +306,13 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         let pendingEdges = await collectCallEdges(
             filePath: relativePath,
             uri: uri,
+            contents: contents,
             flatSymbols: flatSymbols,
             rootDirectory: rootDirectory,
             session: session
         )
 
-        do {
-            try await session.didClose(uri: uri)
-        } catch {
-            Log.lsp.warning("didClose failed for \(relativePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
-        }
+        await closeDocument(uri: uri, relativePath: relativePath, session: session)
 
         do {
             try await store.write { db in
@@ -326,14 +333,18 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///
     /// Factored out of `processFile(relativePath:rootDirectory:session:store:)`
     /// so its two "leave dirty on failure" branches share one early-return
-    /// shape at the call site instead of duplicating it.
+    /// shape at the call site instead of duplicating it. Not `private`: the
+    /// references fallback uses it too, to read the symbols of a file that
+    /// holds a reference. A failure is logged through
+    /// `LspSession.logFailure(of:context:error:)`, one time for each
+    /// (server, request) pair.
     /// - Parameters:
     ///   - relativePath: The file's workspace-relative path, used only for log messages.
     ///   - uri: The document uri to sync and query.
     ///   - contents: The file's current disk content.
     ///   - session: The live session to sync and query through.
     /// - Returns: The document's symbols, or `nil` if `syncOpen`/`documentSymbols` threw.
-    private static func syncAndFetchSymbols(
+    static func syncAndFetchSymbols(
         relativePath: String,
         uri: DocumentURI,
         contents: String,
@@ -342,19 +353,30 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         do {
             try await session.syncOpen(uri: uri, text: contents)
         } catch {
-            Log.lsp.warning(
-                "syncOpen failed for \(relativePath, privacy: .public), leaving dirty: \(error.localizedDescription, privacy: .public)"
-            )
+            await session.logFailure(of: .syncOpen, context: relativePath, error: error)
             return nil
         }
 
         do {
             return try await session.documentSymbols(uri: uri)
         } catch {
-            Log.lsp.warning(
-                "documentSymbol failed for \(relativePath, privacy: .public), leaving dirty: \(error.localizedDescription, privacy: .public)"
-            )
+            await session.logFailure(of: .documentSymbols, context: relativePath, error: error)
             return nil
+        }
+    }
+
+    /// Sends `didClose` for `uri`, logging (not propagating) a failure: every
+    /// piece of data the worker needs from the document is already collected
+    /// when it closes the document.
+    /// - Parameters:
+    ///   - uri: The document to close.
+    ///   - relativePath: The file's workspace-relative path, used only for log messages.
+    ///   - session: The live session to close the document through.
+    static func closeDocument(uri: DocumentURI, relativePath: String, session: LspSession<Connection>) async {
+        do {
+            try await session.didClose(uri: uri)
+        } catch {
+            await session.logFailure(of: .didClose, context: relativePath, error: error)
         }
     }
 
@@ -364,7 +386,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///   - relativePath: The file's workspace-relative path.
     ///   - rootDirectory: The workspace root `relativePath` is relative to.
     /// - Returns: The file's decoded text, or `nil` on any read/decode failure.
-    private static func readFileContents(relativePath: String, rootDirectory: URL) -> String? {
+    static func readFileContents(relativePath: String, rootDirectory: URL) -> String? {
         let fileURL = rootDirectory.appendingPathComponent(relativePath)
         guard let data = try? Data(contentsOf: fileURL), let contents = String(data: data, encoding: .utf8) else {
             return nil
@@ -405,7 +427,10 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// a purely in-memory value used only to name call-hierarchy log
     /// messages — a symbol's stable on-disk identity is
     /// `(filePath, startLine)`, computed separately in `writeFile(db:filePath:flatSymbols:pendingEdges:)`.
-    private struct FlatSymbol: Sendable, Equatable {
+    ///
+    /// Not `private`: the references fallback (`LSPIndexWorker+References.swift`)
+    /// reads the symbols of the files that hold a reference in this shape too.
+    struct FlatSymbol: Sendable, Hashable {
         /// The symbol's short name, e.g. `"new"`.
         let name: String
 
@@ -430,8 +455,36 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         /// The symbol's zero-based end column.
         let endColumn: Int
 
+        /// The start of the symbol's selection range: the name for a
+        /// hierarchical `DocumentSymbol`, the same as the range start for a
+        /// flat `SymbolInformation`. The search for the name starts here.
+        let selectionStart: Position
+
         /// Extra detail about the symbol (e.g. a function signature), if any.
         let detail: String?
+
+        /// Whether the range of this symbol holds `position`.
+        /// - Parameter position: The position to test.
+        /// - Returns: `true` when `position` is at or after the start and at
+        ///   or before the end of the symbol.
+        func contains(_ position: Position) -> Bool {
+            (startLine, startColumn) <= (position.line, position.character)
+                && (position.line, position.character) <= (endLine, endColumn)
+        }
+
+        /// This symbol as one end of a pending call edge.
+        var endpoint: EdgeEndpoint {
+            EdgeEndpoint(
+                filePath: filePath,
+                name: name,
+                kind: kindString(for: kind),
+                range: LSPRange(
+                    start: Position(line: startLine, character: startColumn),
+                    end: Position(line: endLine, character: endColumn)
+                ),
+                detail: detail
+            )
+        }
     }
 
     /// Flattens a `textDocument/documentSymbol` result tree into a flat list
@@ -441,7 +494,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///   - symbols: The top-level symbols returned by the server.
     /// - Returns: One `FlatSymbol` per symbol in the tree (parents and
     ///   children alike), in depth-first order.
-    private static func flattenSymbols(filePath: String, symbols: [DocumentSymbol]) -> [FlatSymbol] {
+    static func flattenSymbols(filePath: String, symbols: [DocumentSymbol]) -> [FlatSymbol] {
         var flattened: [FlatSymbol] = []
         appendFlattenedSymbols(filePath: filePath, symbols: symbols, parentPath: nil, into: &flattened)
         return flattened
@@ -467,6 +520,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
                     startColumn: symbol.range.start.character,
                     endLine: symbol.range.end.line,
                     endColumn: symbol.range.end.character,
+                    selectionStart: symbol.selectionRange.start,
                     detail: symbol.detail
                 ))
             if let children = symbol.children {
@@ -477,35 +531,45 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
 
     // MARK: - Call-edge collection
 
-    /// One outgoing call edge collected for a file, ready for
+    /// One end (the caller or the callee) of a pending call edge.
+    ///
+    /// `writeCallEdges(db:filePath:pendingEdges:symbolIDsByStartLine:)`
+    /// resolves an endpoint in the indexed file through the file's own
+    /// symbol rows, and an endpoint in another file through
+    /// `upsertSymbol(db:filePath:name:kind:startLine:startColumn:endLine:endColumn:detail:)`.
+    struct EdgeEndpoint: Sendable {
+        /// The file of the symbol, relative to the workspace root.
+        let filePath: String
+
+        /// The symbol's name.
+        let name: String
+
+        /// The symbol's kind, as a stored `lsp_symbols.kind` string.
+        let kind: String
+
+        /// The symbol's declaration span.
+        let range: LSPRange
+
+        /// Extra detail about the symbol, if the server gave one.
+        let detail: String?
+    }
+
+    /// One call edge collected for a file, ready for
     /// `writeFile(db:filePath:flatSymbols:pendingEdges:)` to resolve into
     /// `lsp_symbols`/`lsp_call_edges` rows.
-    private struct PendingCallEdge: Sendable {
-        /// The caller symbol's start line, used to look up its row id from
-        /// the `(startLine -> id)` map `writeFile(db:filePath:flatSymbols:pendingEdges:)`
-        /// builds while writing this file's own `flatSymbols`.
-        let callerStartLine: Int
+    ///
+    /// With call hierarchy, the caller is a symbol of the indexed file and
+    /// the callee can be in any file. With the references fallback, the
+    /// callee is a symbol of the indexed file and the caller can be in any
+    /// file. In both cases the indexed file owns the edge
+    /// (`lsp_call_edges.file_path`), so the next index pass of that file
+    /// replaces it.
+    struct PendingCallEdge: Sendable {
+        /// The calling symbol.
+        let caller: EdgeEndpoint
 
-        /// The callee's file, relative to the workspace root.
-        let calleeFilePath: String
-
-        /// The callee's name, as reported by `callHierarchy/outgoingCalls`.
-        let calleeName: String
-
-        /// The callee's kind, as a stored `lsp_symbols.kind` string.
-        let calleeKind: String
-
-        /// The callee's zero-based declaration start line.
-        let calleeStartLine: Int
-
-        /// The callee's zero-based declaration start column.
-        let calleeStartColumn: Int
-
-        /// The callee's zero-based declaration end line.
-        let calleeEndLine: Int
-
-        /// The callee's zero-based declaration end column.
-        let calleeEndColumn: Int
+        /// The called symbol.
+        let callee: EdgeEndpoint
 
         /// JSON-encoded array of `[startLine,startColumn,endLine,endColumn]`
         /// call-site ranges, matching `lsp_call_edges.from_ranges`'s stored
@@ -513,32 +577,50 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         let fromRangesJSON: String
     }
 
-    /// Collects outgoing call edges for every callable (`function`/`method`/
-    /// `constructor`) symbol in `flatSymbols`, via `prepareCallHierarchy`
-    /// then `outgoingCalls` per symbol.
+    /// Collects the call edges of the callable (`function`/`method`/
+    /// `constructor`) symbols in `flatSymbols`.
     ///
-    /// A `prepareCallHierarchy`/`outgoingCalls` failure for one symbol is
-    /// logged and skipped rather than propagated — mirroring the Rust
-    /// reference's "edge-collection failures are logged but do not fail the
-    /// whole index pass". A callee whose uri doesn't resolve to a path under
-    /// `rootDirectory` (an external symbol, e.g. a standard-library
-    /// definition) is skipped: this port's `lsp_symbols.file_path` is a
-    /// foreign key into `indexed_files`, so there is no row to attribute an
-    /// external callee to.
+    /// When the server advertises call hierarchy, the edges are the
+    /// outgoing calls of each symbol, via `prepareCallHierarchy` then
+    /// `outgoingCalls`. When it does not, no call-hierarchy request is sent:
+    /// the edges are the callers of each symbol, via `textDocument/references`
+    /// (see `collectReferenceEdges(filePath:uri:contents:flatSymbols:rootDirectory:session:)`).
+    ///
+    /// A request failure for one symbol is logged and skipped rather than
+    /// propagated — mirroring the Rust reference's "edge-collection failures
+    /// are logged but do not fail the whole index pass". A symbol whose uri
+    /// doesn't resolve to a path under `rootDirectory` (an external symbol,
+    /// e.g. a standard-library definition) is skipped: this port's
+    /// `lsp_symbols.file_path` is a foreign key into `indexed_files`, so
+    /// there is no row to attribute an external symbol to.
     /// - Parameters:
     ///   - filePath: The file `flatSymbols` were flattened from.
     ///   - uri: `filePath`'s document uri, already synced via `syncOpen`.
+    ///   - contents: The text of `filePath`, where the references fallback
+    ///     finds the name of each symbol.
     ///   - flatSymbols: The file's flattened symbols.
-    ///   - rootDirectory: The workspace root callee uris are resolved against.
-    ///   - session: The live session to issue call-hierarchy requests through.
+    ///   - rootDirectory: The workspace root symbol uris are resolved against.
+    ///   - session: The live session to issue the requests through.
     /// - Returns: Every collected edge, in no particular order.
     private static func collectCallEdges(
         filePath: String,
         uri: DocumentURI,
+        contents: String,
         flatSymbols: [FlatSymbol],
         rootDirectory: URL,
         session: LspSession<Connection>
     ) async -> [PendingCallEdge] {
+        guard session.capabilities.callHierarchy else {
+            return await collectReferenceEdges(
+                filePath: filePath,
+                uri: uri,
+                contents: contents,
+                flatSymbols: flatSymbols,
+                rootDirectory: rootDirectory,
+                session: session
+            )
+        }
+
         var edges: [PendingCallEdge] = []
 
         for symbol in flatSymbols where callableKinds.contains(symbol.kind) {
@@ -583,13 +665,12 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ) async -> [PendingCallEdge] {
         let position = Position(line: symbol.startLine, character: symbol.startColumn)
 
+        let context = "\(filePath):\(symbol.qualifiedPath)"
         let items: [CallHierarchyItem]
         do {
             items = try await session.prepareCallHierarchy(uri: uri, position: position)
         } catch {
-            Log.lsp.warning(
-                "prepareCallHierarchy failed for \(filePath, privacy: .public):\(symbol.qualifiedPath, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
+            await session.logFailure(of: .prepareCallHierarchy, context: context, error: error)
             return []
         }
         guard let item = items.first else {
@@ -600,9 +681,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         do {
             outgoing = try await session.outgoingCalls(item: item)
         } catch {
-            Log.lsp.warning(
-                "outgoingCalls failed for \(filePath, privacy: .public):\(symbol.qualifiedPath, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
+            await session.logFailure(of: .outgoingCalls, context: context, error: error)
             return []
         }
 
@@ -613,17 +692,14 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
                 return nil
             }
 
-            return PendingCallEdge(
-                callerStartLine: symbol.startLine,
-                calleeFilePath: calleeRelativePath,
-                calleeName: call.to.name,
-                calleeKind: kindString(for: call.to.kind),
-                calleeStartLine: call.to.range.start.line,
-                calleeStartColumn: call.to.range.start.character,
-                calleeEndLine: call.to.range.end.line,
-                calleeEndColumn: call.to.range.end.character,
-                fromRangesJSON: encodeFromRanges(call.fromRanges)
+            let callee = EdgeEndpoint(
+                filePath: calleeRelativePath,
+                name: call.to.name,
+                kind: kindString(for: call.to.kind),
+                range: call.to.range,
+                detail: nil
             )
+            return PendingCallEdge(caller: symbol.endpoint, callee: callee, fromRangesJSON: encodeFromRanges(call.fromRanges))
         }
     }
 
@@ -632,7 +708,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// `"[[startLine,startColumn,endLine,endColumn], ...]"` format.
     /// - Parameter ranges: The call site ranges to encode.
     /// - Returns: The encoded JSON array text.
-    private static func encodeFromRanges(_ ranges: [LSPRange]) -> String {
+    static func encodeFromRanges(_ ranges: [LSPRange]) -> String {
         let encodedRanges = ranges.map { range in
             "[\(range.start.line),\(range.start.character),\(range.end.line),\(range.end.character)]"
         }.joined(separator: ",")
@@ -720,7 +796,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             .filter { startLine, _ in !newStartLines.contains(startLine) }
             .map(\.value)
 
-        let affectedFiles = try reverseEdgeFiles(db: db, calleeIDs: deletedIDs, excludingFile: filePath)
+        let affectedFiles = try reverseEdgeFiles(db: db, symbolIDs: deletedIDs, excludingFile: filePath)
         try deleteSymbols(db: db, ids: deletedIDs)
 
         var symbolIDsByStartLine: [Int: Int64] = [:]
@@ -741,17 +817,16 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         return SymbolReextraction(symbolIDsByStartLine: symbolIDsByStartLine, affectedFiles: affectedFiles)
     }
 
-    /// Replaces `filePath`'s lsp-sourced outgoing edges with `pendingEdges`,
-    /// resolving each edge's caller via `symbolIDsByStartLine` and its
-    /// callee via `upsertSymbol(db:filePath:name:kind:startLine:startColumn:endLine:endColumn:detail:)`.
+    /// Replaces `filePath`'s lsp-sourced edges with `pendingEdges`, resolving
+    /// each edge's two ends via `resolveEndpoint(_:db:filePath:symbolIDsByStartLine:fileIndexedCache:)`.
     ///
-    /// An edge whose caller isn't in `symbolIDsByStartLine`, or whose callee
-    /// file isn't a known `indexed_files` row (see `isFileIndexed(db:filePath:cache:)`),
+    /// An edge with an end that does not resolve (a symbol in a file that
+    /// isn't a known `indexed_files` row, see `isFileIndexed(db:filePath:cache:)`)
     /// is silently skipped rather than written.
     /// - Parameters:
     ///   - db: The write-transaction database connection.
     ///   - filePath: The file whose lsp-sourced edges are being replaced.
-    ///   - pendingEdges: The file's freshly collected outgoing call edges.
+    ///   - pendingEdges: The file's freshly collected call edges.
     ///   - symbolIDsByStartLine: `filePath`'s freshly written symbol row ids, keyed by start line.
     /// - Throws: Rethrows any error `db`'s statements throw.
     private static func writeCallEdges(
@@ -768,26 +843,18 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             arguments: [filePath]
         )
 
-        var calleeFileIndexedCache: [String: Bool] = [filePath: true]
+        var fileIndexedCache: [String: Bool] = [filePath: true]
         for edge in pendingEdges {
-            guard let callerID = symbolIDsByStartLine[edge.callerStartLine] else {
+            guard
+                let callerID = try resolveEndpoint(
+                    edge.caller, db: db, filePath: filePath, symbolIDsByStartLine: symbolIDsByStartLine, fileIndexedCache: &fileIndexedCache
+                ),
+                let calleeID = try resolveEndpoint(
+                    edge.callee, db: db, filePath: filePath, symbolIDsByStartLine: symbolIDsByStartLine, fileIndexedCache: &fileIndexedCache
+                )
+            else {
                 continue
             }
-            guard try isFileIndexed(db: db, filePath: edge.calleeFilePath, cache: &calleeFileIndexedCache) else {
-                continue
-            }
-
-            let calleeID = try upsertSymbol(
-                db: db,
-                filePath: edge.calleeFilePath,
-                name: edge.calleeName,
-                kind: edge.calleeKind,
-                startLine: edge.calleeStartLine,
-                startColumn: edge.calleeStartColumn,
-                endLine: edge.calleeEndLine,
-                endColumn: edge.calleeEndColumn,
-                detail: nil
-            )
 
             try db.execute(
                 sql: """
@@ -799,6 +866,49 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
                 arguments: [callerID, calleeID, filePath, edge.fromRangesJSON]
             )
         }
+    }
+
+    /// Resolves one end of a pending edge to its `lsp_symbols.id`.
+    ///
+    /// A symbol of `filePath` resolves through `symbolIDsByStartLine`, the
+    /// rows this pass just wrote. A symbol of another file resolves through
+    /// `upsertSymbol(db:filePath:name:kind:startLine:startColumn:endLine:endColumn:detail:)`,
+    /// which finds or creates its row by `(file_path, start_line)`; that
+    /// file's own index pass later keeps the row when the symbol still starts
+    /// on the same line.
+    /// - Parameters:
+    ///   - endpoint: The end of the edge to resolve.
+    ///   - db: The write-transaction database connection.
+    ///   - filePath: The file being indexed.
+    ///   - symbolIDsByStartLine: `filePath`'s freshly written symbol row ids, keyed by start line.
+    ///   - fileIndexedCache: Memoized `isFileIndexed(db:filePath:cache:)` results for this pass.
+    /// - Returns: The symbol's row id, or `nil` when its file has no
+    ///   `indexed_files` row.
+    /// - Throws: Rethrows any error `db`'s statements throw.
+    private static func resolveEndpoint(
+        _ endpoint: EdgeEndpoint,
+        db: Database,
+        filePath: String,
+        symbolIDsByStartLine: [Int: Int64],
+        fileIndexedCache: inout [String: Bool]
+    ) throws -> Int64? {
+        if endpoint.filePath == filePath, let id = symbolIDsByStartLine[endpoint.range.start.line] {
+            return id
+        }
+        guard try isFileIndexed(db: db, filePath: endpoint.filePath, cache: &fileIndexedCache) else {
+            return nil
+        }
+        return try upsertSymbol(
+            db: db,
+            filePath: endpoint.filePath,
+            name: endpoint.name,
+            kind: endpoint.kind,
+            startLine: endpoint.range.start.line,
+            startColumn: endpoint.range.start.character,
+            endLine: endpoint.range.end.line,
+            endColumn: endpoint.range.end.character,
+            detail: endpoint.detail
+        )
     }
 
     /// Flags every file in `affectedFiles` as `lsp_indexed = 0`, so a later
@@ -859,46 +969,60 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         return idsByStartLine
     }
 
-    /// Finds every file (other than `excludingFile`) with an `lsp_call_edges`
-    /// row whose callee is one of `calleeIDs`, before those rows are deleted.
+    /// Finds every file (other than `excludingFile`) that owns an
+    /// `lsp_call_edges` row whose callee or caller is one of `symbolIDs`,
+    /// before those rows are deleted.
     ///
-    /// Port of `swissarmyhammer-code-context::invalidation::find_reverse_edge_files`.
-    /// Chunks `calleeIDs` through `sqliteInChunkSize` so the generated
+    /// Port of `swissarmyhammer-code-context::invalidation::find_reverse_edge_files`,
+    /// extended to the caller side: an edge from the references fallback is
+    /// owned by its callee's file, so deleting its caller must mark that
+    /// file dirty too. With call hierarchy, the caller of each edge is in
+    /// the owner file itself, so the caller side adds no file there.
+    /// Chunks `symbolIDs` through `sqliteInChunkSize` so the generated
     /// `IN (...)` clause never exceeds SQLite's bind-parameter limit.
     /// - Parameters:
     ///   - db: The database connection to query.
-    ///   - calleeIDs: The symbol ids about to be deleted.
+    ///   - symbolIDs: The symbol ids about to be deleted.
     ///   - excludingFile: The file to exclude from the results (the file
     ///     currently being re-indexed).
     /// - Returns: The distinct dependent file paths, in no particular order.
     /// - Throws: Rethrows any error the query throws.
-    private static func reverseEdgeFiles(db: Database, calleeIDs: [Int64], excludingFile: String) throws -> [String] {
-        guard !calleeIDs.isEmpty else {
-            return []
-        }
-
+    private static func reverseEdgeFiles(db: Database, symbolIDs: [Int64], excludingFile: String) throws -> [String] {
         var affectedFiles: Set<String> = []
-        for chunk in chunked(calleeIDs, size: sqliteInChunkSize) {
-            let placeholders = chunk.map { _ in "?" }.joined(separator: ", ")
-            let arguments = StatementArguments(chunk) + StatementArguments([excludingFile])
-            let rows = try String.fetchAll(
-                db,
-                sql: """
-                    SELECT DISTINCT \(Schema.LspCallEdges.filePath) FROM \(Schema.LspCallEdges.table) \
-                    WHERE \(Schema.LspCallEdges.calleeId) IN (\(placeholders)) AND \(Schema.LspCallEdges.filePath) != ?
-                    """,
-                arguments: arguments
-            )
-            affectedFiles.formUnion(rows)
+        for side in [CallEdgeSide.callee, CallEdgeSide.caller] {
+            for chunk in chunked(symbolIDs, size: sqliteInChunkSize) {
+                affectedFiles.formUnion(try edgeOwnerFiles(db: db, side: side, symbolIDs: chunk, excludingFile: excludingFile))
+            }
         }
         return Array(affectedFiles)
+    }
+
+    /// Finds the distinct owner files (other than `excludingFile`) of the
+    /// `lsp_call_edges` rows whose `side` column is one of `symbolIDs`.
+    /// - Parameters:
+    ///   - db: The database connection to query.
+    ///   - side: Which end of the edge to match.
+    ///   - symbolIDs: At most `sqliteInChunkSize` symbol ids.
+    ///   - excludingFile: The file to exclude from the results.
+    /// - Returns: The owner file paths, in no particular order.
+    /// - Throws: Rethrows any error the query throws.
+    private static func edgeOwnerFiles(db: Database, side: CallEdgeSide, symbolIDs: [Int64], excludingFile: String) throws -> [String] {
+        let placeholders = symbolIDs.map { _ in "?" }.joined(separator: ", ")
+        return try String.fetchAll(
+            db,
+            sql: """
+                SELECT DISTINCT \(Schema.LspCallEdges.filePath) FROM \(Schema.LspCallEdges.table) \
+                WHERE \(side.column) IN (\(placeholders)) AND \(Schema.LspCallEdges.filePath) != ?
+                """,
+            arguments: StatementArguments(symbolIDs) + StatementArguments([excludingFile])
+        )
     }
 
     /// Deletes `lsp_symbols` rows by id, cascading away any edge that
     /// referenced one of them as caller or callee.
     ///
     /// Chunks `ids` through `sqliteInChunkSize`, mirroring
-    /// `reverseEdgeFiles(db:calleeIDs:excludingFile:)`.
+    /// `reverseEdgeFiles(db:symbolIDs:excludingFile:)`.
     /// - Parameters:
     ///   - db: The database connection to write through.
     ///   - ids: The symbol ids to delete.
@@ -1018,7 +1142,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// string, so any other lowercase spelling below is unambiguous.
     /// - Parameter kind: The LSP symbol kind to map.
     /// - Returns: The lowercase string to store as `lsp_symbols.kind`.
-    private static func kindString(for kind: SymbolKind) -> String {
+    static func kindString(for kind: SymbolKind) -> String {
         switch kind {
         case .file: "file"
         case .module: "module"

@@ -187,6 +187,36 @@ struct WireTests {
         #expect(peek.method == nil)
     }
 
+    // MARK: - WireError descriptions
+
+    @Test
+    func serverErrorDescriptionNamesTheCodeAndTheMessage() {
+        let error: Error = WireError.serverError(code: -32601, message: "Method Not Found: textDocument/prepareCallHierarchy")
+
+        #expect(error.localizedDescription == "server error -32601: Method Not Found: textDocument/prepareCallHierarchy")
+    }
+
+    @Test
+    func idMismatchDescriptionNamesTheExpectedAndTheActualID() {
+        let error: Error = WireError.idMismatch(expected: 7, actual: 9)
+
+        #expect(error.localizedDescription == "response id mismatch: expected 7, got 9")
+    }
+
+    @Test
+    func idMismatchDescriptionNamesAMissingActualID() {
+        let error: Error = WireError.idMismatch(expected: 7, actual: nil)
+
+        #expect(error.localizedDescription == "response id mismatch: expected 7, got none")
+    }
+
+    @Test
+    func missingResultDescriptionSaysTheResponseHadNoResult() {
+        let error: Error = WireError.missingResult
+
+        #expect(error.localizedDescription == "response has neither a result nor an error")
+    }
+
     // MARK: - initialize / initialized / shutdown / exit
 
     @Test
@@ -218,6 +248,52 @@ struct WireTests {
             }
             """#.utf8)
         _ = try JSONDecoder().decode(InitializeResult.self, from: json)
+    }
+
+    @Test
+    func initializeResultKeepsTheGatedCapabilitiesThatTheServerAdvertises() throws {
+        // A provider can be `true` or an options object. Both advertise the method.
+        let json = Data(
+            #"""
+            {
+              "capabilities": {
+                "callHierarchyProvider": true,
+                "workspaceSymbolProvider": {"resolveProvider": false},
+                "implementationProvider": {"workDoneProgress": false}
+              }
+            }
+            """#.utf8)
+
+        let result = try JSONDecoder().decode(InitializeResult.self, from: json)
+
+        #expect(result.capabilities == ServerCapabilities(callHierarchy: true, workspaceSymbol: true, implementation: true))
+    }
+
+    @Test
+    func initializeResultMarksAbsentAndFalseProvidersAsNotAdvertised() throws {
+        // The pylsp 1.14 shape: no call hierarchy and no workspace symbol
+        // provider. `implementationProvider: false` is the explicit refusal.
+        let json = Data(
+            #"""
+            {
+              "capabilities": {
+                "referencesProvider": true,
+                "documentSymbolProvider": true,
+                "implementationProvider": false
+              }
+            }
+            """#.utf8)
+
+        let result = try JSONDecoder().decode(InitializeResult.self, from: json)
+
+        #expect(result.capabilities == ServerCapabilities(callHierarchy: false, workspaceSymbol: false, implementation: false))
+    }
+
+    @Test
+    func initializeResultWithoutCapabilitiesAdvertisesNoGatedMethod() throws {
+        let result = try JSONDecoder().decode(InitializeResult.self, from: Data("{}".utf8))
+
+        #expect(result.capabilities == ServerCapabilities(callHierarchy: false, workspaceSymbol: false, implementation: false))
     }
 
     // MARK: - didOpen / didChange / didSave / didClose

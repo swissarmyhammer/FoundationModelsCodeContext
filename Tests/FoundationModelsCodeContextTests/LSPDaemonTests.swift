@@ -97,6 +97,39 @@ struct LSPDaemonTests {
     }
 
     @Test
+    func startGivesTheSessionTheCapabilitiesThatTheServerAdvertised() async throws {
+        let advertised = ServerCapabilities(callHierarchy: false, workspaceSymbol: true, implementation: false)
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: fakeConnectionFactory(pid: 7, processState: ProcessState()) { connection in
+                await connection.setInitializeResult(to: .success(advertised))
+            }
+        )
+
+        try await daemon.start()
+
+        let session = try #require(await daemon.session())
+        #expect(session.capabilities == advertised)
+    }
+
+    @Test
+    func startNamesTheSessionAfterTheServerCommand() async throws {
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: fakeConnectionFactory(pid: 8, processState: ProcessState())
+        )
+
+        try await daemon.start()
+
+        let session = try #require(await daemon.session())
+        #expect(session.serverName == "true")
+    }
+
+    @Test
     func handshakeTimeoutKillsTheConnectionAndCapturesStderrTail() async throws {
         let clock = ManualClock()
         let terminateCalls = ProcessState()
@@ -596,8 +629,9 @@ private actor HangingInitializeConnection: LanguageServerConnection {
 
     nonisolated var serverNotifications: AsyncStream<ServerNotification> { inner.serverNotifications }
 
-    func initialize(rootURI: DocumentURI?) async throws {
+    func initialize(rootURI: DocumentURI?) async throws -> ServerCapabilities {
         try await Task.sleep(for: .seconds(3600))
+        return try await inner.initialize(rootURI: rootURI)
     }
 
     func initialized() async throws { try await inner.initialized() }

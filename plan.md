@@ -407,10 +407,11 @@ state becomes actors.
   shuttingDown`, observable via `AsyncStream`. Lifecycle:
   1. Locate binary on PATH (miss → `.notFound` + install hint logged once).
   2. Spawn with piped stdio; stderr drained on a background task → `.debug` log.
-  3. `initialize` (rootUri, empty capabilities — same optimistic stance as
-     Rust: no capability gating, empty/null results mean "no data") then
-     `initialized`, bounded by `startupTimeout`; on failure capture a stderr
-     tail into the error and kill the child.
+  3. `initialize` (rootUri, empty client capabilities) then `initialized`,
+     bounded by `startupTimeout`; on failure capture a stderr tail into the
+     error and kill the child. The original stance was the Rust one: no
+     capability gating, empty/null results mean "no data". That decision is
+     changed; see "Capability gating (design record)" below.
   4. **Health + auto-restart**: health check = process-exit detection
      (termination handler / periodic check every 60s). On unexpected exit:
      log `.error` with exit status, clear transport, `session.resetDocuments()`,
@@ -425,6 +426,42 @@ state becomes actors.
   **dedupe by command** (one daemon per server binary per workspace), own the
   daemons + the 60s health loop, expose `status()`, `forceRestart(command:)`,
   `shutdown()`, and `session(forFileExtension:)`.
+
+### Capability gating (design record)
+
+This record changes the first decision "no capability gating". The change
+comes from a SWE-bench run on a Django clone (2026-09-21): `pylsp` has no
+call hierarchy, no workspace symbols and no implementations. It answers each
+of these requests with `-32601 Method Not Found`. The index worker sent
+`prepareCallHierarchy` for each symbol of each Python file. Thus the log had
+one error line for each symbol, and the call-edge index stayed empty, so
+`get callgraph`, `get inbound_calls` and `get blastradius` gave no callers.
+
+- **The server capabilities are kept.** `InitializeResult` decodes
+  `callHierarchyProvider`, `workspaceSymbolProvider` and
+  `implementationProvider` into `ServerCapabilities` (`true` or an options
+  object advertises the method; `false`, `null` or no field does not).
+  `LanguageServerConnection.initialize(rootURI:)` returns them, and
+  `LSPDaemon` gives them to the `LspSession` of the server.
+- **A gated request goes only to a server that advertises it.**
+  `LspSession` does not send `prepareCallHierarchy`, the incoming and
+  outgoing calls, `workspace/symbol` or `textDocument/implementation` to a
+  server that does not advertise it: the method throws
+  `LspSessionError.notAdvertised`. Only these three capabilities are gated.
+  Each other request keeps the first stance: it is sent, and an empty or
+  `null` result means "no data".
+- **Callers come from references when call hierarchy is absent.** The index
+  worker then asks `textDocument/references` at the name of each callable
+  symbol and writes one edge for each (caller, callee) pair, with the
+  narrowest callable symbol around each reference as the caller. The indexed
+  (callee) file owns these edges. The live `inboundCalls` op asks
+  `references` the same way. Thus the call graph, the blast radius and the
+  inbound calls have callers for a server such as `pylsp`. A reference is not
+  always a call, so these callers are a close approximation.
+- **A request failure is logged one time for each (server, request) pair.**
+  `WireError` gives the code and the message of a server error in its
+  description, and `LspSession.logFailure(of:context:error:)` writes only the
+  first failure of each request of each server.
 
 ### LSP auto-install (design record)
 

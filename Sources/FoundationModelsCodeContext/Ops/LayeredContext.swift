@@ -32,7 +32,7 @@ enum SourceLayer: String, Codable, Sendable, Equatable {
 /// `end_line`/`end_character` fields — `LSPRange` already exists in
 /// `LSPTypes.swift` and every other LSP-facing type in this package uses it,
 /// so duplicating an equivalent shape here would be pure waste.
-struct LayeredSymbolInfo: Codable, Sendable, Equatable {
+struct LayeredSymbolInfo: Codable, Sendable, Hashable {
     /// The symbol's short name.
     let name: String
 
@@ -125,9 +125,11 @@ enum LayeredContext {
     ///   - db: The database connection to query.
     ///   - filePath: The file to search within.
     ///   - range: The range to locate a symbol at (only `start.line`/`end.line` matter).
+    ///   - kinds: When not empty, only a row whose `kind` is one of these
+    ///     matches. Defaults to empty: any kind matches.
     /// - Returns: The matching row's id and symbol info, or `nil` if none matches.
     /// - Throws: Rethrows any error the query throws.
-    static func lspSymbolRow(db: Database, filePath: String, range: LSPRange) throws -> (id: Int64, info: LayeredSymbolInfo)? {
+    static func lspSymbolRow(db: Database, filePath: String, range: LSPRange, kinds: [String] = []) throws -> (id: Int64, info: LayeredSymbolInfo)? {
         guard
             let row = try Row.fetchOne(
                 db,
@@ -136,10 +138,11 @@ enum LayeredContext {
                            \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.startColumn), \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn) \
                     FROM \(Schema.LspSymbols.table) \
                     WHERE \(Schema.LspSymbols.filePath) = ? AND \(Schema.LspSymbols.startLine) <= ? AND \(Schema.LspSymbols.endLine) >= ? \
+                    \(kindFilter(column: Schema.LspSymbols.kind, kinds: kinds)) \
                     ORDER BY (\(Schema.LspSymbols.endLine) - \(Schema.LspSymbols.startLine)) ASC \
                     LIMIT 1
                     """,
-                arguments: [filePath, range.start.line, range.end.line]
+                arguments: ([filePath, range.start.line, range.end.line] as StatementArguments) + StatementArguments(kinds)
             )
         else {
             return nil
@@ -205,9 +208,11 @@ enum LayeredContext {
     ///   - db: The database connection to query.
     ///   - filePath: The file to search within.
     ///   - line: The zero-based line to locate a chunk at.
+    ///   - kinds: When not empty, only a chunk whose `kind` is one of these
+    ///     matches. Defaults to empty: any kind matches.
     /// - Returns: The narrowest enclosing chunk, or `nil` if none matches.
     /// - Throws: Rethrows any error the query throws.
-    static func tsChunkAt(db: Database, filePath: String, line: Int) throws -> LayeredChunkInfo? {
+    static func tsChunkAt(db: Database, filePath: String, line: Int, kinds: [String] = []) throws -> LayeredChunkInfo? {
         guard
             let row = try Row.fetchOne(
                 db,
@@ -216,10 +221,11 @@ enum LayeredContext {
                            \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind) \
                     FROM \(Schema.TsChunks.table) \
                     WHERE \(Schema.TsChunks.filePath) = ? AND \(Schema.TsChunks.startLine) <= ? AND \(Schema.TsChunks.endLine) >= ? \
+                    \(kindFilter(column: Schema.TsChunks.kind, kinds: kinds)) \
                     ORDER BY (\(Schema.TsChunks.endLine) - \(Schema.TsChunks.startLine)) ASC \
                     LIMIT 1
                     """,
-                arguments: [filePath, line, line]
+                arguments: ([filePath, line, line] as StatementArguments) + StatementArguments(kinds)
             )
         else {
             return nil
@@ -289,20 +295,69 @@ enum LayeredContext {
             return (symbol, .lspIndex)
         }
         if let chunk = try tsChunkAt(db: db, filePath: filePath, line: range.start.line) {
-            let symbol = LayeredSymbolInfo(
-                name: SymbolOps.leafName(ofQualifiedPath: chunk.symbolPath),
-                qualifiedPath: chunk.symbolPath,
-                kind: chunk.kind,
-                detail: nil,
-                filePath: filePath,
-                range: LSPRange(start: Position(line: chunk.startLine, character: 0), end: Position(line: chunk.endLine, character: 0))
-            )
-            return (symbol, .treeSitter)
+            return (symbolInfo(of: chunk), .treeSitter)
         }
         return (nil, .none)
     }
 
+    /// The kinds a caller can have: the stored `lsp_symbols.kind` strings
+    /// of a function, a method and a constructor (see
+    /// `LSPIndexWorker.kindString(for:)`), which are also the
+    /// `SymbolMetaType` raw values of the tree-sitter callables.
+    static let callableKinds = ["function", "method", "constructor"]
+
+    /// Finds the callable symbol that holds `line` of `filePath`: the
+    /// narrowest callable `lsp_symbols` row first, then the narrowest
+    /// callable `ts_chunks` row.
+    ///
+    /// Used to attribute a reference to its caller. A symbol of another kind
+    /// (for example a local variable, which `pylsp` gives as a symbol) is
+    /// never the caller.
+    /// - Parameters:
+    ///   - db: The database connection to query.
+    ///   - filePath: The file that holds the reference.
+    ///   - line: The zero-based line of the reference.
+    /// - Returns: The caller, or `nil` when no callable symbol holds `line`.
+    /// - Throws: Rethrows any error the underlying queries throw.
+    static func enclosingCallable(db: Database, filePath: String, line: Int) throws -> LayeredSymbolInfo? {
+        let range = LSPRange(start: Position(line: line, character: 0), end: Position(line: line, character: 0))
+        if let row = try lspSymbolRow(db: db, filePath: filePath, range: range, kinds: callableKinds) {
+            return row.info
+        }
+        return try tsChunkAt(db: db, filePath: filePath, line: line, kinds: callableKinds).map(symbolInfo(of:))
+    }
+
     // MARK: - Helpers
+
+    /// The symbol info of a tree-sitter chunk, with its leaf name and its
+    /// full qualified path.
+    /// - Parameter chunk: The chunk to describe.
+    /// - Returns: The chunk as a `LayeredSymbolInfo`; its range spans whole lines.
+    private static func symbolInfo(of chunk: LayeredChunkInfo) -> LayeredSymbolInfo {
+        LayeredSymbolInfo(
+            name: SymbolOps.leafName(ofQualifiedPath: chunk.symbolPath),
+            qualifiedPath: chunk.symbolPath,
+            kind: chunk.kind,
+            detail: nil,
+            filePath: chunk.filePath,
+            range: LSPRange(start: Position(line: chunk.startLine, character: 0), end: Position(line: chunk.endLine, character: 0))
+        )
+    }
+
+    /// The `AND <column> IN (?, ...)` clause that limits a query to `kinds`,
+    /// or an empty string when `kinds` is empty. The kinds are bound as
+    /// arguments after the other arguments of the query.
+    /// - Parameters:
+    ///   - column: The kind column of the queried table.
+    ///   - kinds: The kinds to allow.
+    /// - Returns: The SQL clause.
+    private static func kindFilter(column: String, kinds: [String]) -> String {
+        guard !kinds.isEmpty else {
+            return ""
+        }
+        let placeholders = kinds.map { _ in "?" }.joined(separator: ", ")
+        return "AND \(column) IN (\(placeholders))"
+    }
 
     /// Parses the `[[startLine,startColumn,endLine,endColumn], ...]` JSON
     /// `lsp_call_edges.from_ranges` stores (see

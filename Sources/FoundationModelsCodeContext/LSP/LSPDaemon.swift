@@ -302,8 +302,9 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
             throw error
         }
 
+        let capabilities: ServerCapabilities
         do {
-            try await performHandshake(handle: spawnedHandle)
+            capabilities = try await performHandshake(handle: spawnedHandle)
         } catch {
             await spawnedHandle.terminate()
             let reason = await Self.handshakeFailureReason(error: error, handle: spawnedHandle)
@@ -312,7 +313,12 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
         }
 
         handle = spawnedHandle
-        currentSession = LspSession(connection: spawnedHandle.connection, languageID: spec.languageIDs.first ?? "plaintext")
+        currentSession = LspSession(
+            connection: spawnedHandle.connection,
+            languageID: spec.languageIDs.first ?? "plaintext",
+            serverName: spec.command,
+            capabilities: capabilities
+        )
         consecutiveFailures = 0
         currentState = .running(pid: spawnedHandle.pid)
     }
@@ -452,25 +458,30 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// Runs the `initialize`/`initialized` handshake over `handle.connection`, bounded by
     /// `spec.startupTimeout` via the injected clock.
     /// - Parameter handle: The freshly spawned connection to complete the handshake over.
+    /// - Returns: The gated capabilities that the server advertised in its `initialize` result.
     /// - Throws: Whatever `connection.initialize`/`connection.initialized` throw, or
     ///   `CodeContextError.timeout` if `spec.startupTimeout` elapses first.
-    private func performHandshake(handle: ConnectionHandle<Connection>) async throws {
+    private func performHandshake(handle: ConnectionHandle<Connection>) async throws -> ServerCapabilities {
         let timeout = spec.startupTimeout
         let daemonClock = clock
         let connection = handle.connection
         let rootURI = DocumentURI(workspaceRoot.absoluteString)
 
-        try await withThrowingTaskGroup(of: Void.self) { group in
+        return try await withThrowingTaskGroup(of: ServerCapabilities.self) { group in
             group.addTask {
-                try await connection.initialize(rootURI: rootURI)
+                let capabilities = try await connection.initialize(rootURI: rootURI)
                 try await connection.initialized()
+                return capabilities
             }
             group.addTask {
                 try await daemonClock.sleep(for: timeout)
                 throw CodeContextError.timeout(timeout)
             }
             defer { group.cancelAll() }
-            try await group.next()
+            guard let capabilities = try await group.next() else {
+                throw CodeContextError.timeout(timeout)
+            }
+            return capabilities
         }
     }
 

@@ -21,8 +21,11 @@ public protocol LanguageServerConnection: Actor {
 
     /// Sends the `initialize` request that starts the LSP handshake.
     /// - Parameter rootURI: The workspace root to advertise to the server, if any.
+    /// - Returns: The gated capabilities that the server advertises in its
+    ///   `initialize` result. `LspSession` sends a gated request only when
+    ///   the server advertises it.
     /// - Throws: If the server rejects the handshake or the connection is unusable.
-    func initialize(rootURI: DocumentURI?) async throws
+    func initialize(rootURI: DocumentURI?) async throws -> ServerCapabilities
 
     /// Sends the `initialized` notification that completes the LSP handshake.
     /// - Throws: If the connection is unusable.

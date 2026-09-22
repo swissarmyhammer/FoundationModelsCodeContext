@@ -29,6 +29,59 @@ struct DocState: Sendable, Equatable {
     let textHash: Int
 }
 
+/// One kind of request that `LspSession` sends.
+///
+/// The session uses it to gate a request on the server capabilities
+/// (`LspSessionError.notAdvertised`) and to log a request failure one time
+/// for each server (`LspSession.logFailure(of:context:error:)`). The raw
+/// value is the name that a log line shows.
+enum SessionRequest: String, Sendable, Hashable {
+    /// Opens a document or sends its new text (`didOpen` or `didChange`).
+    case syncOpen
+
+    /// `textDocument/documentSymbol`.
+    case documentSymbols
+
+    /// `textDocument/prepareCallHierarchy`, gated on call hierarchy.
+    case prepareCallHierarchy
+
+    /// `callHierarchy/outgoingCalls`, gated on call hierarchy.
+    case outgoingCalls
+
+    /// `callHierarchy/incomingCalls`, gated on call hierarchy.
+    case incomingCalls
+
+    /// `textDocument/references`.
+    case references
+
+    /// `textDocument/implementation`, gated on implementations.
+    case implementations
+
+    /// `workspace/symbol`, gated on workspace symbols.
+    case workspaceSymbols
+
+    /// `textDocument/didClose`.
+    case didClose
+}
+
+/// Errors that `LspSession` throws itself, without a request to the server.
+enum LspSessionError: Error, Equatable {
+    /// The server does not advertise the method of this request in its
+    /// `initialize` capabilities, so the session did not send it.
+    case notAdvertised(SessionRequest)
+}
+
+/// Gives each `LspSessionError` a description for log lines and tool output.
+extension LspSessionError: LocalizedError {
+    /// The text that `localizedDescription` gives for this error.
+    var errorDescription: String? {
+        switch self {
+        case .notAdvertised(let request):
+            return "the server does not advertise \(request.rawValue)"
+        }
+    }
+}
+
 /// A single owned LSP session over one `LanguageServerConnection`: the
 /// open-document set, the diagnostics cache and its multi-subscriber
 /// fan-out, and the server's observed readiness.
@@ -97,15 +150,44 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// only nonisolated members of `self` may be written from within `init`.
     private nonisolated(unsafe) var notificationConsumerTask: Task<Void, Never>?
 
+    /// The name of the server that this session talks to (its command, for
+    /// example `"pylsp"`). Log lines name the server with it.
+    nonisolated let serverName: String
+
+    /// The gated capabilities that the server advertised in its `initialize`
+    /// result. A gated request that the server does not advertise is not
+    /// sent; the request method throws `LspSessionError.notAdvertised`.
+    nonisolated let capabilities: ServerCapabilities
+
+    /// Writes one failure log line (see `logFailure(of:context:error:)`).
+    private let failureLog: @Sendable (String) -> Void
+
+    /// The requests whose failure this session already logged. The log has
+    /// a maximum of one line for each (server, request) pair.
+    private var loggedFailures: Set<SessionRequest> = []
+
     /// Creates a session over `connection`, immediately starting to consume
     /// its `serverNotifications` in the background.
     /// - Parameters:
     ///   - connection: The connection this session drives every document-sync and
     ///     diagnostics operation through.
     ///   - languageID: The LSP `languageId` to send on every `didOpen` (e.g. `"swift"`).
-    init(connection: Connection, languageID: String) {
+    ///   - serverName: The name of the server, used in log lines.
+    ///   - capabilities: The gated capabilities that the server advertised.
+    ///   - failureLog: Writes one failure log line. Defaults to a warning in
+    ///     `Log.lsp`; tests capture the lines instead.
+    init(
+        connection: Connection,
+        languageID: String,
+        serverName: String,
+        capabilities: ServerCapabilities,
+        failureLog: @escaping @Sendable (String) -> Void = { line in Log.lsp.warning("\(line, privacy: .public)") }
+    ) {
         self.connection = connection
         self.languageID = languageID
+        self.serverName = serverName
+        self.capabilities = capabilities
+        self.failureLog = failureLog
         notificationConsumerTask = Task { [weak self] in
             await self?.consumeServerNotifications()
         }
@@ -192,7 +274,8 @@ actor LspSession<Connection: LanguageServerConnection> {
     }
 
     /// Requests the call-hierarchy item(s) rooted at a position, delegating
-    /// directly to `connection.prepareCallHierarchy(in:at:)`.
+    /// to `connection.prepareCallHierarchy(in:at:)` when the server
+    /// advertises call hierarchy.
     ///
     /// - Parameters:
     ///   - uri: The document containing the cursor position; should already
@@ -200,31 +283,42 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///     current content.
     ///   - position: The cursor position to query.
     /// - Returns: Zero or more call-hierarchy items.
-    /// - Throws: Whatever `connection.prepareCallHierarchy(in:at:)` throws.
+    /// - Throws: `LspSessionError.notAdvertised` without a request when the
+    ///   server does not advertise call hierarchy; otherwise whatever
+    ///   `connection.prepareCallHierarchy(in:at:)` throws.
     func prepareCallHierarchy(uri: DocumentURI, position: Position) async throws -> [CallHierarchyItem] {
-        try await connection.prepareCallHierarchy(in: uri, at: position)
+        try requireAdvertised(.prepareCallHierarchy, isAdvertised: capabilities.callHierarchy)
+        return try await connection.prepareCallHierarchy(in: uri, at: position)
     }
 
     /// Requests every call made *from* a call-hierarchy item, delegating
-    /// directly to `connection.outgoingCalls(of:)`.
+    /// to `connection.outgoingCalls(of:)` when the server advertises call
+    /// hierarchy.
     ///
     /// - Parameter item: The item previously returned by
     ///   `prepareCallHierarchy(uri:position:)`.
     /// - Returns: Zero or more outgoing calls.
-    /// - Throws: Whatever `connection.outgoingCalls(of:)` throws.
+    /// - Throws: `LspSessionError.notAdvertised` without a request when the
+    ///   server does not advertise call hierarchy; otherwise whatever
+    ///   `connection.outgoingCalls(of:)` throws.
     func outgoingCalls(item: CallHierarchyItem) async throws -> [CallHierarchyOutgoingCall] {
-        try await connection.outgoingCalls(of: item)
+        try requireAdvertised(.outgoingCalls, isAdvertised: capabilities.callHierarchy)
+        return try await connection.outgoingCalls(of: item)
     }
 
     /// Requests every call made *into* a call-hierarchy item, delegating
-    /// directly to `connection.incomingCalls(of:)`.
+    /// to `connection.incomingCalls(of:)` when the server advertises call
+    /// hierarchy.
     ///
     /// - Parameter item: The item previously returned by
     ///   `prepareCallHierarchy(uri:position:)`.
     /// - Returns: Zero or more incoming calls.
-    /// - Throws: Whatever `connection.incomingCalls(of:)` throws.
+    /// - Throws: `LspSessionError.notAdvertised` without a request when the
+    ///   server does not advertise call hierarchy; otherwise whatever
+    ///   `connection.incomingCalls(of:)` throws.
     func incomingCalls(item: CallHierarchyItem) async throws -> [CallHierarchyIncomingCall] {
-        try await connection.incomingCalls(of: item)
+        try requireAdvertised(.incomingCalls, isAdvertised: capabilities.callHierarchy)
+        return try await connection.incomingCalls(of: item)
     }
 
     /// Requests the definition site of the symbol at a position, delegating
@@ -287,7 +381,8 @@ actor LspSession<Connection: LanguageServerConnection> {
     }
 
     /// Requests every implementation of the symbol at a position, delegating
-    /// directly to `connection.implementations(in:at:)`.
+    /// to `connection.implementations(in:at:)` when the server advertises
+    /// implementations.
     ///
     /// - Parameters:
     ///   - uri: The document containing the cursor position; should already
@@ -295,9 +390,12 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///     current content.
     ///   - position: The cursor position to query.
     /// - Returns: Zero or more implementation locations.
-    /// - Throws: Whatever `connection.implementations(in:at:)` throws.
+    /// - Throws: `LspSessionError.notAdvertised` without a request when the
+    ///   server does not advertise implementations; otherwise whatever
+    ///   `connection.implementations(in:at:)` throws.
     func implementations(uri: DocumentURI, at position: Position) async throws -> [Location] {
-        try await connection.implementations(in: uri, at: position)
+        try requireAdvertised(.implementations, isAdvertised: capabilities.implementation)
+        return try await connection.implementations(in: uri, at: position)
     }
 
     /// Requests the code actions available for a range, delegating directly
@@ -333,9 +431,46 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// is not scoped to any single open document.
     /// - Parameter query: The search string, interpreted by the server (typically fuzzy).
     /// - Returns: Zero or more matching symbols.
-    /// - Throws: Whatever `connection.workspaceSymbols(query:)` throws.
+    /// - Throws: `LspSessionError.notAdvertised` without a request when the
+    ///   server does not advertise workspace symbols; otherwise whatever
+    ///   `connection.workspaceSymbols(query:)` throws.
     func workspaceSymbols(query: String) async throws -> [SymbolInformation] {
-        try await connection.workspaceSymbols(query: query)
+        try requireAdvertised(.workspaceSymbols, isAdvertised: capabilities.workspaceSymbol)
+        return try await connection.workspaceSymbols(query: query)
+    }
+
+    /// Throws when the server does not advertise the method of `request`,
+    /// so that the caller sends no request.
+    /// - Parameters:
+    ///   - request: The gated request the caller is about to send.
+    ///   - isAdvertised: Whether the server advertises the method of `request`.
+    /// - Throws: `LspSessionError.notAdvertised(request)` when `isAdvertised` is `false`.
+    private func requireAdvertised(_ request: SessionRequest, isAdvertised: Bool) throws {
+        guard isAdvertised else {
+            throw LspSessionError.notAdvertised(request)
+        }
+    }
+
+    /// Logs a request failure, one time for each (server, request) pair.
+    ///
+    /// The index worker sends some requests for each symbol of each file.
+    /// When a server refuses a request, each symbol fails in the same way,
+    /// and one line for each symbol hides the other log lines. Thus only the
+    /// first failure of each request is logged. The line holds the name of
+    /// the server, the request, the context and the description of `error`
+    /// (for a server error: the code and the message).
+    /// - Parameters:
+    ///   - request: The request that failed.
+    ///   - context: Where the request failed, for example `"file.py:symbol"`.
+    ///   - error: The error the request threw.
+    func logFailure(of request: SessionRequest, context: String, error: Error) {
+        guard loggedFailures.insert(request).inserted else {
+            return
+        }
+        failureLog(
+            "\(serverName): \(request.rawValue) failed for \(context): \(error.localizedDescription) "
+                + "(the log does not show the next \(request.rawValue) failures of this server)"
+        )
     }
 
     /// A first-in-first-out mutual-exclusion gate held by `prepareRenameAndRename`.

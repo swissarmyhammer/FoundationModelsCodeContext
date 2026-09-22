@@ -62,6 +62,26 @@ enum WireError: Error, Equatable {
     case missingResult
 }
 
+/// Gives each `WireError` a description that holds its associated values.
+///
+/// Without this conformance, `localizedDescription` gives only the case
+/// index ("WireError error 1"), and a log line does not show the code and
+/// the message that the server sent.
+extension WireError: LocalizedError {
+    /// The text that `localizedDescription` gives for this error.
+    var errorDescription: String? {
+        switch self {
+        case .idMismatch(let expected, let actual):
+            let actualText = actual.map(String.init) ?? "none"
+            return "response id mismatch: expected \(expected), got \(actualText)"
+        case .serverError(let code, let message):
+            return "server error \(code): \(message)"
+        case .missingResult:
+            return "response has neither a result nor an error"
+        }
+    }
+}
+
 /// Incrementally decodes `Content-Length`-framed JSON-RPC messages from an
 /// arbitrarily chunked byte stream.
 ///
@@ -202,9 +222,9 @@ struct JSONRPCEnvelopePeek: Decodable {
 }
 
 /// An empty JSON object (`{}`), used for payloads that carry no data on the
-/// wire — `initialized`, `shutdown`, `exit`, and `initialize`'s
-/// `capabilities` (plan.md: "no capability gating, empty/null results mean
-/// 'no data'").
+/// wire — `initialized`, `shutdown`, `exit`, and the client `capabilities`
+/// of `initialize` (this package sends no client capabilities; it reads the
+/// server capabilities instead, see `InitializeResult`).
 struct EmptyPayload: Codable {}
 
 // MARK: - initialize / initialized / shutdown / exit
@@ -224,10 +244,57 @@ struct InitializeParams: Encodable {
 
 /// The result of the `initialize` request.
 ///
-/// Deliberately empty: this package never gates behavior on server
-/// capabilities (plan.md: "no capability gating"), so every field a real
-/// server sends back is simply ignored rather than modeled.
-struct InitializeResult: Decodable {}
+/// Keeps only the server capabilities that this package gates on (see
+/// `ServerCapabilities` and plan.md "Capability gating"). Each other field
+/// that a server sends is ignored. A result with no `capabilities` object
+/// advertises no gated method.
+struct InitializeResult: Decodable {
+    /// The gated capabilities that the server advertises.
+    let capabilities: ServerCapabilities
+
+    private enum CodingKeys: String, CodingKey {
+        case capabilities
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let payload = try container.decodeIfPresent(ServerCapabilitiesPayload.self, forKey: .capabilities)
+        capabilities = ServerCapabilities(
+            callHierarchy: payload?.callHierarchyProvider?.isAdvertised ?? false,
+            workspaceSymbol: payload?.workspaceSymbolProvider?.isAdvertised ?? false,
+            implementation: payload?.implementationProvider?.isAdvertised ?? false
+        )
+    }
+}
+
+/// The gated provider fields of the `capabilities` object of an
+/// `initialize` result. Each field that is absent is `nil`.
+private struct ServerCapabilitiesPayload: Decodable {
+    let callHierarchyProvider: ProviderOption?
+    let workspaceSymbolProvider: ProviderOption?
+    let implementationProvider: ProviderOption?
+}
+
+/// One `...Provider` field of a server capabilities object.
+///
+/// LSP lets a server write a provider as `true`, `false` or an options
+/// object. `true` and an options object advertise the method; `false` and
+/// `null` do not.
+private struct ProviderOption: Decodable {
+    /// Whether this field advertises the method.
+    let isAdvertised: Bool
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            isAdvertised = false
+        } else if let flag = try? container.decode(Bool.self) {
+            isAdvertised = flag
+        } else {
+            isAdvertised = true
+        }
+    }
+}
 
 // MARK: - textDocument/didOpen, didChange, didSave, didClose
 
