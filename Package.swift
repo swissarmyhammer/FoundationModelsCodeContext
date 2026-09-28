@@ -28,6 +28,16 @@ let treeSitterYAMLPackage = "tree-sitter-yaml"
 let treeSitterMarkdownPackage = "tree-sitter-markdown"
 let treeSitterBashPackage = "tree-sitter-bash"
 
+// The telemetry APIs (the OpenTelemetry design of 2026-09-28). These are
+// abstractions, not exporters. The library target links the APIs only: it
+// bootstraps no backend and it does not depend on `swift-otel`. Until a host
+// executable bootstraps a backend, each span, each logger and each metric of
+// the library does nothing. `CodeContextTracing` holds the names that the
+// library uses with these APIs.
+let tracingPackage = "swift-distributed-tracing"
+let loggingPackage = "swift-log"
+let metricsPackage = "swift-metrics"
+
 // The two GitHub organizations hosting the grammar packages above. Most
 // grammars live in the canonical `tree-sitter` org; the YAML and Markdown
 // grammars are community-maintained under `tree-sitter-grammars`. Extracted
@@ -146,6 +156,11 @@ let package = Package(
         .package(url: "\(treeSitterGrammarsOrgURL)\(treeSitterYAMLPackage)", exact: "0.7.0"),
         .package(url: "\(treeSitterGrammarsOrgURL)\(treeSitterMarkdownPackage)", from: "0.5.0"),
         .package(url: "\(treeSitterOrgURL)\(treeSitterBashPackage)", from: "0.25.0"),
+        // The same version ranges as FoundationModelsRouter and FoundationModelsExtras, so
+        // that one graph resolves each telemetry API to one version.
+        .package(url: "https://github.com/apple/\(tracingPackage).git", from: "1.4.1"),
+        .package(url: "https://github.com/apple/\(loggingPackage).git", from: "1.15.1"),
+        .package(url: "https://github.com/apple/\(metricsPackage).git", from: "2.11.0"),
     ],
     targets: [
         .target(
@@ -155,6 +170,9 @@ let package = Package(
                 .product(name: "Operations", package: "FoundationModelsExtras"),
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
                 .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "Tracing", package: tracingPackage),
+                .product(name: "Logging", package: loggingPackage),
+                .product(name: "Metrics", package: metricsPackage),
             ] + grammarProducts,
             path: "Sources/\(packageName)"
         ),
@@ -171,6 +189,9 @@ let package = Package(
                 // directly, so the `Operations` module must be an explicit dependency here, not
                 // just reachable through FoundationModelsCodeContext.
                 .product(name: "Operations", package: "FoundationModelsExtras"),
+                // The tracing tests give an explicit `InMemoryTracer` to the code under test and
+                // read the finished spans from it. They do not bootstrap the global system.
+                .product(name: "InMemoryTracing", package: tracingPackage),
             ],
             path: "Tests/\(packageName)Tests",
             // `scripted-lsp-server.swift` is a standalone script launched via
