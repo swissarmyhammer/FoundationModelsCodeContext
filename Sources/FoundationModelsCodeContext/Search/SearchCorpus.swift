@@ -9,7 +9,7 @@ private typealias RankerIndex = FoundationModelsRanker.SearchCorpus
 
 /// A cached, contiguous snapshot of one workspace's `ts_chunks` table, ready
 /// for BM25/trigram keyword scoring and `vDSP_mmul` cosine scoring — the
-/// data `SearchCode.run(corpus:embedder:query:topK:weights:)` ranks against.
+/// data `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)` ranks against.
 ///
 /// See plan.md "Search", "Where the cosines happen": chunk embeddings live in
 /// one contiguous row-major `[Float]` matrix (`chunkCount` rows ×
@@ -106,7 +106,7 @@ public struct SearchCorpusSnapshot: Sendable {
 ///
 /// See plan.md "Search", "Where the cosines happen": a `SearchCorpus` is
 /// meant to be created once (e.g. by `CodeContext`) and reused across every
-/// `SearchCode.run(corpus:embedder:query:topK:weights:)` call. A file that
+/// `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)` call. A file that
 /// finishes indexing shows up on the very next call — no explicit
 /// invalidation call, no process restart — because `snapshot()` reacts to
 /// `store.generation` advancing.

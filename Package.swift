@@ -168,6 +168,10 @@ let package = Package(
             dependencies: [
                 .product(name: "FoundationModelsRanker", package: "FoundationModelsRanker"),
                 .product(name: "Operations", package: "FoundationModelsExtras"),
+                // `TracedCall` opens a span and writes one "enter" log record when a call starts
+                // (rule 8 of the OpenTelemetry design, hang detection). The LSP request, the embed
+                // call and the index pass use it.
+                .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Tracing", package: tracingPackage),

@@ -40,10 +40,33 @@ comments:
     - note: SwiftPM prints "failed loading cached manifest ... disk I/O error" lines. They come from the SwiftPM manifest cache in this environment. They are not from source code.
     - next: review
   timestamp: 2026-09-28T20:47:05.460589+00:00
+- actor: claude-code
+  id: 01m3mwbb7f79gq2zammdr56j8d
+  text: |-
+    ### commit — changed
+    - evidence: 1164792 feat(metrics): add metrics for index duration, files indexed, LSP request latency and LSP server restarts
+    - next: not pushed. .claude/ and .kanban/mcp.*.log were not committed.
+  timestamp: 2026-09-28T20:47:21.327119+00:00
+- actor: claude-code
+  id: 01m3mwx6b8vn602n4y3afp66r7
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 1164792). 13 files reviewed. 14 attempts, 0 failed. Findings 0, confirmed 0, refuted 0. The .reviewignore rule excluded 4 .kanban files. No prior Review Findings sections are on the task.
+    - next: The task is in done. Task ^m17ymp (OTel E) can start.
+  timestamp: 2026-09-28T20:57:06.152930+00:00
+- actor: claude-code
+  id: 01m3mwxf0r6wrpysb45qa2n2hd
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 13 files (CodeContextMetrics.swift new, MetricsTests.swift new, LSPRequestMetricsTests.swift new in IntegrationTests)
+    - test: green — root swift test --parallel 713 passed; IntegrationTests swift test 4 passed; 0 failed, 0 skipped, 0 compiler warnings
+    - commit: 1164792
+    - review: clean — 0 findings; task moved to done
+  timestamp: 2026-09-28T20:57:15.032427+00:00
 depends_on:
 - 01M3MNFXGGMN1K0Q2A0SA5VZ5M
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: d180
 title: 'OTel D: add metrics for index duration, files indexed, LSP request latency by method and LSP server restarts'
 ---
 ## What

@@ -1,8 +1,9 @@
 import Foundation
 import FoundationModelsRanker
+import Tracing
 
 /// The relative weight of each ranking signal
-/// `SearchCode.run(corpus:embedder:query:topK:weights:)` fuses via
+/// `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)` fuses via
 /// `RRF.fuse(rankedLists:weights:k:)`.
 ///
 /// A weight of `0.0` excludes that signal from the fused ranking entirely —
@@ -39,7 +40,7 @@ public struct SearchWeights: Sendable, Equatable {
     }
 }
 
-/// A note that `SearchCode.run(corpus:embedder:query:topK:weights:)`'s
+/// A note that `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)`'s
 /// ranking ran with an incomplete (or entirely absent) embedding layer,
 /// attached to `SearchCodeResult` instead of failing the search.
 ///
@@ -75,7 +76,7 @@ public struct IndexingProgress: Sendable, Equatable, Encodable {
     }
 }
 
-/// One `SearchCode.run(corpus:embedder:query:topK:weights:)` result: a fused
+/// One `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)` result: a fused
 /// `Hit` plus the `ts_chunks` metadata needed to locate and display it.
 ///
 /// The JSON form comes from a custom `encode(to:)`, because the Ranker `Hit`
@@ -193,7 +194,7 @@ extension SearchCodeMatch: Encodable {
     }
 }
 
-/// The result of a `SearchCode.run(corpus:embedder:query:topK:weights:)`
+/// The result of a `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)`
 /// call.
 ///
 /// The JSON keys are the property names. When `indexingProgress` is `nil`,
@@ -254,40 +255,57 @@ public enum SearchCode {
     ///   - topK: The maximum number of hits to return. Defaults to 20.
     ///   - weights: The per-signal fusion weights. Defaults to
     ///     `SearchWeights.default`.
+    ///   - tracer: The tracer of the search span and of the embed span of the
+    ///     query. Defaults to `nil`, which reads the bootstrapped tracer at the
+    ///     time of the call.
     /// - Returns: The fused, `[0, 1]`-normalized hits (capped at `topK`),
     ///   plus an `IndexingProgress` note whenever the embedding layer is
     ///   incomplete.
     /// - Throws: Rethrows `Store`'s storage errors (via `corpus.snapshot()`).
+    ///
+    /// The search runs in one `CodeContextTracing.SpanName.search` span, which
+    /// holds `topK` and the hit count. It never holds the query. The embed call
+    /// of the query is a child span of the search span.
     public static func run(
         corpus: SearchCorpus,
         embedder: TextEmbedding?,
         query: String,
         topK: Int = CodeContextDefaults.searchTopK,
-        weights: SearchWeights = CodeContextDefaults.searchWeights
+        weights: SearchWeights = CodeContextDefaults.searchWeights,
+        tracer: (any Tracer)? = nil
     ) async throws -> SearchCodeResult {
-        let snapshot = try await corpus.snapshot()
+        try await CodeContextSpans.withSpan(
+            CodeContextTracing.SpanName.search,
+            tracer: tracer,
+            attributes: { $0[CodeContextTracing.AttributeKey.searchLimit] = topK }
+        ) { span in
+            let snapshot = try await corpus.snapshot()
 
-        let (bm25Ranking, bm25Scores) = computeBM25Ranking(snapshot: snapshot, query: query)
-        let (trigramRanking, trigramScores) = computeTrigramRanking(snapshot: snapshot, query: query)
-        let (cosineRanking, cosineScores) = await computeCosineRanking(snapshot: snapshot, embedder: embedder, query: query)
+            let (bm25Ranking, bm25Scores) = computeBM25Ranking(snapshot: snapshot, query: query)
+            let (trigramRanking, trigramScores) = computeTrigramRanking(snapshot: snapshot, query: query)
+            let (cosineRanking, cosineScores) = await computeCosineRanking(
+                snapshot: snapshot, embedder: embedder, query: query, tracer: tracer
+            )
 
-        let hits = fuseRankings(
-            snapshot: snapshot,
-            bm25Ranking: bm25Ranking,
-            bm25Scores: bm25Scores,
-            trigramRanking: trigramRanking,
-            trigramScores: trigramScores,
-            cosineRanking: cosineRanking,
-            cosineScores: cosineScores,
-            weights: weights,
-            topK: topK
-        )
+            let hits = fuseRankings(
+                snapshot: snapshot,
+                bm25Ranking: bm25Ranking,
+                bm25Scores: bm25Scores,
+                trigramRanking: trigramRanking,
+                trigramScores: trigramScores,
+                cosineRanking: cosineRanking,
+                cosineScores: cosineScores,
+                weights: weights,
+                topK: topK
+            )
+            span.attributes[CodeContextTracing.AttributeKey.searchResultCount] = hits.count
 
-        return SearchCodeResult(
-            query: query,
-            hits: hits,
-            indexingProgress: buildIndexingProgress(snapshot: snapshot, embedderAvailable: embedder != nil)
-        )
+            return SearchCodeResult(
+                query: query,
+                hits: hits,
+                indexingProgress: buildIndexingProgress(snapshot: snapshot, embedderAvailable: embedder != nil)
+            )
+        }
     }
 
     // MARK: - Per-signal ranking
@@ -354,13 +372,14 @@ public enum SearchCode {
     private static func computeCosineRanking(
         snapshot: SearchCorpusSnapshot,
         embedder: TextEmbedding?,
-        query: String
+        query: String,
+        tracer: (any Tracer)?
     ) async -> (ranking: [Int], scores: [Double]) {
         let zeroScores = [Double](repeating: 0.0, count: snapshot.chunkCount)
         guard let embedder, snapshot.embeddedChunkCount > 0 else {
             return ([], zeroScores)
         }
-        guard let queryVector = await embedQuery(embedder: embedder, query: query) else {
+        guard let queryVector = await embedQuery(embedder: embedder, query: query, tracer: tracer) else {
             return ([], zeroScores)
         }
 
@@ -373,9 +392,12 @@ public enum SearchCode {
 
     /// Embeds `query` with `embedder`, or `nil` if embedding fails or
     /// returns no vector.
-    private static func embedQuery(embedder: TextEmbedding, query: String) async -> [Float]? {
+    ///
+    /// The embed call runs in one `CodeContextTracing.SpanName.embed` span
+    /// through `tracer`, and writes one "enter" log record.
+    private static func embedQuery(embedder: TextEmbedding, query: String, tracer: (any Tracer)?) async -> [Float]? {
         do {
-            return try await embedder.embed([query]).first
+            return try await CodeContextSpans.embed([query], with: embedder, tracer: tracer).first
         } catch {
             Log.search.warning(
                 "the embedder failed for the query; the search uses no similarity signal",

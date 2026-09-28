@@ -1,4 +1,5 @@
 import Foundation
+import Tracing
 
 /// The public facade actor tying every subsystem in this package together for one workspace.
 ///
@@ -66,6 +67,11 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// Records the duration and the file count of each index pass, and goes to the LSP
     /// supervisor and the LSP index workers.
     private let metrics: CodeContextMetrics
+
+    /// The tracer of the spans of this context: the index pass, the watcher batch, the embed
+    /// calls, the search, the symbol search and the grep. `nil` reads the bootstrapped tracer at
+    /// the time of each span, see `CodeContextTracing.tracer(explicit:)`.
+    private let tracer: (any Tracer)?
 
     /// How long the background index loop idles between passes when nothing new triggered it.
     private static var indexLoopIdleSleep: Duration { .milliseconds(300) }
@@ -187,6 +193,9 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///   - metrics: Records the metrics of the index passes, the LSP index workers and the LSP
     ///     daemons. Defaults to `CodeContextMetrics()`, which records into the bootstrapped
     ///     `MetricsSystem` factory; tests give a `TestMetrics` factory.
+    ///   - tracer: The tracer of the spans of this context. Defaults to `nil`, which reads the
+    ///     bootstrapped tracer at the time of each span; tests give an `InMemoryTracer`. The LSP
+    ///     request spans use the tracer of each connection, which `connectionFactory` makes.
     ///   - connectionFactory: Spawns a fresh connection for every LSP daemon the supervisor
     ///     creates. Production code passes `LSPDaemon.processConnectionFactory()`; tests pass one
     ///     backed by `FakeLanguageServerConnection`.
@@ -199,6 +208,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         autoInstall: LspAutoInstall = LspAutoInstall(),
         installRunner: any InstallRunner = ProcessInstallRunner(),
         metrics: CodeContextMetrics = CodeContextMetrics(),
+        tracer: (any Tracer)? = nil,
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) async throws {
         self.rootDirectory = rootDirectory
@@ -206,6 +216,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         self.clock = clock
         self.eventSource = eventSource
         self.metrics = metrics
+        self.tracer = tracer
 
         let store = try Store(rootDirectory: rootDirectory)
         self.store = store
@@ -280,6 +291,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
                 rootDirectory: rootDirectory,
                 eventSource: eventSource,
                 clock: clock,
+                tracer: tracer,
                 nudgeWorkers: { [weak self] in
                     await self?.nudgeIndexPass()
                 }
@@ -467,8 +479,19 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     }
 
     /// See `SymbolOps.searchSymbol(store:query:kind:maxResults:)`.
+    ///
+    /// The call runs in one `CodeContextTracing.SpanName.searchSymbol` span, which holds the limit
+    /// and the result count. It never holds the query.
     public func searchSymbol(query: String, kind: SymbolMetaType? = nil, maxResults: Int = CodeContextDefaults.maxQueryResults) async throws -> [SearchSymbolMatch] {
-        try await SymbolOps.searchSymbol(store: store, query: query, kind: kind, maxResults: maxResults)
+        try await CodeContextSpans.withSpan(
+            CodeContextTracing.SpanName.searchSymbol,
+            tracer: tracer,
+            attributes: { $0[CodeContextTracing.AttributeKey.searchLimit] = maxResults }
+        ) { span in
+            let matches = try await SymbolOps.searchSymbol(store: store, query: query, kind: kind, maxResults: maxResults)
+            span.attributes[CodeContextTracing.AttributeKey.searchResultCount] = matches.count
+            return matches
+        }
     }
 
     /// See `SymbolOps.listSymbols(store:file:)`.
@@ -491,25 +514,39 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     }
 
     /// See `GrepCode.run(store:pattern:languages:filePattern:maxResults:)`.
+    ///
+    /// The call runs in one `CodeContextTracing.SpanName.grepCode` span, which holds the limit and
+    /// the match count. It never holds the pattern.
     public func grepCode(
         pattern: String,
         languages: [String] = CodeContextDefaults.grepLanguages,
         filePattern: String? = nil,
         maxResults: Int = CodeContextDefaults.maxQueryResults
     ) async throws -> GrepCodeResult {
-        try await GrepCode.run(store: store, pattern: pattern, languages: languages, filePattern: filePattern, maxResults: maxResults)
+        try await CodeContextSpans.withSpan(
+            CodeContextTracing.SpanName.grepCode,
+            tracer: tracer,
+            attributes: { $0[CodeContextTracing.AttributeKey.searchLimit] = maxResults }
+        ) { span in
+            let result = try await GrepCode.run(
+                store: store, pattern: pattern, languages: languages, filePattern: filePattern, maxResults: maxResults
+            )
+            span.attributes[CodeContextTracing.AttributeKey.searchResultCount] = result.matches.count
+            return result
+        }
     }
 
-    /// See `SearchCode.run(corpus:embedder:query:topK:weights:)`.
+    /// See `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)`. The search opens its
+    /// spans through the tracer of this context.
     /// - Throws: `CodeContextError.embeddingDisabled` when this context has no embedder, and
-    ///   the errors of `SearchCode.run(corpus:embedder:query:topK:weights:)`.
+    ///   the errors of `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)`.
     public func searchCode(
         query: String,
         topK: Int = CodeContextDefaults.searchTopK,
         weights: SearchWeights = CodeContextDefaults.searchWeights
     ) async throws -> SearchCodeResult {
         let embedder = try requireEmbedder()
-        return try await SearchCode.run(corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights)
+        return try await SearchCode.run(corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights, tracer: tracer)
     }
 
     /// See `FindDuplicatesOps.findDuplicates(corpus:file:minSimilarity:minChunkBytes:maxPerChunk:)`.
@@ -842,15 +879,27 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// A complete pass records its duration in `metrics`, and adds the count of files that the
     /// tree-sitter worker drained under the `treesitter` layer. A pass that throws records
     /// nothing, because its duration does not measure a complete pass.
+    ///
+    /// The pass runs in one `CodeContextTracing.SpanName.indexPass` span, which holds the layer
+    /// and the count of drained files. The pass can be long, thus it also writes one "enter" log
+    /// record when it starts. The embed calls of the pass are child spans of this span.
     /// - Throws: Rethrows `Store`'s storage errors, and `CancellationError` when the task is
     ///   cancelled during the pass.
     private func runOneIndexPass() async throws {
-        let started = ContinuousClock.now
-        let filesIndexed = try await TreeSitterWorker.run(store: store, rootDirectory: rootDirectory, embedder: embedder)
-        try await markUncoveredLspFilesDone()
-        await publishIndexingStatus()
-        metrics.recordIndexPass(duration: started.duration(to: .now))
-        metrics.addFilesIndexed(filesIndexed, layer: .treeSitter)
+        try await CodeContextSpans.withEnterRecord(
+            CodeContextTracing.SpanName.indexPass,
+            tracer: tracer,
+            logger: Log.index,
+            attributes: { $0[CodeContextTracing.AttributeKey.indexLayer] = CodeContextMetrics.dimensionValue(of: .treeSitter) }
+        ) { span in
+            let started = ContinuousClock.now
+            let filesIndexed = try await TreeSitterWorker.run(store: store, rootDirectory: rootDirectory, embedder: embedder, tracer: tracer)
+            span.attributes[CodeContextTracing.AttributeKey.indexFilesIndexed] = filesIndexed
+            try await markUncoveredLspFilesDone()
+            await publishIndexingStatus()
+            metrics.recordIndexPass(duration: started.duration(to: .now))
+            metrics.addFilesIndexed(filesIndexed, layer: .treeSitter)
+        }
     }
 
     /// Marks every dirty file whose extension isn't covered by any currently detected LSP server

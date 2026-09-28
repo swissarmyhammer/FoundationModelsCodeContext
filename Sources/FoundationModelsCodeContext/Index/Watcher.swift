@@ -2,6 +2,7 @@ import CoreServices
 import CryptoKit
 import Foundation
 import Logging
+import Tracing
 
 // MARK: - Raw event model
 
@@ -110,6 +111,10 @@ public actor Watcher {
     private let nudgeWorkers: @Sendable () async -> Void
     private let allowedExtensions: Set<String>
 
+    /// The tracer of the span of each flush. `nil` reads the bootstrapped tracer at the time of
+    /// each flush.
+    private let tracer: (any Tracer)?
+
     private var subscription: (any FileEventSubscription)?
     private var pendingEvents: [String: FileChangeKind] = [:]
     private var debounceTask: Task<Void, Never>?
@@ -125,6 +130,8 @@ public actor Watcher {
     ///     to `ContinuousClock()`; tests inject a `ManualClock`.
     ///   - debounceInterval: How long a path must go quiet before its batch
     ///     is flushed. Defaults to one second.
+    ///   - tracer: The tracer of the span of each flush. Defaults to `nil`,
+    ///     which reads the bootstrapped tracer at the time of each flush.
     ///   - nudgeWorkers: Called once after each non-empty flush, so the
     ///     caller can wake its indexing workers to drain the newly dirtied
     ///     files.
@@ -134,6 +141,7 @@ public actor Watcher {
         eventSource: any FileEventSource = FSEventsFileEventSource(),
         clock: any Clock<Duration> = ContinuousClock(),
         debounceInterval: Duration = .seconds(1),
+        tracer: (any Tracer)? = nil,
         nudgeWorkers: @escaping @Sendable () async -> Void
     ) {
         self.store = store
@@ -142,6 +150,7 @@ public actor Watcher {
         self.clock = clock
         self.debounceInterval = debounceInterval
         self.nudgeWorkers = nudgeWorkers
+        self.tracer = tracer
         allowedExtensions = Set(Languages.all.flatMap { languageModule in languageModule.fileExtensions.map { $0.lowercased() } })
     }
 
@@ -206,6 +215,10 @@ public actor Watcher {
 
     /// Applies every path in the current pending batch, then nudges the
     /// indexing workers exactly once.
+    ///
+    /// The flush runs in one `CodeContextTracing.SpanName.watcherBatch`
+    /// span, which holds the count of paths in the batch. It never holds a
+    /// path. The flush is short, thus it writes no "enter" log record.
     private func flushPendingEvents() async {
         guard !pendingEvents.isEmpty else {
             return
@@ -213,11 +226,13 @@ public actor Watcher {
         let batch = pendingEvents
         pendingEvents.removeAll()
 
-        for (relativePath, kind) in batch {
-            await applyChange(relativePath: relativePath, kind: kind)
+        await CodeContextTracing.tracer(explicit: tracer).withSpan(CodeContextTracing.SpanName.watcherBatch) { span in
+            span.attributes[CodeContextTracing.AttributeKey.watcherBatchSize] = batch.count
+            for (relativePath, kind) in batch {
+                await applyChange(relativePath: relativePath, kind: kind)
+            }
+            await nudgeWorkers()
         }
-
-        await nudgeWorkers()
     }
 
     /// Applies one path's coalesced change, per its last-recorded `kind` in

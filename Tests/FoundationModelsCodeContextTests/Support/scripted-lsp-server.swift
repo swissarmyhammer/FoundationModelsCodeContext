@@ -48,6 +48,12 @@
 //     handling deterministically, keyed by which logical request each
 //     response answers rather than by read order.
 //
+//   {"action": "respondError", "which": <Int>, "code": <Int>, "message": <String>}
+//     Writes a framed JSON-RPC error response for the `which`-th request
+//     read so far (or for the request that `uri` names, the same as
+//     "respond"). The response holds an `error` object with `code` and
+//     `message`, and no `result`.
+//
 //   {"action": "notify", "method": <String>, "params": <any JSON>}
 //     Writes a framed JSON-RPC notification (no id), simulating a
 //     server-initiated push such as `textDocument/publishDiagnostics`.
@@ -205,6 +211,17 @@ func resolveTargetID(step: [String: Any], requestsReadSoFar: [ReadRequest]) -> A
     return resolveTargetID(forIndex: which, requestsReadSoFar: requestsReadSoFar)
 }
 
+/// Writes a framed JSON-RPC response for the request that a "respond" or
+/// "respondError" step names. The response holds `fields` beside its
+/// `jsonrpc` and `id` fields: a `result` or an `error`.
+func writeResponse(step: [String: Any], requestsReadSoFar: [ReadRequest], fields: [String: Any]) {
+    var envelope: [String: Any] = ["jsonrpc": "2.0", "id": resolveTargetID(step: step, requestsReadSoFar: requestsReadSoFar)]
+    envelope.merge(fields) { _, field in field }
+    if let payload = try? JSONSerialization.data(withJSONObject: envelope) {
+        writeMessage(payload: payload)
+    }
+}
+
 guard CommandLine.arguments.count > 1,
     let scriptData = CommandLine.arguments[1].data(using: .utf8),
     let steps = try? JSONSerialization.jsonObject(with: scriptData) as? [[String: Any]]
@@ -227,12 +244,11 @@ for step in steps {
         requestsReadSoFar.append(ReadRequest(id: requestID(from: message), uri: requestDocumentURI(from: message)))
 
     case "respond":
-        let result = step["result"] ?? NSNull()
-        let targetID = resolveTargetID(step: step, requestsReadSoFar: requestsReadSoFar)
-        let envelope: [String: Any] = ["jsonrpc": "2.0", "id": targetID, "result": result]
-        if let payload = try? JSONSerialization.data(withJSONObject: envelope) {
-            writeMessage(payload: payload)
-        }
+        writeResponse(step: step, requestsReadSoFar: requestsReadSoFar, fields: ["result": step["result"] ?? NSNull()])
+
+    case "respondError":
+        let error: [String: Any] = ["code": step["code"] ?? 0, "message": step["message"] ?? ""]
+        writeResponse(step: step, requestsReadSoFar: requestsReadSoFar, fields: ["error": error])
 
     case "notify":
         let method = step["method"] as? String ?? ""

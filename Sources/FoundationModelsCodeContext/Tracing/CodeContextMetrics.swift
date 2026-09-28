@@ -149,19 +149,20 @@ internal struct CodeContextMetrics: Sendable {
         Timer(label: label, dimensions: dimensions, preferredDisplayUnit: .seconds, factory: factory)
     }
 
-    /// Gives the name of a language server for a dimension: the last path component of its
-    /// command.
+    /// Gives the name of a language server for a dimension or a span attribute: the last path
+    /// component of its command. Thus a command that is an absolute path puts no folder name of
+    /// the user into the telemetry.
     /// - Parameter command: The command of the server, a bare name or an absolute path.
     /// - Returns: The text after the last `/` of `command`, or `command` when it holds no `/`.
-    private static func serverName(ofCommand command: String) -> String {
+    internal static func serverName(ofCommand command: String) -> String {
         command.split(separator: "/").last.map(String.init) ?? command
     }
 
-    /// Gives the value of the dimension ``CodeContextTracing/AttributeKey/indexLayer`` for
-    /// `layer`.
+    /// Gives the value of the dimension or the span attribute
+    /// ``CodeContextTracing/AttributeKey/indexLayer`` for `layer`.
     /// - Parameter layer: The index layer.
     /// - Returns: The dimension value of the layer.
-    private static func dimensionValue(of layer: IndexLayer) -> String {
+    internal static func dimensionValue(of layer: IndexLayer) -> String {
         switch layer {
         case .treeSitter:
             "treesitter"

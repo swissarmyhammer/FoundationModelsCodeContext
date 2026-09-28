@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Logging
+import Tracing
 
 /// Thread-safe table of in-flight JSON-RPC requests, keyed by request id.
 ///
@@ -145,6 +146,10 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
 
     /// Gets the duration of each request, with the method name, the server name and the outcome.
     private let metrics: CodeContextMetrics
+
+    /// The tracer of the span of each request. `nil` reads the bootstrapped tracer at the time
+    /// of each request.
+    private let tracer: (any Tracer)?
     private var nextRequestID = 0
     private var readerTask: Task<Void, Never>?
     private var stderrTask: Task<Void, Never>?
@@ -176,13 +181,16 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///     tests inject a `ManualClock` to exercise the timeout without waiting in real time.
     ///   - metrics: Gets the duration of each request. Defaults to `CodeContextMetrics()`, which
     ///     records into the bootstrapped `MetricsSystem` factory; tests give a `TestMetrics` factory.
+    ///   - tracer: The tracer of the span of each request. Defaults to `nil`, which reads the
+    ///     bootstrapped tracer at the time of each request; tests give an `InMemoryTracer`.
     /// - Throws: `CodeContextError.spawnFailed` if the process could not be launched.
     init(
         command: String,
         arguments: [String] = [],
         requestTimeout: Duration = .seconds(30),
         clock: any Clock<Duration> = ContinuousClock(),
-        metrics: CodeContextMetrics = CodeContextMetrics()
+        metrics: CodeContextMetrics = CodeContextMetrics(),
+        tracer: (any Tracer)? = nil
     ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ProcessUtilities.envExecutablePath)
@@ -210,6 +218,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         self.requestTimeout = requestTimeout
         self.clock = clock
         self.metrics = metrics
+        self.tracer = tracer
 
         let (notificationStream, continuation) = AsyncStream.makeStream(of: ServerNotification.self)
         self.serverNotifications = notificationStream
@@ -530,13 +539,18 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         }
     }
 
-    /// Sends a request, waits for its response and decodes the response with `decode`, and
-    /// records the duration of the whole request in `metrics`.
+    /// Sends a request, waits for its response and decodes the response with `decode`, in one
+    /// `CodeContextTracing.SpanName.lspRequest` span of kind `.client`.
     ///
     /// The one path of each request. `request(method:params:resultType:)` gives a typed decode;
     /// `pullDiagnostics(for:)` gives the raw `result` bytes, because
-    /// `DiagnosticsParsing.parseDiagnosticsFromResult` parses them leniently. The timer includes
-    /// the decode, so a server error response, which the decode throws, has the outcome `error`.
+    /// `DiagnosticsParsing.parseDiagnosticsFromResult` parses them leniently.
+    ///
+    /// A request can wait for a long time, thus it also writes one "enter" log record before it
+    /// is sent. The span and the record hold the server name, the method name and the request
+    /// id. The span also holds the request and response sizes and the outcome. They never hold
+    /// the payload. A failed request records only the type name of its error on the span, never
+    /// the error message of the server. The trace context does not go into the wire message.
     /// - Parameters:
     ///   - method: The JSON-RPC method name.
     ///   - params: The request's parameters.
@@ -549,42 +563,93 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         params: Params,
         decode: (_ data: Data, _ id: Int) throws -> Output
     ) async throws -> Output {
+        let id = allocateRequestID()
+        let server = CodeContextMetrics.serverName(ofCommand: serverName)
+        return try await CodeContextSpans.withEnterRecord(
+            CodeContextTracing.SpanName.lspRequest,
+            ofKind: .client,
+            tracer: tracer,
+            logger: Log.lspWire,
+            attributes: { attributes in
+                attributes[CodeContextTracing.AttributeKey.lspServer] = server
+                attributes[CodeContextTracing.AttributeKey.lspMethod] = method
+                attributes[CodeContextTracing.AttributeKey.lspRequestId] = id
+            },
+            metadata: [
+                CodeContextTracing.MetadataKey.lspServer: .string(server),
+                CodeContextTracing.MetadataKey.lspMethod: .string(method),
+                CodeContextTracing.MetadataKey.lspRequestId: .stringConvertible(id),
+            ]
+        ) { span in
+            try await timedRequest(id: id, method: method, params: params, span: span, decode: decode)
+        }
+    }
+
+    /// Sends one request, waits for its response and decodes it, and records the duration of the
+    /// whole request in `metrics` and its outcome on `span`.
+    ///
+    /// The timer includes the decode, so a server error response, which the decode throws, has
+    /// the outcome `error`.
+    /// - Parameters:
+    ///   - id: The JSON-RPC id of the request.
+    ///   - method: The JSON-RPC method name.
+    ///   - params: The request's parameters.
+    ///   - span: The span of the request. It gets the sizes and the outcome.
+    ///   - decode: Makes the result from the raw response message bytes and the request id.
+    /// - Returns: The result that `decode` makes.
+    /// - Throws: The errors of `sendRequest(id:method:params:span:)` and of `decode`.
+    private func timedRequest<Params: Encodable, Output>(
+        id: Int,
+        method: String,
+        params: Params,
+        span: any Span,
+        decode: (_ data: Data, _ id: Int) throws -> Output
+    ) async throws -> Output {
         let started = ContinuousClock.now
         do {
-            let (id, data) = try await sendRequest(method: method, params: params)
+            let data = try await sendRequest(id: id, method: method, params: params, span: span)
+            span.attributes[CodeContextTracing.AttributeKey.lspResponseBytes] = data.count
             let output = try decode(data, id)
-            recordRequest(method: method, since: started, outcome: .ok)
+            recordRequest(method: method, since: started, outcome: .ok, span: span)
             return output
         } catch {
-            recordRequest(method: method, since: started, outcome: CodeContextMetrics.LSPRequestOutcome(classifying: error))
+            recordRequest(method: method, since: started, outcome: CodeContextMetrics.LSPRequestOutcome(classifying: error), span: span)
             throw error
         }
     }
 
-    /// Records the duration of one request in `metrics`.
+    /// Records the duration of one request in `metrics`, and its outcome on its span.
     /// - Parameters:
     ///   - method: The JSON-RPC method name of the request.
     ///   - started: The time at which the request started.
     ///   - outcome: How the request ended.
-    private func recordRequest(method: String, since started: ContinuousClock.Instant, outcome: CodeContextMetrics.LSPRequestOutcome) {
+    ///   - span: The span of the request.
+    private func recordRequest(
+        method: String,
+        since started: ContinuousClock.Instant,
+        outcome: CodeContextMetrics.LSPRequestOutcome,
+        span: any Span
+    ) {
         metrics.recordLSPRequest(duration: started.duration(to: .now), method: method, server: serverName, outcome: outcome)
+        span.attributes[CodeContextTracing.AttributeKey.lspOutcome] = outcome.rawValue
     }
 
     /// Sends a request and returns its raw response payload, unresolved to a typed result.
     /// - Parameters:
+    ///   - id: The JSON-RPC id of the request, from `allocateRequestID()`.
     ///   - method: The JSON-RPC method name.
     ///   - params: The request's parameters.
-    /// - Returns: The request's id and the raw response message bytes.
+    ///   - span: The span of the request. It gets the size of the encoded request.
+    /// - Returns: The raw response message bytes.
     /// - Throws: `CodeContextError.notRunning` if the connection can't write to the process;
     ///   `CodeContextError.timeout` if no response arrived in time.
-    private func sendRequest<Params: Encodable>(method: String, params: Params) async throws -> (id: Int, data: Data) {
-        let id = allocateRequestID()
+    private func sendRequest<Params: Encodable>(id: Int, method: String, params: Params, span: any Span) async throws -> Data {
         let envelope = JSONRPCRequestEnvelope(id: id, method: method, params: params)
         let payload = try JSONEncoder().encode(envelope)
+        span.attributes[CodeContextTracing.AttributeKey.lspRequestBytes] = payload.count
         try writeToStdin(JSONRPCFraming.frame(payload: payload))
         Self.logWireMessage(.toServer, serverName: serverName, method: method, id: id, byteCount: payload.count)
-        let responseData = try await awaitResponse(id: id)
-        return (id, responseData)
+        return try await awaitResponse(id: id)
     }
 
     /// Sends a fire-and-forget notification (no response expected).

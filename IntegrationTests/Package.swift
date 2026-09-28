@@ -43,6 +43,10 @@ let package = Package(
         // under test from a `TestMetrics` factory. Use the same version floor
         // as `../Package.swift`.
         .package(url: "https://github.com/apple/swift-metrics.git", from: "2.11.0"),
+        // The LSP request span test reads the finished spans of the code
+        // under test from an explicit `InMemoryTracer`. Use the same version
+        // floor as `../Package.swift`.
+        .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.4.1"),
     ],
     targets: [
         // The live language server suites, and the tests that start a real
@@ -56,6 +60,8 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "InMemoryLogging", package: "swift-log"),
                 .product(name: "MetricsTestKit", package: "swift-metrics"),
+                .product(name: "Tracing", package: "swift-distributed-tracing"),
+                .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
             ],
             path: "Tests/FoundationModelsCodeContextIntegrationTests"
         )

@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Tracing
 
 /// Drains `ts_indexed = 0` files from a `Store`, parses and chunks each via
 /// `Chunker`, writes the resulting `SemanticChunk`s into `ts_chunks`, and
@@ -15,7 +16,7 @@ import GRDB
 /// chunks, its `TSCallGraph`-derived call edges, and its `ts_indexed` flag
 /// flip happen inside one `Store.write` block.
 ///
-/// When `run(store:rootDirectory:embedder:embeddingBatchSize:)` is given an
+/// When `run(store:rootDirectory:embedder:embeddingBatchSize:tracer:)` is given an
 /// `embedder`, it also drains `embedded = 0` files — every file just
 /// (re)chunked above, plus any
 /// file left over from a prior pass that had no embedder or whose embedder
@@ -57,6 +58,9 @@ public enum TreeSitterWorker {
     ///   - embeddingBatchSize: The maximum number of chunk texts in one
     ///     `embed(_:)` call. A value less than 1 is used as 1. Defaults to
     ///     `defaultEmbeddingBatchSize`.
+    ///   - tracer: The tracer of the span of each `embed(_:)` call. Defaults
+    ///     to `nil`, which reads the bootstrapped tracer at the time of each
+    ///     call.
     /// - Returns: The number of dirty tree-sitter files drained this pass.
     /// - Throws: Rethrows `Store`'s storage errors. Throws `CancellationError`
     ///   when the task is cancelled. The pass looks for cancellation before
@@ -67,7 +71,8 @@ public enum TreeSitterWorker {
         store: Store,
         rootDirectory: URL,
         embedder: TextEmbedding? = nil,
-        embeddingBatchSize: Int = TreeSitterWorker.defaultEmbeddingBatchSize
+        embeddingBatchSize: Int = TreeSitterWorker.defaultEmbeddingBatchSize,
+        tracer: (any Tracer)? = nil
     ) async throws -> Int {
         let dirtyPaths = try await store.drainTsDirty()
 
@@ -84,7 +89,7 @@ public enum TreeSitterWorker {
         }
 
         if let embedder {
-            try await embedDirtyChunks(embedder: embedder, store: store, batchSize: max(1, embeddingBatchSize))
+            try await embedDirtyChunks(embedder: embedder, store: store, batchSize: max(1, embeddingBatchSize), tracer: tracer)
         }
 
         return dirtyPaths.count
@@ -118,7 +123,7 @@ public enum TreeSitterWorker {
     /// before it is ever resolved against disk: a `..` component, or a
     /// leading `/` or `~`, is rejected the same way an unresolvable language
     /// module or an unreadable file is —
-    /// `run(store:rootDirectory:embedder:embeddingBatchSize:)` marks the file
+    /// `run(store:rootDirectory:embedder:embeddingBatchSize:tracer:)` marks the file
     /// tree-sitter-indexed with nothing written, so it isn't retried
     /// forever. The walker/reconciler that populates
     /// `indexed_files.file_path` should already only ever write
@@ -240,13 +245,15 @@ public enum TreeSitterWorker {
     /// The step looks for task cancellation before each file, and
     /// `embedInBatches` looks for it before each batch, thus a cancelled
     /// pass stops after one batch at most.
-    private static func embedDirtyChunks(embedder: TextEmbedding, store: Store, batchSize: Int) async throws {
+    ///
+    /// Each `embed(_:)` call runs in its own span through `tracer`.
+    private static func embedDirtyChunks(embedder: TextEmbedding, store: Store, batchSize: Int, tracer: (any Tracer)?) async throws {
         try await reconcileEmbedderDimension(embedder: embedder, store: store)
 
         let dirtyPaths = try await store.drainEmbeddingDirty()
         for filePath in dirtyPaths {
             try Task.checkCancellation()
-            try await embedChunks(forFilePath: filePath, embedder: embedder, store: store, batchSize: batchSize)
+            try await embedChunks(forFilePath: filePath, embedder: embedder, store: store, batchSize: batchSize, tracer: tracer)
         }
     }
 
@@ -288,6 +295,7 @@ public enum TreeSitterWorker {
     ///   - embedder: The embedder that makes the vectors.
     ///   - batchSize: The maximum number of texts in one `embed(_:)` call.
     ///     The value is 1 or more.
+    ///   - tracer: The tracer of the span of each `embed(_:)` call.
     /// - Returns: One vector for each chunk, in the order of `chunks`, or
     ///   `nil` when the caller must skip the file.
     /// - Throws: `CancellationError` when the task is cancelled.
@@ -295,7 +303,8 @@ public enum TreeSitterWorker {
         chunks: [EmbeddableChunk],
         filePath: String,
         embedder: TextEmbedding,
-        batchSize: Int
+        batchSize: Int,
+        tracer: (any Tracer)?
     ) async throws -> [[Float]]? {
         var vectors: [[Float]] = []
         vectors.reserveCapacity(chunks.count)
@@ -304,7 +313,7 @@ public enum TreeSitterWorker {
             let batch = chunks[batchStart..<min(batchStart + batchSize, chunks.count)]
             let batchVectors: [[Float]]
             do {
-                batchVectors = try await embedder.embed(batch.map(\.text))
+                batchVectors = try await CodeContextSpans.embed(batch.map(\.text), with: embedder, tracer: tracer)
             } catch {
                 // A cancelled embedder can throw an error of its own type.
                 // A cancelled pass must stop, not skip the file and continue.
@@ -354,7 +363,8 @@ public enum TreeSitterWorker {
         forFilePath filePath: String,
         embedder: TextEmbedding,
         store: Store,
-        batchSize: Int
+        batchSize: Int,
+        tracer: (any Tracer)?
     ) async throws {
         let chunks: [EmbeddableChunk] = try await store.read { db in
             try Row.fetchAll(
@@ -374,7 +384,7 @@ public enum TreeSitterWorker {
             return
         }
 
-        let embedded = try await embedInBatches(chunks: chunks, filePath: filePath, embedder: embedder, batchSize: batchSize)
+        let embedded = try await embedInBatches(chunks: chunks, filePath: filePath, embedder: embedder, batchSize: batchSize, tracer: tracer)
         guard let vectors = embedded else {
             return
         }
