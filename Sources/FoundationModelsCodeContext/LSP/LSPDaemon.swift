@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 
 /// The lifecycle state of one `LSPDaemon`-managed language-server process.
 ///
@@ -245,16 +246,17 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// Valid only from `.notFound` or `.notStarted` — the two states in which the binary is known
     /// (or presumed) not yet spawnable. Any other current state is a programmer error (e.g. the
     /// supervisor racing an install trigger against a daemon that has already started, or against
-    /// one mid-shutdown) and this call is a no-op, logged via `Log.lsp.fault` rather than silently
-    /// swallowed.
+    /// one mid-shutdown) and this call is a no-op, logged at `.critical` in `Log.lsp` rather than
+    /// silently swallowed.
     ///
     /// No `noteInstallFailed()` counterpart exists: the daemon leaves `.installing` on *both*
     /// outcomes the same way, via `forceRestart()` — whose re-run of `start()`'s binary lookup
     /// naturally lands `.running` (the binary is now present) or `.notFound` (still missing).
     func noteInstalling() {
         guard currentState == .notFound || currentState == .notStarted else {
-            Log.lsp.fault(
-                "noteInstalling() called from unexpected state for \(self.spec.command, privacy: .public); expected .notFound or .notStarted, ignoring"
+            Log.lsp.critical(
+                "noteInstalling() ran in a state that is not notFound or notStarted; the call does nothing",
+                metadata: serverMetadata
             )
             return
         }
@@ -283,9 +285,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
             )
         else {
             if !hasWarnedNotFound {
-                Log.lsp.warning(
-                    "LSP binary not found on PATH: \(self.spec.command, privacy: .public) (\(self.spec.installHint, privacy: .public))"
-                )
+                Log.lsp.warning("the binary of the language server is not on the PATH", metadata: serverMetadata)
                 hasWarnedNotFound = true
             }
             currentState = .notFound
@@ -298,7 +298,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
         do {
             spawnedHandle = try await connectionFactory(Self.spawnSpec(for: spec, location: location), workspaceRoot)
         } catch {
-            recordFailure(reason: "spawn failed: \(error.localizedDescription)")
+            recordFailure(reason: "spawn failed: \(error.localizedDescription)", error: error)
             throw error
         }
 
@@ -308,7 +308,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
         } catch {
             await spawnedHandle.terminate()
             let reason = await Self.handshakeFailureReason(error: error, handle: spawnedHandle)
-            recordFailure(reason: reason)
+            recordFailure(reason: reason, error: error)
             throw CodeContextError.handshakeFailed(reason)
         }
 
@@ -336,11 +336,11 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
         if await handle.isAlive() {
             return true
         }
-        Log.lsp.error("LSP server exited unexpectedly: \(self.spec.command, privacy: .public)")
+        Log.lsp.error("the language server exited unexpectedly", metadata: serverMetadata)
         await currentSession?.resetDocuments()
         self.handle = nil
         currentSession = nil
-        recordFailure(reason: "process exited unexpectedly")
+        recordFailure(reason: "process exited unexpectedly", error: nil)
         return false
     }
 
@@ -409,11 +409,12 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
 
         if await handle.isAlive() {
             Log.lsp.warning(
-                "LSP server did not exit within the shutdown grace period, killing: \(self.spec.command, privacy: .public)"
+                "the language server did not exit in the shutdown grace period; the daemon kills it",
+                metadata: serverMetadata
             )
             await handle.terminate()
         } else {
-            Log.lsp.info("LSP server shut down gracefully: \(self.spec.command, privacy: .public)")
+            Log.lsp.info("the language server shut down gracefully", metadata: serverMetadata)
         }
 
         self.handle = nil
@@ -500,13 +501,28 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     }
 
     /// Increments the consecutive-failure counter and transitions to `.failed`.
-    /// - Parameter reason: A human-readable description of what failed.
-    private func recordFailure(reason: String) {
+    ///
+    /// The full `reason` goes only into `.failed(reason:attempts:)`, for the caller. It can hold
+    /// the standard error tail of the server, which is content, so the log record holds only the
+    /// server name, the attempt number and the type of `error`.
+    /// - Parameters:
+    ///   - reason: A human-readable description of what failed.
+    ///   - error: The error that caused the failure, or `nil` when no error caused it (for
+    ///     example an unexpected exit).
+    private func recordFailure(reason: String, error: (any Error)?) {
         consecutiveFailures += 1
-        Log.lsp.error(
-            "LSP daemon failure (\(self.spec.command, privacy: .public), attempt \(self.consecutiveFailures)): \(reason, privacy: .public)"
-        )
+        var metadata = serverMetadata
+        metadata[CodeContextTracing.MetadataKey.lspAttempt] = .stringConvertible(consecutiveFailures)
+        if let error {
+            metadata[CodeContextTracing.MetadataKey.errorType] = Log.errorType(of: error)
+        }
+        Log.lsp.error("the language server daemon failed", metadata: metadata)
         currentState = .failed(reason: reason, attempts: consecutiveFailures)
+    }
+
+    /// The log metadata that names the server of this daemon.
+    private var serverMetadata: Logger.Metadata {
+        [CodeContextTracing.MetadataKey.lspServer: .string(spec.command)]
     }
 
     /// Computes the exponential-backoff delay for the given zero-indexed consecutive-failure

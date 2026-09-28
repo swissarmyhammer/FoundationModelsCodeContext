@@ -1,5 +1,7 @@
 import Foundation
 import GRDB
+import InMemoryLogging
+import Logging
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -261,12 +263,13 @@ struct LSPIndexWorkerReferencesTests {
             try await Self.seedPythonFixture(root: root, store: store, connection: connection)
             await connection.setReferencesResult(.failure(Self.methodNotFound), in: Self.uri(for: "sample.py", in: root), at: Self.helperName)
             await connection.setReferencesResult(.failure(Self.methodNotFound))
-            let lines = CapturedLogLines()
+            let logHandler = InMemoryLogHandler()
 
-            try await Self.drainPython(store: store, root: root, session: LspSession.makePylsp(over: connection, failureLog: lines))
+            try await Self.drainPython(store: store, root: root, session: LspSession.makePylsp(over: connection, logHandler: logHandler))
 
-            #expect(lines.all.count == 1)
-            #expect(lines.all.first?.contains("server error -32601: Method Not Found: textDocument/references") == true)
+            #expect(logHandler.entries.count == 1)
+            #expect(logHandler.entries.first?.metadata[CodeContextTracing.MetadataKey.lspRequest] == "references")
+            #expect(logHandler.entries.first?.metadata[CodeContextTracing.MetadataKey.lspErrorCode] == "-32601")
         }
     }
 
@@ -278,13 +281,14 @@ struct LSPIndexWorkerReferencesTests {
             try await Self.seedPythonFixture(root: root, store: store, connection: connection)
             let refused = WireError.serverError(code: -32601, message: "Method Not Found: textDocument/prepareCallHierarchy")
             await connection.setPrepareCallHierarchyResult(.failure(refused))
-            let lines = CapturedLogLines()
-            let session = LspSession.makePylsp(over: connection, advertising: .everyGatedMethod, failureLog: lines)
+            let logHandler = InMemoryLogHandler()
+            let session = LspSession.makePylsp(over: connection, advertising: .everyGatedMethod, logHandler: logHandler)
 
             try await Self.drainPython(store: store, root: root, session: session)
 
-            #expect(lines.all.count == 1)
-            #expect(lines.all.first?.contains("server error -32601") == true)
+            #expect(logHandler.entries.count == 1)
+            #expect(logHandler.entries.first?.metadata[CodeContextTracing.MetadataKey.lspRequest] == "prepareCallHierarchy")
+            #expect(logHandler.entries.first?.metadata[CodeContextTracing.MetadataKey.lspErrorCode] == "-32601")
         }
     }
 

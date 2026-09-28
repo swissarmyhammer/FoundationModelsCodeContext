@@ -687,7 +687,10 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         } catch is CancellationError {
             // `stop()` cancelled the pass. `stop()` reports nothing, thus no log entry.
         } catch {
-            Log.index.error("the first index pass failed: \(String(describing: error), privacy: .public)")
+            Log.index.error(
+                "the first index pass failed",
+                metadata: [CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error)]
+            )
         }
         await publishServersStatus()
         finishFirstIndexPass()

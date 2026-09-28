@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Logging
 
 /// Searches `$PATH` for an executable, mirroring how a shell resolves a bare command name to a
 /// binary.
@@ -389,6 +390,10 @@ actor ServerInstaller {
     }
 
     /// Runs one installer command to completion, logging start/success/failure via `Log.lsp`.
+    ///
+    /// A log record holds the server command, the installer tool name, the exit code and the
+    /// type name of an error. It never holds the installer arguments, the installer output or
+    /// the description of an error, because each of them can hold content.
     /// - Parameters:
     ///   - runner: The process-running seam to invoke.
     ///   - command: The server command being installed, for logging.
@@ -402,21 +407,29 @@ actor ServerInstaller {
         installer: ServerSpec.InstallSpec,
         timeout: Duration
     ) async -> Bool {
-        Log.lsp.info(
-            "installing \(command, privacy: .public) via \(installer.tool, privacy: .public) \(installer.arguments.joined(separator: " "), privacy: .public)"
-        )
+        let installMetadata: Logger.Metadata = [
+            CodeContextTracing.MetadataKey.lspServer: .string(command),
+            CodeContextTracing.MetadataKey.lspInstaller: .string(installer.tool),
+        ]
+        Log.lsp.info("the installer of the language server starts", metadata: installMetadata)
         do {
             let result = try await runner.run(tool: installer.tool, arguments: installer.arguments, timeout: timeout)
             guard result.exitCode == 0 else {
                 Log.lsp.error(
-                    "install failed for \(command, privacy: .public) (exit \(result.exitCode)): \(result.output, privacy: .public)"
+                    "the installer of the language server failed",
+                    metadata: installMetadata.merging(
+                        [CodeContextTracing.MetadataKey.exitCode: .stringConvertible(result.exitCode)]
+                    ) { _, exitCode in exitCode }
                 )
                 return false
             }
-            Log.lsp.info("installed \(command, privacy: .public) successfully via \(installer.tool, privacy: .public)")
+            Log.lsp.info("the installer of the language server succeeded", metadata: installMetadata)
             return true
         } catch {
-            Log.lsp.error("install errored for \(command, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            Log.lsp.error(
+                "the installer of the language server did not complete",
+                metadata: installMetadata.merging(Log.serverFailureMetadata(server: command, error: error)) { _, failure in failure }
+            )
             return false
         }
     }

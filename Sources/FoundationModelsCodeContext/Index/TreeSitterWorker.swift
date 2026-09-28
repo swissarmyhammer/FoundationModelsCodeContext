@@ -129,20 +129,27 @@ public enum TreeSitterWorker {
     private static func readAndChunk(relativePath: String, rootDirectory: URL) -> ParsedFile? {
         guard RelativePath.isSafeRelativePath(relativePath) else {
             Log.index.warning(
-                "rejecting unsafe relative path \(relativePath, privacy: .public) for tree-sitter indexing (possible path traversal); marking indexed"
+                "the tree-sitter index worker rejects a relative path that is not safe and marks the file indexed",
+                metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
             )
             return nil
         }
 
         let fileExtension = URL(fileURLWithPath: relativePath).pathExtension
         guard let module = Languages.module(forFileExtension: fileExtension) else {
-            Log.index.warning("no language module for \(relativePath, privacy: .public)")
+            Log.index.warning(
+                "no language module parses the file",
+                metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
+            )
             return nil
         }
 
         let fileURL = rootDirectory.appendingPathComponent(relativePath)
         guard let data = try? Data(contentsOf: fileURL), let contents = String(data: data, encoding: .utf8) else {
-            Log.index.warning("failed to read \(relativePath, privacy: .public)")
+            Log.index.warning(
+                "the tree-sitter index worker cannot read the file",
+                metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
+            )
             return nil
         }
 
@@ -253,7 +260,11 @@ public enum TreeSitterWorker {
         let storedDimension = try await store.embedderDimension()
         if let storedDimension, storedDimension != embedder.dimension {
             Log.embedding.notice(
-                "embedder dimension changed \(storedDimension) -> \(embedder.dimension, privacy: .public); clearing embeddings for full re-embed"
+                "the embedder dimension changed; the index clears all embeddings and embeds all chunks again",
+                metadata: [
+                    CodeContextTracing.MetadataKey.embeddingStoredDimension: .stringConvertible(storedDimension),
+                    CodeContextTracing.MetadataKey.embeddingDimension: .stringConvertible(embedder.dimension),
+                ]
             )
             try await store.write { db in
                 try db.execute(sql: "UPDATE \(Schema.TsChunks.table) SET \(Schema.TsChunks.embedding) = NULL")
@@ -299,13 +310,22 @@ public enum TreeSitterWorker {
                 // A cancelled pass must stop, not skip the file and continue.
                 try Task.checkCancellation()
                 Log.embedding.warning(
-                    "embedder threw for \(filePath, privacy: .public): \(String(describing: error), privacy: .public)"
+                    "the embedder failed; the index skips the file",
+                    metadata: [
+                        CodeContextTracing.MetadataKey.filePath: .string(filePath),
+                        CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
+                    ]
                 )
                 return nil
             }
             guard batchVectors.count == batch.count else {
                 Log.embedding.warning(
-                    "embedder returned \(batchVectors.count) vectors for \(batch.count) chunks in \(filePath, privacy: .public); skipping"
+                    "the embedder returned a vector count that is not the chunk count; the index skips the file",
+                    metadata: [
+                        CodeContextTracing.MetadataKey.filePath: .string(filePath),
+                        CodeContextTracing.MetadataKey.embeddingInputCount: .stringConvertible(batch.count),
+                        CodeContextTracing.MetadataKey.embeddingOutputCount: .stringConvertible(batchVectors.count),
+                    ]
                 )
                 return nil
             }

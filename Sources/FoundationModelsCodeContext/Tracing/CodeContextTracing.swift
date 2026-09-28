@@ -180,6 +180,36 @@ public enum CodeContextTracing {
 
         /// The name of the language module.
         public static let language = AttributeKey.language
+
+        /// The name of one kind of request that an LSP session sends, for
+        /// example `prepareCallHierarchy`. One kind can send more than one
+        /// JSON-RPC method: `syncOpen` sends `didOpen` or `didChange`.
+        public static let lspRequest = "lsp.request"
+
+        /// The JSON-RPC error code in the error response of a language
+        /// server, for example `-32601`. It is never the error message of the
+        /// server, because a message can hold content.
+        public static let lspErrorCode = "lsp.error_code"
+
+        /// The name of the tool that installs a language server, for example
+        /// `brew` or `npm`.
+        public static let lspInstaller = "lsp.installer"
+
+        /// The exit code of a process that the package ran.
+        public static let exitCode = "process.exit_code"
+
+        /// The length of each vector that the embedder makes.
+        public static let embeddingDimension = AttributeKey.embeddingDimension
+
+        /// The length of each vector that the index holds from an earlier
+        /// embedder.
+        public static let embeddingStoredDimension = "embedding.stored_dimension"
+
+        /// The number of strings that one embed call embeds.
+        public static let embeddingInputCount = AttributeKey.embeddingInputCount
+
+        /// The number of vectors that one embed call returns.
+        public static let embeddingOutputCount = "embedding.output_count"
     }
 
     /// The label of each logger of the package.

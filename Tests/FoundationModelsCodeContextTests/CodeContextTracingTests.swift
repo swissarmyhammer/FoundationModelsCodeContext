@@ -65,6 +65,14 @@ struct CodeContextTracingTests {
         CodeContextTracing.MetadataKey.filePath,
         CodeContextTracing.MetadataKey.errorType,
         CodeContextTracing.MetadataKey.language,
+        CodeContextTracing.MetadataKey.lspRequest,
+        CodeContextTracing.MetadataKey.lspErrorCode,
+        CodeContextTracing.MetadataKey.lspInstaller,
+        CodeContextTracing.MetadataKey.exitCode,
+        CodeContextTracing.MetadataKey.embeddingDimension,
+        CodeContextTracing.MetadataKey.embeddingStoredDimension,
+        CodeContextTracing.MetadataKey.embeddingInputCount,
+        CodeContextTracing.MetadataKey.embeddingOutputCount,
     ]
 
     /// Every logger label.
@@ -136,6 +144,12 @@ struct CodeContextTracingTests {
         #expect(CodeContextTracing.MetadataKey.lspMethod == CodeContextTracing.AttributeKey.lspMethod)
         #expect(CodeContextTracing.MetadataKey.lspRequestId == CodeContextTracing.AttributeKey.lspRequestId)
         #expect(CodeContextTracing.MetadataKey.language == CodeContextTracing.AttributeKey.language)
+    }
+
+    @Test
+    func theMetadataKeysForTheEmbeddingAreTheSpanAttributeKeys() {
+        #expect(CodeContextTracing.MetadataKey.embeddingDimension == CodeContextTracing.AttributeKey.embeddingDimension)
+        #expect(CodeContextTracing.MetadataKey.embeddingInputCount == CodeContextTracing.AttributeKey.embeddingInputCount)
     }
 
     @Test

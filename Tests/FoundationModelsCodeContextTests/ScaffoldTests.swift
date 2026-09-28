@@ -3,12 +3,25 @@ import Testing
 @testable import FoundationModelsCodeContext
 
 /// Smoke tests proving the package scaffold itself is wired correctly:
-/// the target compiles, `Log`'s subsystem constant is right, and every
-/// `CodeContextError` case constructs.
+/// the target compiles, each logger of `Log` has its label from the
+/// vocabulary, and every `CodeContextError` case constructs.
 struct ScaffoldTests {
+    /// Each logger of `Log`, with the label that the vocabulary gives it.
+    private static let loggersAndLabels = [
+        (Log.lsp, CodeContextTracing.LoggerLabel.lsp),
+        (Log.lspWire, CodeContextTracing.LoggerLabel.lspWire),
+        (Log.index, CodeContextTracing.LoggerLabel.index),
+        (Log.watcher, CodeContextTracing.LoggerLabel.watcher),
+        (Log.embedding, CodeContextTracing.LoggerLabel.embedding),
+        (Log.search, CodeContextTracing.LoggerLabel.search),
+        (Log.diagnostics, CodeContextTracing.LoggerLabel.diagnostics),
+    ]
+
     @Test
-    func logSubsystemIsCorrect() {
-        #expect(Log.subsystem == "com.swissarmyhammer.FoundationModelsCodeContext")
+    func eachLoggerHasTheLabelOfTheVocabulary() {
+        for (logger, label) in Self.loggersAndLabels {
+            #expect(logger.label == label)
+        }
     }
 
     @Test

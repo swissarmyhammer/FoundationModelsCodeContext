@@ -1,4 +1,6 @@
 import Foundation
+import InMemoryLogging
+import Logging
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -9,7 +11,8 @@ import Testing
 /// (`pylsp` has no call hierarchy, no workspace symbols and no
 /// implementations). A server that advertises a gated method gets the
 /// request. A request failure is logged one time for each (server, request)
-/// pair, with the code and the message of the server error.
+/// pair, with the type of the error and the code of the server error. The
+/// record holds no message of the server, because that message is content.
 struct LspSessionCapabilityTests {
     /// Capabilities of a server that advertises call hierarchy and no other gated method.
     private static let callHierarchyOnly = ServerCapabilities(callHierarchy: true, workspaceSymbol: false, implementation: false)
@@ -171,41 +174,58 @@ struct LspSessionCapabilityTests {
     // MARK: - Failure log
 
     @Test
-    func aFailureLogLineNamesTheServerTheRequestTheCodeAndTheMessage() async {
-        let lines = CapturedLogLines()
-        let session = LspSession.makePylsp(over: FakeLanguageServerConnection(), failureLog: lines)
+    func aFailureLogRecordNamesTheServerTheRequestTheErrorTypeTheCodeAndTheFile() async throws {
+        let logHandler = InMemoryLogHandler()
+        let session = LspSession.makePylsp(over: FakeLanguageServerConnection(), logHandler: logHandler)
 
-        await session.logFailure(of: .prepareCallHierarchy, context: "django/utils/tree.py:make_hashable", error: Self.methodNotFound)
+        await session.logFailure(of: .prepareCallHierarchy, filePath: "django/utils/tree.py", error: Self.methodNotFound)
 
+        let entry = try #require(logHandler.entries.first)
+        #expect(logHandler.entries.count == 1)
+        #expect(entry.level == .warning)
         #expect(
-            lines.all == [
-                "pylsp: prepareCallHierarchy failed for django/utils/tree.py:make_hashable: "
-                    + "server error -32601: Method Not Found: textDocument/prepareCallHierarchy "
-                    + "(the log does not show the next prepareCallHierarchy failures of this server)"
+            entry.metadata == [
+                CodeContextTracing.MetadataKey.lspServer: "pylsp",
+                CodeContextTracing.MetadataKey.lspRequest: "prepareCallHierarchy",
+                CodeContextTracing.MetadataKey.errorType: .string(String(reflecting: WireError.self)),
+                CodeContextTracing.MetadataKey.lspErrorCode: "-32601",
+                CodeContextTracing.MetadataKey.filePath: "django/utils/tree.py",
             ])
     }
 
     @Test
-    func aRequestThatFailsForEachSymbolIsLoggedOneTime() async {
-        let lines = CapturedLogLines()
-        let session = LspSession.makePylsp(over: FakeLanguageServerConnection(), failureLog: lines)
+    func aFailureLogRecordHoldsNoServerErrorMessage() async {
+        let logHandler = InMemoryLogHandler()
+        let session = LspSession.makePylsp(over: FakeLanguageServerConnection(), logHandler: logHandler)
 
-        for symbol in ["make_hashable", "Node", "add"] {
-            await session.logFailure(of: .prepareCallHierarchy, context: "tree.py:\(symbol)", error: Self.methodNotFound)
-        }
+        await session.logFailure(of: .prepareCallHierarchy, filePath: "tree.py", error: Self.methodNotFound)
 
-        #expect(lines.all.count == 1)
+        let texts = logHandler.entries.flatMap { [$0.message.description] + $0.metadata.values.map(\.description) }
+        #expect(!texts.isEmpty)
+        #expect(!texts.contains { $0.contains("Method Not Found") })
     }
 
     @Test
-    func eachFailingRequestGetsItsOwnLogLine() async {
-        let lines = CapturedLogLines()
-        let session = LspSession.makePylsp(over: FakeLanguageServerConnection(), failureLog: lines)
+    func aRequestThatFailsForEachSymbolIsLoggedOneTime() async {
+        let logHandler = InMemoryLogHandler()
+        let session = LspSession.makePylsp(over: FakeLanguageServerConnection(), logHandler: logHandler)
 
-        await session.logFailure(of: .prepareCallHierarchy, context: "tree.py:add", error: Self.methodNotFound)
-        await session.logFailure(of: .references, context: "tree.py:add", error: Self.methodNotFound)
-        await session.logFailure(of: .references, context: "tree.py:Node", error: Self.methodNotFound)
+        for filePath in ["tree.py", "node.py", "leaf.py"] {
+            await session.logFailure(of: .prepareCallHierarchy, filePath: filePath, error: Self.methodNotFound)
+        }
 
-        #expect(lines.all.count == 2)
+        #expect(logHandler.entries.count == 1)
+    }
+
+    @Test
+    func eachFailingRequestGetsItsOwnLogRecord() async {
+        let logHandler = InMemoryLogHandler()
+        let session = LspSession.makePylsp(over: FakeLanguageServerConnection(), logHandler: logHandler)
+
+        await session.logFailure(of: .prepareCallHierarchy, filePath: "tree.py", error: Self.methodNotFound)
+        await session.logFailure(of: .references, filePath: "tree.py", error: Self.methodNotFound)
+        await session.logFailure(of: .references, filePath: "node.py", error: Self.methodNotFound)
+
+        #expect(logHandler.entries.count == 2)
     }
 }

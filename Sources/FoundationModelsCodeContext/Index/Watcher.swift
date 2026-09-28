@@ -1,6 +1,7 @@
 import CoreServices
 import CryptoKit
 import Foundation
+import Logging
 
 // MARK: - Raw event model
 
@@ -228,7 +229,8 @@ public actor Watcher {
                 try await store.deleteFile(filePath: relativePath)
             } catch {
                 Log.watcher.warning(
-                    "failed to delete \(relativePath, privacy: .public): \(String(describing: error), privacy: .public)"
+                    "the watcher could not delete a removed file from the index",
+                    metadata: Self.failureMetadata(relativePath: relativePath, error: error)
                 )
             }
             return
@@ -240,16 +242,32 @@ public actor Watcher {
             // unreadable) between the triggering event and this debounced
             // flush; leave it as-is rather than guessing — a later event
             // (or a future reconcile pass) will resolve it.
-            Log.watcher.warning("failed to read \(relativePath, privacy: .public); skipping this flush")
+            Log.watcher.warning(
+                "the watcher cannot read a changed file and skips it in this flush",
+                metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
+            )
             return
         }
         do {
             try await store.markDirty(filePath: hashed.relativePath, contentHash: hashed.contentHash, fileSize: hashed.fileSize)
         } catch {
             Log.watcher.warning(
-                "failed to mark \(relativePath, privacy: .public) dirty: \(String(describing: error), privacy: .public)"
+                "the watcher could not mark a changed file dirty",
+                metadata: Self.failureMetadata(relativePath: relativePath, error: error)
             )
         }
+    }
+
+    /// Gives the log metadata of a watcher record about a failure for one file.
+    /// - Parameters:
+    ///   - relativePath: The path of the file, relative to the root directory.
+    ///   - error: The error of the failure. The metadata holds only its type name.
+    /// - Returns: The file path and the error type name.
+    private static func failureMetadata(relativePath: String, error: any Error) -> Logger.Metadata {
+        [
+            CodeContextTracing.MetadataKey.filePath: .string(relativePath),
+            CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
+        ]
     }
 
     // MARK: - Filtering
@@ -359,6 +377,11 @@ public actor Watcher {
 /// box and stream locally — so there is nothing for concurrent callers to
 /// race on.
 public final class FSEventsFileEventSource: FileEventSource, @unchecked Sendable {
+    /// The label of the dispatch queue that gets the FSEvents callbacks. It
+    /// is the label of the watcher logger, so each name of the watcher starts
+    /// with the module prefix.
+    private static let eventQueueLabel = CodeContextTracing.LoggerLabel.watcher
+
     /// Creates an FSEvents-backed event source.
     public init() {}
 
@@ -412,11 +435,11 @@ public final class FSEventsFileEventSource: FileEventSource, @unchecked Sendable
             // release callback will never run, so release it here instead
             // to avoid leaking `box`.
             retainedBox.release()
-            Log.watcher.error("FSEventStreamCreate failed for \(rootDirectory.path, privacy: .public)")
+            Log.watcher.error("FSEventStreamCreate could not make an event stream for the root directory")
             return FSEventsSubscription(stream: nil)
         }
 
-        let queue = DispatchQueue(label: "\(Log.subsystem).watcher")
+        let queue = DispatchQueue(label: Self.eventQueueLabel)
         FSEventStreamSetDispatchQueue(stream, queue)
         FSEventStreamStart(stream)
 

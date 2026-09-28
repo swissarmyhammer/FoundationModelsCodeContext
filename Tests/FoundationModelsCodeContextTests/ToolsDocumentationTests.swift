@@ -9,19 +9,8 @@ import Testing
 /// A new operation, or a new alias, that no document names makes a test here
 /// fail. Thus `docs/tools.md` cannot move away from the code.
 struct ToolsDocumentationTests {
-    /// The number of path components from this file to the root of the package.
-    ///
-    /// This file is at `Tests/FoundationModelsCodeContextTests/ToolsDocumentationTests.swift`.
-    private static let packageRootDepth = 3
-
-    /// The root directory of the package, from the path of this file.
-    private static let packageRoot: URL = {
-        var directory = URL(fileURLWithPath: #filePath)
-        for _ in 0..<packageRootDepth {
-            directory.deleteLastPathComponent()
-        }
-        return directory
-    }()
+    /// The root directory of the package.
+    private static let packageRoot = PackagePaths.packageRoot
 
     /// The alias tables of the three tools, with the name of each tool.
     private static let aliasTables: [(tool: String, verbAliases: [String: String], nounAliases: [String: String])] = [

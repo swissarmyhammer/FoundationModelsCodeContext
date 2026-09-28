@@ -1,5 +1,6 @@
 import Foundation
-import Synchronization
+import InMemoryLogging
+import Logging
 
 @testable import FoundationModelsCodeContext
 
@@ -29,45 +30,24 @@ extension LspSession {
     }
 
     /// Makes a Python session over a `pylsp` server that advertises
-    /// `capabilities`, and writes its failure log into `failureLog`.
+    /// `capabilities`, and writes its log records into `logHandler`.
     /// - Parameters:
     ///   - connection: The connection the session drives.
     ///   - capabilities: The gated capabilities that the server advertises.
     ///     Defaults to `ServerCapabilities.noGatedMethod`, as `pylsp` 1.14 does.
-    ///   - failureLog: Keeps the failure log lines of the session for the test to read.
+    ///   - logHandler: Keeps the log records of the session for the test to read.
     /// - Returns: The session.
     static func makePylsp(
         over connection: Connection,
         advertising capabilities: ServerCapabilities = .noGatedMethod,
-        failureLog: CapturedLogLines = CapturedLogLines()
+        logHandler: InMemoryLogHandler = InMemoryLogHandler()
     ) -> LspSession {
         LspSession(
             connection: connection,
             languageID: "python",
             serverName: "pylsp",
             capabilities: capabilities,
-            failureLog: failureLog.append
+            logger: Logger(label: CodeContextTracing.LoggerLabel.lsp) { _ in logHandler }
         )
-    }
-}
-
-/// The log lines that a `LspSession` failure log wrote, for tests to read.
-///
-/// A `Mutex` holds the lines, because the session calls the log sink
-/// synchronously from inside its own actor.
-final class CapturedLogLines: Sendable {
-    /// The lines written so far, oldest first.
-    private let lines = Mutex<[String]>([])
-
-    /// Records one log line. Pass this method as the failure log of a session.
-    /// - Parameter line: The line the session wrote.
-    @Sendable
-    func append(_ line: String) {
-        lines.withLock { $0.append(line) }
-    }
-
-    /// Every line written so far, oldest first.
-    var all: [String] {
-        lines.withLock { $0 }
     }
 }

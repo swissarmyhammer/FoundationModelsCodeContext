@@ -71,7 +71,7 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
 ///   instead (see `LSPIndexWorker+References.swift`). A pass of an edited
 ///   file of such a server also marks the files of the symbols that its new
 ///   calls call `lsp_indexed = 0`, so their next pass writes the new caller.
-/// - A request failure is logged through `LspSession.logFailure(of:context:error:)`,
+/// - A request failure is logged through `LspSession.logFailure(of:filePath:error:)`,
 ///   one time for each (server, request) pair. A server that refuses a
 ///   request for each symbol thus writes one log line, not one line for each
 ///   symbol.
@@ -280,13 +280,17 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ) async -> Bool {
         guard RelativePath.isSafeRelativePath(relativePath) else {
             Log.lsp.warning(
-                "rejecting unsafe relative path \(relativePath, privacy: .public) for LSP indexing (possible path traversal); marking indexed"
+                "the LSP index worker rejects a relative path that is not safe and marks the file indexed",
+                metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
             )
             return await markIndexedIgnoringErrors(relativePath: relativePath, store: store)
         }
 
         guard let contents = readFileContents(relativePath: relativePath, rootDirectory: rootDirectory) else {
-            Log.lsp.warning("failed to read \(relativePath, privacy: .public) for LSP indexing; marking indexed")
+            Log.lsp.warning(
+                "the LSP index worker cannot read a file and marks the file indexed",
+                metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
+            )
             return await markIndexedIgnoringErrors(relativePath: relativePath, store: store)
         }
 
@@ -337,7 +341,11 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             }
         } catch {
             Log.lsp.error(
-                "failed to persist LSP index for \(relativePath, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                "the LSP index of a file could not be written to the store",
+                metadata: [
+                    CodeContextTracing.MetadataKey.filePath: .string(relativePath),
+                    CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
+                ]
             )
             return false
         }
@@ -353,7 +361,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// shape at the call site instead of duplicating it. Not `private`: the
     /// references fallback uses it too, to read the symbols of a file that
     /// holds a reference. A failure is logged through
-    /// `LspSession.logFailure(of:context:error:)`, one time for each
+    /// `LspSession.logFailure(of:filePath:error:)`, one time for each
     /// (server, request) pair.
     /// - Parameters:
     ///   - relativePath: The file's workspace-relative path, used only for log messages.
@@ -370,14 +378,14 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         do {
             try await session.syncOpen(uri: uri, text: contents)
         } catch {
-            await session.logFailure(of: .syncOpen, context: relativePath, error: error)
+            await session.logFailure(of: .syncOpen, filePath: relativePath, error: error)
             return nil
         }
 
         do {
             return try await session.documentSymbols(uri: uri)
         } catch {
-            await session.logFailure(of: .documentSymbols, context: relativePath, error: error)
+            await session.logFailure(of: .documentSymbols, filePath: relativePath, error: error)
             return nil
         }
     }
@@ -393,7 +401,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         do {
             try await session.didClose(uri: uri)
         } catch {
-            await session.logFailure(of: .didClose, context: relativePath, error: error)
+            await session.logFailure(of: .didClose, filePath: relativePath, error: error)
         }
     }
 
@@ -426,7 +434,11 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             try await store.markIndexed(filePath: relativePath, layer: .lsp)
         } catch {
             Log.lsp.error(
-                "failed to mark \(relativePath, privacy: .public) lsp-indexed after a permanent-skip decision: \(error.localizedDescription, privacy: .public)"
+                "a file that the LSP index worker skips could not be marked indexed",
+                metadata: [
+                    CodeContextTracing.MetadataKey.filePath: .string(relativePath),
+                    CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
+                ]
             )
         }
         return true
@@ -682,12 +694,11 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ) async -> [PendingCallEdge] {
         let position = Position(line: symbol.startLine, character: symbol.startColumn)
 
-        let context = "\(filePath):\(symbol.qualifiedPath)"
         let items: [CallHierarchyItem]
         do {
             items = try await session.prepareCallHierarchy(uri: uri, position: position)
         } catch {
-            await session.logFailure(of: .prepareCallHierarchy, context: context, error: error)
+            await session.logFailure(of: .prepareCallHierarchy, filePath: filePath, error: error)
             return []
         }
         guard let item = items.first else {
@@ -698,7 +709,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         do {
             outgoing = try await session.outgoingCalls(item: item)
         } catch {
-            await session.logFailure(of: .outgoingCalls, context: context, error: error)
+            await session.logFailure(of: .outgoingCalls, filePath: filePath, error: error)
             return []
         }
 

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Logging
 
 /// Thread-safe table of in-flight JSON-RPC requests, keyed by request id.
 ///
@@ -75,7 +76,7 @@ final class PendingRequestTable: @unchecked Sendable {
     /// buffers `response` so the next `register(id:continuation:)` call for the same `id`
     /// delivers it immediately instead of leaving that registration to wait forever.
     ///
-    /// Used exclusively by the reader loop's `route(message:pendingRequests:notificationContinuation:)`
+    /// Used exclusively by the reader loop's `route(message:serverName:pendingRequests:notificationContinuation:)`
     /// — the one caller whose response can legitimately arrive before the matching request has
     /// finished registering its continuation. `performRequest` writes a request to the child
     /// process's stdin, then separately spawns the task that registers a continuation to await
@@ -123,7 +124,10 @@ final class PendingRequestTable: @unchecked Sendable {
 /// Owns the process's three pipes: writes typed requests/notifications to
 /// stdin, decodes stdout through `JSONRPCMessageDecoder` on a background
 /// reader loop that routes each message to either a pending request (by id)
-/// or `serverNotifications`, and drains stderr to `Log.lsp` at `.debug`.
+/// or `serverNotifications`, and drains stderr into an in-memory tail buffer. The stderr
+/// text stays only in that buffer: the log gets only the server name and the byte count of
+/// each chunk, at `.debug` in `Log.lsp`. The wire messages go to `Log.lspWire` at `.trace`
+/// with only their method name, request id, direction and byte size, never the payload.
 /// Every request races against an injectable `Clock`-driven timeout
 /// (30 seconds by default), so a server that never answers fails the caller
 /// rather than hanging it forever.
@@ -144,6 +148,10 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// The spawned child process's id, captured once at launch (a process's id never changes
     /// after `run()` succeeds, so this is safe to expose without an actor hop).
     nonisolated let pid: Int32
+
+    /// The command of the language server, as the caller gave it. The wire and standard error
+    /// log records name the server with it.
+    private nonisolated let serverName: String
 
     private let notificationContinuation: AsyncStream<ServerNotification>.Continuation
 
@@ -186,6 +194,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         }
 
         self.process = process
+        self.serverName = command
         self.pid = process.processIdentifier
         self.stdinHandle = stdinPipe.fileHandleForWriting
         self.stdoutHandle = stdoutPipe.fileHandleForReading
@@ -205,13 +214,18 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         let pendingRequests = self.pendingRequests
         let stdoutFileDescriptor = self.stdoutHandle.fileDescriptor
         self.readerTask = Task.detached {
-            Self.runReaderLoop(stdoutFileDescriptor: stdoutFileDescriptor, pendingRequests: pendingRequests, notificationContinuation: continuation)
+            Self.runReaderLoop(
+                serverName: command,
+                stdoutFileDescriptor: stdoutFileDescriptor,
+                pendingRequests: pendingRequests,
+                notificationContinuation: continuation
+            )
         }
 
         let stderrFileDescriptor = self.stderrHandle.fileDescriptor
         let stderrTailBuffer = self.stderrTailBuffer
         self.stderrTask = Task.detached {
-            Self.runStderrDrainLoop(stderrFileDescriptor: stderrFileDescriptor, tailBuffer: stderrTailBuffer)
+            Self.runStderrDrainLoop(serverName: command, stderrFileDescriptor: stderrFileDescriptor, tailBuffer: stderrTailBuffer)
         }
     }
 
@@ -521,6 +535,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         let envelope = JSONRPCRequestEnvelope(id: id, method: method, params: params)
         let payload = try JSONEncoder().encode(envelope)
         try writeToStdin(JSONRPCFraming.frame(payload: payload))
+        Self.logWireMessage(.toServer, serverName: serverName, method: method, id: id, byteCount: payload.count)
         let responseData = try await awaitResponse(id: id)
         return (id, responseData)
     }
@@ -534,6 +549,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         let envelope = JSONRPCNotificationEnvelope(method: method, params: params)
         let payload = try JSONEncoder().encode(envelope)
         try writeToStdin(JSONRPCFraming.frame(payload: payload))
+        Self.logWireMessage(.toServer, serverName: serverName, method: method, id: nil, byteCount: payload.count)
     }
 
     /// Allocates the next monotonically increasing JSON-RPC request id.
@@ -656,7 +672,13 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// (`pendingRequests`, `notificationContinuation`) is `Sendable`, so no actor hop is needed
     /// per received message. On EOF (the process exited), fails every still-pending request with
     /// `CodeContextError.notRunning`.
+    /// - Parameters:
+    ///   - serverName: The command name of the language server, for the wire log records.
+    ///   - stdoutFileDescriptor: The child process's stdout read end's raw file descriptor.
+    ///   - pendingRequests: The table that gets each response.
+    ///   - notificationContinuation: The stream that gets each server notification.
     private static func runReaderLoop(
+        serverName: String,
         stdoutFileDescriptor: Int32,
         pendingRequests: PendingRequestTable,
         notificationContinuation: AsyncStream<ServerNotification>.Continuation
@@ -664,22 +686,45 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         var decoder = JSONRPCMessageDecoder()
         while let chunk = ProcessUtilities.readChunk(from: stdoutFileDescriptor, bufferSize: ProcessUtilities.defaultChunkSize) {
             for message in decoder.append(bytes: chunk) {
-                route(message: message, pendingRequests: pendingRequests, notificationContinuation: notificationContinuation)
+                route(
+                    message: message,
+                    serverName: serverName,
+                    pendingRequests: pendingRequests,
+                    notificationContinuation: notificationContinuation
+                )
             }
         }
         pendingRequests.failAll(with: CodeContextError.notRunning)
     }
 
     /// Routes one decoded JSON-RPC message to a pending request or a server notification.
+    ///
+    /// Each message writes one `.trace` record to `Log.lspWire` with its method name, request
+    /// id, direction and byte size. A message that is not valid JSON-RPC writes one `.error`
+    /// record with its byte size only. No record holds the payload.
+    /// - Parameters:
+    ///   - message: The raw message bytes.
+    ///   - serverName: The command name of the language server, for the wire log records.
+    ///   - pendingRequests: The table that gets a response.
+    ///   - notificationContinuation: The stream that gets a server notification.
     private static func route(
         message: Data,
+        serverName: String,
         pendingRequests: PendingRequestTable,
         notificationContinuation: AsyncStream<ServerNotification>.Continuation
     ) {
         guard let peek = try? JSONRPCFraming.peek(message: message) else {
-            Log.lspWire.error("failed to peek malformed JSON-RPC message")
+            Log.lspWire.error(
+                "a JSON-RPC message from the language server is not valid",
+                metadata: [
+                    CodeContextTracing.MetadataKey.lspServer: .string(serverName),
+                    CodeContextTracing.MetadataKey.lspDirection: .string(WireDirection.fromServer.rawValue),
+                    CodeContextTracing.MetadataKey.bytes: .stringConvertible(message.count),
+                ]
+            )
             return
         }
+        logWireMessage(.fromServer, serverName: serverName, method: peek.method, id: peek.id, byteCount: message.count)
 
         if let id = peek.id {
             pendingRequests.resolveOrBuffer(id: id, response: message)
@@ -720,20 +765,66 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         return .publishDiagnostics(uri: uriOnly.uri, diagnostics: diagnostics)
     }
 
-    /// Drains the child process's stderr to `Log.lsp` at `.debug` until EOF, capturing every
-    /// chunk into `tailBuffer` along the way.
+    /// Drains the child process's stderr until EOF, and keeps every chunk in `tailBuffer`.
+    ///
+    /// The stderr text of a language server can hold source code or file content, so the text
+    /// stays only in the in-memory `tailBuffer`. Each chunk writes one `.debug` record to
+    /// `Log.lsp` that holds only the server name and the byte count of the chunk.
     ///
     /// Delegates the read-decode-append loop itself to the shared
     /// `ProcessUtilities.drainChunks(from:bufferSize:onChunk:)` — the same helper
     /// `ProcessInstallRunner.drainOutput` calls — passing only what differs between the two call
     /// sites: what to do with each decoded chunk (log then append here, vs. append alone there).
     /// - Parameters:
+    ///   - serverName: The command name of the language server, for the log records.
     ///   - stderrFileDescriptor: The child process's stderr read end's raw file descriptor.
     ///   - tailBuffer: The bounded tail buffer `recentStderrTail()` reads from.
-    private static func runStderrDrainLoop(stderrFileDescriptor: Int32, tailBuffer: BoundedTailBuffer) {
+    private static func runStderrDrainLoop(serverName: String, stderrFileDescriptor: Int32, tailBuffer: BoundedTailBuffer) {
         ProcessUtilities.drainChunks(from: stderrFileDescriptor) { text in
-            Log.lsp.debug("\(text, privacy: .public)")
+            Log.lsp.debug(
+                "a language server wrote to standard error",
+                metadata: [
+                    CodeContextTracing.MetadataKey.lspServer: .string(serverName),
+                    CodeContextTracing.MetadataKey.bytes: .stringConvertible(text.utf8.count),
+                ]
+            )
             tailBuffer.append(chunk: text)
         }
+    }
+
+    // MARK: - Wire log
+
+    /// The direction of one JSON-RPC wire message, for the `Log.lspWire` records.
+    private enum WireDirection: String {
+        /// A message that the package writes to the language server.
+        case toServer = "to-server"
+
+        /// A message that the package reads from the language server.
+        case fromServer = "from-server"
+    }
+
+    /// Writes one `.trace` record to `Log.lspWire` for one wire message.
+    ///
+    /// The record holds only the server name, the direction, the byte size and, when the
+    /// message has them, the method name and the request id. It never holds the payload.
+    /// - Parameters:
+    ///   - direction: Whether the message goes to the server or comes from it.
+    ///   - serverName: The command name of the language server.
+    ///   - method: The JSON-RPC method name, or `nil` for a response.
+    ///   - id: The JSON-RPC request id, or `nil` for a notification.
+    ///   - byteCount: The size of the message payload, in bytes.
+    private static func logWireMessage(_ direction: WireDirection, serverName: String, method: String?, id: Int?, byteCount: Int) {
+        var metadata: Logger.Metadata = [
+            CodeContextTracing.MetadataKey.lspServer: .string(serverName),
+            CodeContextTracing.MetadataKey.lspDirection: .string(direction.rawValue),
+            CodeContextTracing.MetadataKey.bytes: .stringConvertible(byteCount),
+        ]
+        if let method {
+            metadata[CodeContextTracing.MetadataKey.lspMethod] = .string(method)
+        }
+        if let id {
+            metadata[CodeContextTracing.MetadataKey.lspRequestId] = .stringConvertible(id)
+        }
+        Log.lspWire.trace("a JSON-RPC message went over the wire", metadata: metadata)
     }
 }

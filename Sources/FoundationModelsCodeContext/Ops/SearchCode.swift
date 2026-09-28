@@ -377,7 +377,10 @@ public enum SearchCode {
         do {
             return try await embedder.embed([query]).first
         } catch {
-            Log.search.warning("query embedding failed: \(String(describing: error), privacy: .public)")
+            Log.search.warning(
+                "the embedder failed for the query; the search uses no similarity signal",
+                metadata: [CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error)]
+            )
             return nil
         }
     }

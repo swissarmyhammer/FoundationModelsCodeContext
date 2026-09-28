@@ -1,41 +1,80 @@
-import os
+import Logging
 
-/// Centralized `os.Logger` categories for FoundationModelsCodeContext.
+/// The loggers of FoundationModelsCodeContext.
 ///
-/// All loggers share one subsystem, so `log stream --predicate 'subsystem ==
-/// "com.swissarmyhammer.FoundationModelsCodeContext"'` (or Console.app) surfaces every
-/// category together — exactly what you want when a language server dies at
-/// 2am. Category names mirror the Rust `tracing` targets this package ports
-/// from, so log output stays legible when cross-referencing the two
-/// implementations during the port.
+/// Each logger is a swift-log `Logger`. Its label comes from
+/// `CodeContextTracing.LoggerLabel`, so each label starts with the module
+/// prefix `FoundationModelsCodeContext.`. The package bootstraps no logging
+/// backend. The host application bootstraps one with
+/// `LoggingSystem.bootstrap(_:)`, and it selects where the records go.
 ///
-/// `os.Logger` is used directly rather than the `swift-log` facade: the
-/// macOS 27 floor (from FoundationModels v2 and FoundationModelsRanker) makes this an
-/// Apple-only package, so `swift-log`'s cross-platform backend story doesn't
-/// apply, and unified logging gives structured, near-zero-cost-when-not-
-/// captured logging with built-in privacy redaction for free.
+/// Each member makes a new `Logger` at each read. Thus a logger reads the
+/// bootstrapped backend at the time of the log call, and an application that
+/// bootstraps its backend after it makes a ``CodeContext`` still gets the
+/// records. A `Logger` that a `static let` keeps would keep the backend of the
+/// time of its first read.
+///
+/// ## No content in a log record
+///
+/// A record has a fixed message. Its metadata holds only names, identifiers,
+/// counts, sizes and error type names, under the keys of
+/// `CodeContextTracing.MetadataKey`. A record never holds source code, file
+/// content, query text, embed input text, LSP wire payload, the standard error
+/// text of a language server, the output of an installer or the description of
+/// an error. See `CodeContextTracing` for the rule. Do not use the `error:`
+/// parameter of a log call: a backend can write the description of the error.
+/// Use ``errorType(of:)`` instead.
 public enum Log {
-    /// Shared subsystem identifier for all FoundationModelsCodeContext loggers.
-    public static let subsystem = "com.swissarmyhammer.FoundationModelsCodeContext"
+    /// The lifecycle of a language server: start, exit, start again,
+    /// handshake and install.
+    public static var lsp: Logger { Logger(label: CodeContextTracing.LoggerLabel.lsp) }
 
-    /// Language-server lifecycle: spawn, exit, restart, handshake.
-    public static let lsp = Logger(subsystem: subsystem, category: "lsp")
+    /// The JSON-RPC wire messages, at `.trace`.
+    ///
+    /// A record of this logger holds only the server name, the method name,
+    /// the request id, the direction and the byte size of one message. It
+    /// never holds the payload, at no log level.
+    public static var lspWire: Logger { Logger(label: CodeContextTracing.LoggerLabel.lspWire) }
 
-    /// Raw LSP request/response wire traffic, logged at `.debug`.
-    public static let lspWire = Logger(subsystem: subsystem, category: "lsp-wire")
+    /// The index: the walk, the reconcile step and the chunk counts.
+    public static var index: Logger { Logger(label: CodeContextTracing.LoggerLabel.index) }
 
-    /// Indexing: walk/reconcile/chunk counts.
-    public static let index = Logger(subsystem: subsystem, category: "index")
+    /// The file system watcher.
+    public static var watcher: Logger { Logger(label: CodeContextTracing.LoggerLabel.watcher) }
 
-    /// Filesystem watcher events.
-    public static let watcher = Logger(subsystem: subsystem, category: "watcher")
+    /// The embedding of text.
+    public static var embedding: Logger { Logger(label: CodeContextTracing.LoggerLabel.embedding) }
 
-    /// Embedding generation.
-    public static let embedding = Logger(subsystem: subsystem, category: "embedding")
+    /// The search: BM25, trigram, cosine and RRF fusion.
+    public static var search: Logger { Logger(label: CodeContextTracing.LoggerLabel.search) }
 
-    /// Search: BM25, trigram, cosine, RRF fusion.
-    public static let search = Logger(subsystem: subsystem, category: "search")
+    /// The diagnostics and the settle engine.
+    public static var diagnostics: Logger { Logger(label: CodeContextTracing.LoggerLabel.diagnostics) }
 
-    /// Diagnostics: diagnose + settle engine.
-    public static let diagnostics = Logger(subsystem: subsystem, category: "diagnostics")
+    /// Gives the metadata value that names the type of an error.
+    ///
+    /// Put this value under `CodeContextTracing.MetadataKey.errorType`. It is
+    /// the full type name, for example
+    /// `FoundationModelsCodeContext.CodeContextError`. It is never the
+    /// description of the error, because a description can hold content.
+    ///
+    /// - Parameter error: The error to name.
+    /// - Returns: The full name of the dynamic type of `error`.
+    internal static func errorType(of error: any Error) -> Logger.MetadataValue {
+        .string(String(reflecting: type(of: error)))
+    }
+
+    /// Gives the metadata of a record about a failure of a language server.
+    ///
+    /// - Parameters:
+    ///   - server: The command name of the language server.
+    ///   - error: The error of the failure. The metadata holds only its type name.
+    /// - Returns: The server name under `CodeContextTracing.MetadataKey.lspServer` and the error
+    ///   type name under `CodeContextTracing.MetadataKey.errorType`.
+    internal static func serverFailureMetadata(server: String, error: any Error) -> Logger.Metadata {
+        [
+            CodeContextTracing.MetadataKey.lspServer: .string(server),
+            CodeContextTracing.MetadataKey.errorType: errorType(of: error),
+        ]
+    }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 
 /// One per-uri diagnostics update, broadcast to in-process subscribers.
 ///
@@ -33,8 +34,8 @@ struct DocState: Sendable, Equatable {
 ///
 /// The session uses it to gate a request on the server capabilities
 /// (`LspSessionError.notAdvertised`) and to log a request failure one time
-/// for each server (`LspSession.logFailure(of:context:error:)`). The raw
-/// value is the name that a log line shows.
+/// for each server (`LspSession.logFailure(of:filePath:error:)`). The raw
+/// value is the name that a log record shows.
 enum SessionRequest: String, Sendable, Hashable {
     /// Opens a document or sends its new text (`didOpen` or `didChange`).
     case syncOpen
@@ -194,11 +195,11 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// sent; the request method throws `LspSessionError.notAdvertised`.
     nonisolated let capabilities: ServerCapabilities
 
-    /// Writes one failure log line (see `logFailure(of:context:error:)`).
-    private let failureLog: @Sendable (String) -> Void
+    /// The logger that gets the failure records (see `logFailure(of:filePath:error:)`).
+    private let logger: Logger
 
     /// The requests whose failure this session already logged. The log has
-    /// a maximum of one line for each (server, request) pair.
+    /// a maximum of one record for each (server, request) pair.
     private var loggedFailures: Set<SessionRequest> = []
 
     /// Creates a session over `connection`, immediately starting to consume
@@ -209,20 +210,20 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///   - languageID: The LSP `languageId` to send on every `didOpen` (e.g. `"swift"`).
     ///   - serverName: The name of the server, used in log lines.
     ///   - capabilities: The gated capabilities that the server advertised.
-    ///   - failureLog: Writes one failure log line. Defaults to a warning in
-    ///     `Log.lsp`; tests capture the lines instead.
+    ///   - logger: The logger that gets the failure records. Defaults to
+    ///     `Log.lsp`; tests give a logger that keeps the records instead.
     init(
         connection: Connection,
         languageID: String,
         serverName: String,
         capabilities: ServerCapabilities,
-        failureLog: @escaping @Sendable (String) -> Void = { line in Log.lsp.warning("\(line, privacy: .public)") }
+        logger: Logger = Log.lsp
     ) {
         self.connection = connection
         self.languageID = languageID
         self.serverName = serverName
         self.capabilities = capabilities
-        self.failureLog = failureLog
+        self.logger = logger
         notificationConsumerTask = Task { [weak self] in
             await self?.consumeServerNotifications()
         }
@@ -490,21 +491,33 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///
     /// The index worker sends some requests for each symbol of each file.
     /// When a server refuses a request, each symbol fails in the same way,
-    /// and one line for each symbol hides the other log lines. Thus only the
-    /// first failure of each request is logged. The line holds the name of
-    /// the server, the request, the context and the description of `error`
-    /// (for a server error: the code and the message).
+    /// and one record for each symbol hides the other log records. Thus only
+    /// the first failure of each request is logged. The record has a fixed
+    /// message. Its metadata holds the name of the server, the request, the
+    /// file path, the type name of `error` and, for a server error, the
+    /// JSON-RPC error code. It never holds the error message of the server or
+    /// the description of `error`, because they can hold content.
     /// - Parameters:
     ///   - request: The request that failed.
-    ///   - context: Where the request failed, for example `"file.py:symbol"`.
+    ///   - filePath: The path, relative to the root directory, of the file
+    ///     that the request was about.
     ///   - error: The error the request threw.
-    func logFailure(of request: SessionRequest, context: String, error: Error) {
+    internal func logFailure(of request: SessionRequest, filePath: String, error: any Error) {
         guard loggedFailures.insert(request).inserted else {
             return
         }
-        failureLog(
-            "\(serverName): \(request.rawValue) failed for \(context): \(error.localizedDescription) "
-                + "(the log does not show the next \(request.rawValue) failures of this server)"
+        var metadata: Logger.Metadata = [
+            CodeContextTracing.MetadataKey.lspServer: .string(serverName),
+            CodeContextTracing.MetadataKey.lspRequest: .string(request.rawValue),
+            CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
+            CodeContextTracing.MetadataKey.filePath: .string(filePath),
+        ]
+        if case WireError.serverError(let code, _) = error {
+            metadata[CodeContextTracing.MetadataKey.lspErrorCode] = .string("\(code)")
+        }
+        logger.warning(
+            "a language server request failed; the log does not show the next failures of this request for this server",
+            metadata: metadata
         )
     }
 

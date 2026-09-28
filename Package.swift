@@ -192,6 +192,11 @@ let package = Package(
                 // The tracing tests give an explicit `InMemoryTracer` to the code under test and
                 // read the finished spans from it. They do not bootstrap the global system.
                 .product(name: "InMemoryTracing", package: tracingPackage),
+                // The logging tests read the log records of the code under test from an
+                // `InMemoryLogHandler`. Some tests give the handler to the code under test in a
+                // `Logger`. The content test bootstraps the handler one time for the test process.
+                .product(name: "Logging", package: loggingPackage),
+                .product(name: "InMemoryLogging", package: loggingPackage),
             ],
             path: "Tests/\(packageName)Tests",
             // `scripted-lsp-server.swift` is a standalone script launched via

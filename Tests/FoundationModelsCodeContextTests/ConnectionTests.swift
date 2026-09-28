@@ -25,14 +25,8 @@ import Testing
 /// individual test's coverage.
 @Suite(.serialized)
 struct ConnectionTests {
-    /// The absolute path to the scripted subprocess, resolved relative to this test file so it
-    /// doesn't depend on the working directory `swift test` is invoked from.
-    private static let scriptedServerPath: String = {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("Support/scripted-lsp-server.swift")
-            .path
-    }()
+    /// The absolute path to the scripted subprocess.
+    private static let scriptedServerPath = PackagePaths.scriptedLSPServer
 
     /// Spawns a `ProcessLanguageServerConnection` against the scripted subprocess.
     /// - Parameters:

@@ -272,7 +272,8 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
                         try await daemon.start()
                     } catch {
                         Log.lsp.warning(
-                            "LSP daemon failed to start (\(spec.command, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+                            "the language server daemon did not start",
+                            metadata: Log.serverFailureMetadata(server: spec.command, error: error)
                         )
                     }
                     return (spec, daemon)
@@ -326,7 +327,8 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
                     try await daemon.restartWithBackoff()
                 } catch {
                     Log.lsp.warning(
-                        "LSP daemon restart attempt failed (\(command, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+                        "an attempt to start the language server daemon again failed",
+                        metadata: Log.serverFailureMetadata(server: command, error: error)
                     )
                 }
             }
