@@ -34,16 +34,23 @@ let package = Package(
         .macOS("27.0")
     ],
     dependencies: [
-        .package(path: "..")
+        .package(path: ".."),
+        // The logging content test reads the log records of the code under
+        // test from an `InMemoryLogHandler`. Use the same version floor as
+        // `../Package.swift`.
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.15.1"),
     ],
     targets: [
-        // The live `sourcekit-lsp` smoke test suite. It uses
+        // The live language server suites, and the tests that start a real
+        // scripted language server subprocess. It uses
         // `@testable import` for the root module's internal connection
         // plumbing, so debug builds only — which is what `swift test` does.
         .testTarget(
             name: "FoundationModelsCodeContextIntegrationTests",
             dependencies: [
-                .product(name: "FoundationModelsCodeContext", package: "FoundationModelsCodeContext")
+                .product(name: "FoundationModelsCodeContext", package: "FoundationModelsCodeContext"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "InMemoryLogging", package: "swift-log"),
             ],
             path: "Tests/FoundationModelsCodeContextIntegrationTests"
         )

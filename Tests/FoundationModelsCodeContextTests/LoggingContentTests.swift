@@ -16,6 +16,9 @@ import Testing
 /// The records of all the tests of this process go into the store. A test
 /// that looks for its own records looks for a value that only that test
 /// makes.
+///
+/// The `IntegrationTests` package has a local copy of this helper for its
+/// logging content test. Keep that copy in step with this original.
 enum CapturedLogRecords {
     /// The metadata key that holds the label of the logger that wrote a record.
     static let loggerLabelKey = "test.logger_label"
@@ -73,26 +76,18 @@ private struct MarkedError: Error, LocalizedError, CustomStringConvertible {
 
 /// Proves that the package writes no content to a log record (rule 4 of the
 /// OpenTelemetry design): no standard error text of a language server, no
-/// LSP wire payload, no installer output and no description of an error.
+/// installer output and no description of an error.
 ///
 /// Each test makes a new marker text, puts it in the content that the code
 /// under test reads, and then looks for the marker in all the captured
 /// records. Each test also finds its own record through a value that is not
 /// content, so a test cannot pass when the code writes no record at all.
 ///
-/// `.serialized`: the first test spawns a real `swift <script>` child process,
-/// the same as `ConnectionTests`.
-@Suite(.serialized)
+/// Each test here uses only fakes. The test that starts a real language
+/// server subprocess, and so also checks the LSP wire payload, is in the
+/// `IntegrationTests` package
+/// (`IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/LoggingContentTests.swift`).
 struct LoggingContentTests {
-    /// The number of polls of the standard error tail before the test stops.
-    ///
-    /// With `pollInterval`, this gives 60 seconds, the same budget as
-    /// `ConnectionTests.recentStderrTailCapturesWhatTheServerPrinted()`.
-    private static let pollLimit = 6000
-
-    /// The time between two polls of the standard error tail.
-    private static let pollInterval = Duration.milliseconds(10)
-
     /// A workspace root for the daemon test. The daemon only puts it in the
     /// `initialize` request, so no directory must exist.
     private static let workspaceRoot = URL(fileURLWithPath: "/tmp/logging-content-tests")
@@ -101,54 +96,6 @@ struct LoggingContentTests {
     /// - Returns: The marker text.
     private static func makeMarker() -> String {
         "cck-log-marker-\(UUID().uuidString)"
-    }
-
-    /// Waits until the standard error tail of `connection` holds `text`.
-    /// - Parameters:
-    ///   - text: The text to wait for.
-    ///   - connection: The connection whose tail to read.
-    /// - Returns: `true` when the tail holds `text` before the poll budget ends.
-    private static func waitForStderr(holding text: String, on connection: ProcessLanguageServerConnection) async throws -> Bool {
-        for _ in 0..<pollLimit {
-            if connection.recentStderrTail().contains(text) {
-                return true
-            }
-            try await Task.sleep(for: pollInterval)
-        }
-        return false
-    }
-
-    @Test
-    func aLanguageServerWritesNoStandardErrorTextAndNoPayloadToTheLog() async throws {
-        _ = CapturedLogRecords.handler
-        let marker = Self.makeMarker()
-        let steps: [[String: Any]] = [
-            ["action": "stderr", "text": marker],
-            ["action": "read"],
-            ["action": "notify", "method": "window/logMessage", "params": ["type": 3, "message": marker]],
-            ["action": "respond", "which": 0, "result": ["contents": ["kind": "markdown", "value": marker]]],
-            ["action": "hang"],
-        ]
-        let script = String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
-        let connection = try ProcessLanguageServerConnection(command: "swift", arguments: [PackagePaths.scriptedLSPServer, script])
-
-        let hover = try? await connection.hover(in: DocumentURI("file:///\(marker).swift"), at: Position(line: 0, character: 0))
-        let sawStderr = try? await Self.waitForStderr(holding: marker, on: connection)
-        await connection.close()
-
-        #expect(hover?.contents == marker)
-        #expect(sawStderr == true)
-        #expect(CapturedLogRecords.entries(holding: marker).isEmpty)
-        let stderrRecords = CapturedLogRecords.entries(matching: [
-            CapturedLogRecords.loggerLabelKey: CodeContextTracing.LoggerLabel.lsp,
-            CodeContextTracing.MetadataKey.bytes: "\(marker.utf8.count)",
-        ])
-        #expect(!stderrRecords.isEmpty)
-        let wireRecords = CapturedLogRecords.entries(matching: [
-            CapturedLogRecords.loggerLabelKey: CodeContextTracing.LoggerLabel.lspWire,
-            CodeContextTracing.MetadataKey.lspMethod: "textDocument/hover",
-        ])
-        #expect(!wireRecords.isEmpty)
     }
 
     @Test
