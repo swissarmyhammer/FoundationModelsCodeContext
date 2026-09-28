@@ -483,14 +483,13 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// The call runs in one `CodeContextTracing.SpanName.searchSymbol` span, which holds the limit
     /// and the result count. It never holds the query.
     public func searchSymbol(query: String, kind: SymbolMetaType? = nil, maxResults: Int = CodeContextDefaults.maxQueryResults) async throws -> [SearchSymbolMatch] {
-        try await CodeContextSpans.withSpan(
+        try await CodeContextSpans.withSearchSpan(
             CodeContextTracing.SpanName.searchSymbol,
             tracer: tracer,
-            attributes: { $0[CodeContextTracing.AttributeKey.searchLimit] = maxResults }
-        ) { span in
-            let matches = try await SymbolOps.searchSymbol(store: store, query: query, kind: kind, maxResults: maxResults)
-            span.attributes[CodeContextTracing.AttributeKey.searchResultCount] = matches.count
-            return matches
+            limit: maxResults,
+            resultCount: \.count
+        ) {
+            try await SymbolOps.searchSymbol(store: store, query: query, kind: kind, maxResults: maxResults)
         }
     }
 
@@ -523,16 +522,15 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         filePattern: String? = nil,
         maxResults: Int = CodeContextDefaults.maxQueryResults
     ) async throws -> GrepCodeResult {
-        try await CodeContextSpans.withSpan(
+        try await CodeContextSpans.withSearchSpan(
             CodeContextTracing.SpanName.grepCode,
             tracer: tracer,
-            attributes: { $0[CodeContextTracing.AttributeKey.searchLimit] = maxResults }
-        ) { span in
-            let result = try await GrepCode.run(
+            limit: maxResults,
+            resultCount: \.matches.count
+        ) {
+            try await GrepCode.run(
                 store: store, pattern: pattern, languages: languages, filePattern: filePattern, maxResults: maxResults
             )
-            span.attributes[CodeContextTracing.AttributeKey.searchResultCount] = result.matches.count
-            return result
         }
     }
 

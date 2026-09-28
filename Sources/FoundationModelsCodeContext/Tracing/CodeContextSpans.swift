@@ -10,15 +10,17 @@ import Tracing
 /// `nil` to read the bootstrapped tracer at the time of the call. With no tracer bootstrapped, the
 /// tracer is the no-op tracer, and each helper only runs its body.
 ///
-/// ## Two kinds of span
+/// ## The span helpers
 ///
 /// - ``withEnterRecord(_:ofKind:tracer:logger:attributes:metadata:_:)`` is for a call that can
 ///   suspend for a long time: the index pass, each LSP request and each embed call. It uses
 ///   `TracedCall` of FoundationModelsExtras, which also writes one "enter" log record when the call
 ///   starts (rule 8, hang detection). A backend exports a span only when the span ends, thus a call
 ///   that hangs shows only as its "enter" record.
-/// - ``withSpan(_:tracer:attributes:_:)`` is for a short call: the watcher batch, the search, the
-///   symbol search and the grep. It writes no log record. A search can embed its query, and that
+/// - ``withSpan(_:tracer:attributes:_:)`` is for a short call. It writes no log record.
+/// - ``withSearchSpan(_:tracer:limit:resultCount:_:)`` is the one span wrap of each search call:
+///   the search, the symbol search and the grep. It uses ``withSpan(_:tracer:attributes:_:)``, and
+///   it sets the limit and the result count of the search. A search can embed its query, and that
 ///   embed call writes its own "enter" record.
 ///
 /// ## No content in a span
@@ -85,6 +87,39 @@ internal enum CodeContextSpans {
             return await outcome(of: body, in: span)
         }
         return try result.get()
+    }
+
+    /// Runs one search call in one span, and writes no log record. This is the one span wrap of
+    /// each search call: the search, the symbol search and the grep.
+    ///
+    /// The span holds the limit before `body` starts, and the result count after `body` returns.
+    /// It never holds the query or the pattern of the search.
+    ///
+    /// - Parameters:
+    ///   - spanName: The name of the span, from ``CodeContextTracing/SpanName``.
+    ///   - tracer: The tracer of the span, or `nil` to read the bootstrapped tracer now.
+    ///   - limit: The maximum number of results that the caller asks for.
+    ///   - resultCount: Gives the number of results in the value of `body`.
+    ///   - body: The search call. It runs on the actor of the caller.
+    /// - Returns: The value of `body`.
+    /// - Throws: The error of `body`. The span records only the type name of the error, and it
+    ///   holds no result count.
+    internal nonisolated(nonsending) static func withSearchSpan<Output>(
+        _ spanName: String,
+        tracer: (any Tracer)?,
+        limit: Int,
+        resultCount: (Output) -> Int,
+        _ body: nonisolated(nonsending) () async throws -> Output
+    ) async throws -> Output {
+        try await withSpan(
+            spanName,
+            tracer: tracer,
+            attributes: { $0[CodeContextTracing.AttributeKey.searchLimit] = limit }
+        ) { span in
+            let output = try await body()
+            span.attributes[CodeContextTracing.AttributeKey.searchResultCount] = resultCount(output)
+            return output
+        }
     }
 
     /// Embeds `texts` with `embedder` in one ``CodeContextTracing/SpanName/embed`` span, and writes

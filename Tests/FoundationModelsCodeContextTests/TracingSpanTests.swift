@@ -234,6 +234,56 @@ internal struct TracingSpanTests {
         }
     }
 
+    // MARK: - Search span helper
+
+    @Test
+    internal func theSearchSpanHelperSetsTheLimitAndTheResultCountOfTheBody() async throws {
+        let tracer = InMemoryTracer()
+        let values = [1, 2, 3]
+
+        let output = try await CodeContextSpans.withSearchSpan(
+            CodeContextTracing.SpanName.search,
+            tracer: tracer,
+            limit: Self.searchLimit,
+            resultCount: \.count
+        ) {
+            values
+        }
+
+        let spans = Self.spans(named: CodeContextTracing.SpanName.search, in: tracer)
+        #expect(output == values)
+        #expect(spans.count == 1)
+        let span = try #require(spans.first)
+        #expect(span.attributes.get(CodeContextTracing.AttributeKey.searchLimit) == .int64(Int64(Self.searchLimit)))
+        #expect(span.attributes.get(CodeContextTracing.AttributeKey.searchResultCount) == .int64(Int64(values.count)))
+        #expect(span.errors.isEmpty)
+    }
+
+    @Test
+    internal func theSearchSpanHelperRecordsOnlyTheErrorTypeWhenTheBodyThrows() async throws {
+        let tracer = InMemoryTracer()
+        let failure = MarkedEmbedError(marker: Self.searchQuery)
+
+        await #expect(throws: MarkedEmbedError.self) {
+            try await CodeContextSpans.withSearchSpan(
+                CodeContextTracing.SpanName.grepCode,
+                tracer: tracer,
+                limit: Self.searchLimit,
+                resultCount: { (values: [Int]) in values.count }
+            ) {
+                throw failure
+            }
+        }
+
+        let span = try #require(Self.spans(named: CodeContextTracing.SpanName.grepCode, in: tracer).first)
+        let recorded = try #require(span.errors.first)
+        #expect(span.errors.count == 1)
+        #expect(String(describing: recorded.error) == String(reflecting: MarkedEmbedError.self))
+        #expect(!String(reflecting: recorded.error).contains(Self.searchQuery))
+        #expect(span.attributes.get(CodeContextTracing.AttributeKey.searchResultCount) == nil)
+        #expect(span.status?.code == .error)
+    }
+
     // MARK: - Helpers
 
     /// Writes the fixture files, starts a context that opens its spans through `tracer`, waits

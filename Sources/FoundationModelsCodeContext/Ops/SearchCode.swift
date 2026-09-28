@@ -274,11 +274,12 @@ public enum SearchCode {
         weights: SearchWeights = CodeContextDefaults.searchWeights,
         tracer: (any Tracer)? = nil
     ) async throws -> SearchCodeResult {
-        try await CodeContextSpans.withSpan(
+        try await CodeContextSpans.withSearchSpan(
             CodeContextTracing.SpanName.search,
             tracer: tracer,
-            attributes: { $0[CodeContextTracing.AttributeKey.searchLimit] = topK }
-        ) { span in
+            limit: topK,
+            resultCount: \.hits.count
+        ) {
             let snapshot = try await corpus.snapshot()
 
             let (bm25Ranking, bm25Scores) = computeBM25Ranking(snapshot: snapshot, query: query)
@@ -298,7 +299,6 @@ public enum SearchCode {
                 weights: weights,
                 topK: topK
             )
-            span.attributes[CodeContextTracing.AttributeKey.searchResultCount] = hits.count
 
             return SearchCodeResult(
                 query: query,
