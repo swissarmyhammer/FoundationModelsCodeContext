@@ -132,16 +132,19 @@ public enum CodeContextTracing {
         /// The timer that records the duration of each index pass.
         public static let indexDuration = modulePrefix + "index.duration"
 
-        /// The counter that counts the files that the index passes index.
+        /// The counter that counts the indexed files. Its dimension is
+        /// ``AttributeKey/indexLayer``: `treesitter` for the files of the
+        /// index passes, `lsp` for the files of the LSP index workers.
         public static let filesIndexed = modulePrefix + "index.files_indexed"
 
         /// The timer that records the duration of each request to a language
-        /// server. Its dimensions are ``AttributeKey/lspMethod`` and
-        /// ``AttributeKey/lspServer``.
+        /// server. Its dimensions are ``AttributeKey/lspMethod``,
+        /// ``AttributeKey/lspServer`` and ``AttributeKey/lspOutcome``.
         public static let lspRequestDuration = modulePrefix + "lsp.request.duration"
 
         /// The counter that counts each start again of a language server. Its
-        /// dimension is ``AttributeKey/lspServer``.
+        /// dimensions are ``AttributeKey/lspServer`` and
+        /// ``AttributeKey/restartReason``.
         public static let lspServerRestarts = modulePrefix + "lsp.server.restarts"
     }
 

@@ -137,6 +137,25 @@ struct FakeEmbedder: TextEmbedding {
     }
 }
 
+/// The scripted language server of the unit target, which the tests of this
+/// package start as a real `swift <script>` child process. See the header
+/// comment of the script for its script language.
+internal enum ScriptedLSPServer {
+    /// The number of path components from this file to the root of the
+    /// repository. This file is at
+    /// `IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/IntegrationSupport.swift`.
+    private static let repositoryRootDepth = 4
+
+    /// The absolute path of the script.
+    internal static let path: String = {
+        var directory = URL(fileURLWithPath: #filePath)
+        for _ in 0..<repositoryRootDepth {
+            directory.deleteLastPathComponent()
+        }
+        return directory.appending(path: "Tests/FoundationModelsCodeContextTests/Support/scripted-lsp-server.swift").path
+    }()
+}
+
 /// A splitmix64 pseudo-random generator, seeded once and then producing a
 /// repeatable, seed-determined stream. Backs `FakeEmbedder`'s determinism.
 private struct SplitMix64: RandomNumberGenerator {

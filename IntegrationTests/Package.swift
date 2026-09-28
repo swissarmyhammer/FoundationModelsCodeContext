@@ -39,6 +39,10 @@ let package = Package(
         // test from an `InMemoryLogHandler`. Use the same version floor as
         // `../Package.swift`.
         .package(url: "https://github.com/apple/swift-log.git", from: "1.15.1"),
+        // The LSP request metrics test reads the recorded values of the code
+        // under test from a `TestMetrics` factory. Use the same version floor
+        // as `../Package.swift`.
+        .package(url: "https://github.com/apple/swift-metrics.git", from: "2.11.0"),
     ],
     targets: [
         // The live language server suites, and the tests that start a real
@@ -51,6 +55,7 @@ let package = Package(
                 .product(name: "FoundationModelsCodeContext", package: "FoundationModelsCodeContext"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "InMemoryLogging", package: "swift-log"),
+                .product(name: "MetricsTestKit", package: "swift-metrics"),
             ],
             path: "Tests/FoundationModelsCodeContextIntegrationTests"
         )

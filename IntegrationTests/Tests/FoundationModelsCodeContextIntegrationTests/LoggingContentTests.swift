@@ -73,21 +73,6 @@ internal enum CapturedLogRecords {
 /// test also finds its own records through values that are not content, so
 /// it cannot pass when the code writes no record at all.
 internal struct LoggingContentTests {
-    /// The number of path components from this file to the root of the
-    /// repository. This file is at
-    /// `IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/LoggingContentTests.swift`.
-    private static let repositoryRootDepth = 4
-
-    /// The absolute path of the scripted language server of the unit target.
-    /// See the header comment of that file for its script language.
-    private static let scriptedLSPServer: String = {
-        var directory = URL(fileURLWithPath: #filePath)
-        for _ in 0..<repositoryRootDepth {
-            directory.deleteLastPathComponent()
-        }
-        return directory.appending(path: "Tests/FoundationModelsCodeContextTests/Support/scripted-lsp-server.swift").path
-    }()
-
     /// The time that the test waits for the standard error tail to hold the
     /// marker, in seconds. It is the same budget as
     /// `ConnectionTests.recentStderrTailCapturesWhatTheServerPrinted()`.
@@ -114,7 +99,7 @@ internal struct LoggingContentTests {
             ["action": "hang"],
         ]
         let script = String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
-        let connection = try ProcessLanguageServerConnection(command: "swift", arguments: [Self.scriptedLSPServer, script])
+        let connection = try ProcessLanguageServerConnection(command: "swift", arguments: [ScriptedLSPServer.path, script])
 
         let hover = try? await connection.hover(in: DocumentURI("file:///\(marker).swift"), at: Position(line: 0, character: 0))
         let sawStderr = try? await poll(budget: .seconds(Self.stderrBudgetSeconds), interval: .milliseconds(Self.stderrPollIntervalMilliseconds)) {

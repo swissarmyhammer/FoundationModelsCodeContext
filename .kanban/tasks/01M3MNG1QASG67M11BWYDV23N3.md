@@ -96,10 +96,26 @@ comments:
     - evidence: local commit "fix(tests): move the subprocess logging content test to IntegrationTests". Not pushed.
     - next: review
   timestamp: 2026-09-28T20:27:43.244085+00:00
+- actor: claude-code
+  id: 01m3mvcr678jaqc4scb3yht3mx
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit 9c8363c). Counts: findings 0, confirmed 0, refuted 0, attempted 7, failed 0. 3 files reviewed. 2 `.kanban/` files not reviewed (.reviewignore). All prior review findings are checked.
+    - next: The task moved to done. No work remains on this task.
+  timestamp: 2026-09-28T20:30:38.791638+00:00
+- actor: claude-code
+  id: 01m3mvczy5acr3xwqn9nyezx4a
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 3 files (IntegrationTests/Package.swift, IntegrationTests/.../LoggingContentTests.swift new, Tests/.../LoggingContentTests.swift), 1/1 findings checked
+    - test: green — root swift test --parallel 705 passed; IntegrationTests swift test 3 passed; 0 failed, 0 skipped, 0 compiler warnings
+    - commit: 9c8363c
+    - review: clean — 0 findings; task moved to done
+  timestamp: 2026-09-28T20:30:46.725981+00:00
 depends_on:
 - 01M3MNFXGGMN1K0Q2A0SA5VZ5M
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: d080
 title: 'OTel B: replace the os.Logger loggers with swift-log and remove LSP payloads and stderr text from log records'
 ---
 ## What

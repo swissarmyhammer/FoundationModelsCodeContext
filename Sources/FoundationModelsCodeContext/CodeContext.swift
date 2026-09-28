@@ -63,6 +63,10 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// (and its detached-queue teardown) is ever involved.
     private let eventSource: any FileEventSource
 
+    /// Records the duration and the file count of each index pass, and goes to the LSP
+    /// supervisor and the LSP index workers.
+    private let metrics: CodeContextMetrics
+
     /// How long the background index loop idles between passes when nothing new triggered it.
     private static var indexLoopIdleSleep: Duration { .milliseconds(300) }
 
@@ -180,6 +184,9 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///     Defaults to `ProcessInstallRunner()`; tests inject a scripted `FakeInstallRunner` so an
     ///     auto-install integration test never spawns (or has any real side effect from) a real
     ///     installer command.
+    ///   - metrics: Records the metrics of the index passes, the LSP index workers and the LSP
+    ///     daemons. Defaults to `CodeContextMetrics()`, which records into the bootstrapped
+    ///     `MetricsSystem` factory; tests give a `TestMetrics` factory.
     ///   - connectionFactory: Spawns a fresh connection for every LSP daemon the supervisor
     ///     creates. Production code passes `LSPDaemon.processConnectionFactory()`; tests pass one
     ///     backed by `FakeLanguageServerConnection`.
@@ -191,12 +198,14 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         eventSource: any FileEventSource = FSEventsFileEventSource(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
         installRunner: any InstallRunner = ProcessInstallRunner(),
+        metrics: CodeContextMetrics = CodeContextMetrics(),
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) async throws {
         self.rootDirectory = rootDirectory
         self.embedder = embedder
         self.clock = clock
         self.eventSource = eventSource
+        self.metrics = metrics
 
         let store = try Store(rootDirectory: rootDirectory)
         self.store = store
@@ -207,6 +216,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             clock: clock,
             autoInstall: autoInstall,
             installRunner: installRunner,
+            metrics: metrics,
             connectionFactory: connectionFactory
         )
     }
@@ -294,7 +304,8 @@ public actor CodeContext<Connection: LanguageServerConnection> {
                         sessionProvider: { [weak self] in
                             await self?.supervisor.session(forFileExtension: extensions[0])
                         },
-                        clock: self.clock
+                        clock: self.clock,
+                        metrics: self.metrics
                     )
                 }
             }
@@ -827,12 +838,19 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///
     /// Only the pass task calls this method, thus two passes cannot run at the same time. Each
     /// other place that needs a pass calls `requestIndexPass()` or `requestIndexPassAndWait()`.
+    ///
+    /// A complete pass records its duration in `metrics`, and adds the count of files that the
+    /// tree-sitter worker drained under the `treesitter` layer. A pass that throws records
+    /// nothing, because its duration does not measure a complete pass.
     /// - Throws: Rethrows `Store`'s storage errors, and `CancellationError` when the task is
     ///   cancelled during the pass.
     private func runOneIndexPass() async throws {
-        try await TreeSitterWorker.run(store: store, rootDirectory: rootDirectory, embedder: embedder)
+        let started = ContinuousClock.now
+        let filesIndexed = try await TreeSitterWorker.run(store: store, rootDirectory: rootDirectory, embedder: embedder)
         try await markUncoveredLspFilesDone()
         await publishIndexingStatus()
+        metrics.recordIndexPass(duration: started.duration(to: .now))
+        metrics.addFilesIndexed(filesIndexed, layer: .treeSitter)
     }
 
     /// Marks every dirty file whose extension isn't covered by any currently detected LSP server

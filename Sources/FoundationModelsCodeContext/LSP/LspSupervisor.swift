@@ -78,6 +78,9 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// attempts share one instance's at-most-once-per-command dedupe.
     private let installer: ServerInstaller
 
+    /// Goes to each daemon this supervisor creates, which records its restarts in it.
+    private let metrics: CodeContextMetrics
+
     /// Every daemon this supervisor manages, keyed by `ServerSpec.command`.
     private var managedDaemons: [String: ManagedDaemon] = [:]
 
@@ -111,18 +114,22 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     ///     auto-installed. Defaults to `LspAutoInstall()` (enabled, 300-second timeout).
     ///   - installRunner: The process-running seam `installer` drives. Defaults to
     ///     `ProcessInstallRunner()`; tests inject a scripted `FakeInstallRunner`.
+    ///   - metrics: Goes to each daemon this supervisor creates, which records its restarts in it.
+    ///     Defaults to `CodeContextMetrics()`.
     ///   - connectionFactory: Spawns a fresh connection for every daemon this supervisor creates.
     init(
         workspaceRoot: URL,
         clock: any Clock<Duration> = ContinuousClock(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
         installRunner: any InstallRunner = ProcessInstallRunner(),
+        metrics: CodeContextMetrics = CodeContextMetrics(),
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) {
         self.workspaceRoot = workspaceRoot
         self.clock = clock
         self.autoInstall = autoInstall
         self.installer = ServerInstaller(policy: autoInstall, runner: installRunner)
+        self.metrics = metrics
         self.connectionFactory = connectionFactory
     }
 
@@ -231,7 +238,8 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     ///
     /// Guards `!Task.isCancelled` before calling `forceRestart()`, mirroring `startHealthLoop`'s
     /// own pre-restart cancellation check: a `shutdown()` that cancels and awaits this task before
-    /// it reaches that point can never be undone by a subsequent restart.
+    /// it reaches that point can never be undone by a subsequent restart. The restart has the
+    /// reason `install` on the restart counter of the server.
     /// - Parameters:
     ///   - spec: The spec identifying the command to install and, on completion, to restart.
     ///   - daemon: The `.installing` daemon to restart once the install attempt completes.
@@ -241,7 +249,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         return Task {
             _ = await installer.install(spec: spec)
             guard !Task.isCancelled else { return }
-            try? await daemon.forceRestart()
+            try? await daemon.forceRestart(reason: .install)
         }
     }
 
@@ -256,6 +264,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         let root = workspaceRoot
         let daemonClock = clock
         let factory = connectionFactory
+        let daemonMetrics = metrics
         let constructedHook = daemonConstructedHookForTesting
 
         return await withTaskGroup(of: (ServerSpec, LSPDaemon<Connection>).self) { group in
@@ -265,6 +274,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
                         spec: spec,
                         workspaceRoot: root,
                         clock: daemonClock,
+                        metrics: daemonMetrics,
                         connectionFactory: factory
                     )
                     constructedHook?(spec)

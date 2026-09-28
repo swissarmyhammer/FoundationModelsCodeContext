@@ -197,6 +197,9 @@ let package = Package(
                 // `Logger`. The content test bootstraps the handler one time for the test process.
                 .product(name: "Logging", package: loggingPackage),
                 .product(name: "InMemoryLogging", package: loggingPackage),
+                // The metrics tests give a `TestMetrics` factory to the code under test and read
+                // the recorded values from it. They do not bootstrap the global system.
+                .product(name: "MetricsTestKit", package: metricsPackage),
             ],
             path: "Tests/\(packageName)Tests",
             // `scripted-lsp-server.swift` is a standalone script launched via

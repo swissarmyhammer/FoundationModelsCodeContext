@@ -144,6 +144,9 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// The clock `restartWithBackoff()` and the handshake/shutdown timeouts sleep against.
     private let clock: any Clock<Duration>
 
+    /// Gets 1 on the restart counter of this server for each restart attempt.
+    private let metrics: CodeContextMetrics
+
     /// The currently running connection's process-level hooks, or `nil` when not running.
     private var handle: ConnectionHandle<Connection>?
 
@@ -181,17 +184,21 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     ///   - workspaceRoot: The workspace root advertised to the server as its `rootUri`.
     ///   - clock: The clock backoff sleeps, handshake timeouts, and the shutdown grace period
     ///     wait against. Defaults to `ContinuousClock()`; tests inject a `ManualClock`.
+    ///   - metrics: Gets 1 on the restart counter of this server for each restart attempt.
+    ///     Defaults to `CodeContextMetrics()`.
     ///   - connectionFactory: Spawns a fresh connection on every `start()` call. Production code
     ///     passes `processConnectionFactory()`; tests pass one backed by a fake connection.
     init(
         spec: ServerSpec,
         workspaceRoot: URL,
         clock: any Clock<Duration> = ContinuousClock(),
+        metrics: CodeContextMetrics = CodeContextMetrics(),
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) {
         self.spec = spec
         self.workspaceRoot = workspaceRoot
         self.clock = clock
+        self.metrics = metrics
         self.connectionFactory = connectionFactory
         self.shutdownGrace = Self.defaultShutdownGrace
         let (stream, continuation) = AsyncStream.makeStream(of: LSPDaemonState.self)
@@ -350,6 +357,10 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// is `backoffDuration(forAttempt:)` evaluated at the current `consecutiveFailures` count (1s,
     /// 2s, 4s, 8s, 16s, 32s, capped at 60s), and the daemon gives up once `consecutiveFailures` has
     /// reached `maxConsecutiveFailures` (5) — the state stays `.failed` until `forceRestart()`.
+    ///
+    /// Each attempt that passes the backoff delay adds 1 to the restart counter of this server,
+    /// with the reason `health`, before `start()` runs. An attempt that the failure budget refuses,
+    /// or whose delay is cancelled, adds nothing.
     /// - Throws: `CodeContextError.handshakeFailed` if the failure budget is already exhausted;
     ///   otherwise whatever `start()` throws.
     func restartWithBackoff() async throws {
@@ -360,6 +371,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
         }
         let delay = Self.backoffDuration(forAttempt: consecutiveFailures)
         try await clock.sleep(for: delay)
+        metrics.addServerRestart(server: spec.command, reason: .health)
         try await start()
     }
 
@@ -368,12 +380,16 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// missing.
     ///
     /// Shuts down the current process (if any), then starts fresh — bypassing the backoff delay
-    /// entirely, per `swissarmyhammer-lsp`'s `force_restart`.
+    /// entirely, per `swissarmyhammer-lsp`'s `force_restart`. Adds 1 to the restart counter of
+    /// this server, with `reason`, before `start()` runs.
+    /// - Parameter reason: Why the server starts again. Defaults to `.forced`, a restart that a
+    ///   caller asked for; the supervisor gives `.install` after an automatic install.
     /// - Throws: Whatever `start()` throws.
-    func forceRestart() async throws {
+    func forceRestart(reason: CodeContextMetrics.RestartReason = .forced) async throws {
         await shutdown()
         consecutiveFailures = 0
         hasWarnedNotFound = false
+        metrics.addServerRestart(server: spec.command, reason: reason)
         try await start()
     }
 
@@ -550,19 +566,24 @@ extension LSPDaemon where Connection == ProcessLanguageServerConnection {
     /// into a `ConnectionHandle` so `LSPDaemon` can drive it without knowing about `Process`
     /// directly. `close()` doubles as the "terminate" hook: it already tears down the process and
     /// every pipe.
-    /// - Parameter clock: The clock the spawned connection's own per-request timeout sleeps
-    ///   against. Defaults to `ContinuousClock()`.
+    /// - Parameters:
+    ///   - clock: The clock the spawned connection's own per-request timeout sleeps against.
+    ///     Defaults to `ContinuousClock()`.
+    ///   - metrics: Gets the duration of each request of each spawned connection. Defaults to
+    ///     `CodeContextMetrics()`.
     /// - Returns: A factory that spawns `spec.command` with `spec.arguments` as a real child process,
     ///   ignoring the workspace root (the connection itself is workspace-agnostic; the daemon
     ///   passes the root separately to the `initialize` handshake).
     static func processConnectionFactory(
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        metrics: CodeContextMetrics = CodeContextMetrics()
     ) -> ConnectionFactory<ProcessLanguageServerConnection> {
         { spec, _ in
             let connection = try ProcessLanguageServerConnection(
                 command: spec.command,
                 arguments: spec.arguments,
-                clock: clock
+                clock: clock,
+                metrics: metrics
             )
             return ConnectionHandle(
                 connection: connection,

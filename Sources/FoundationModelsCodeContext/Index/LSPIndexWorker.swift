@@ -128,6 +128,8 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///     Defaults to `LSPIndexWorkerConfiguration()`.
     ///   - clock: The clock idle/unavailable sleeps wait against. Defaults
     ///     to `ContinuousClock()`; tests inject a `ManualClock`.
+    ///   - metrics: Gets the count of the files that each batch indexed,
+    ///     under the `lsp` layer. Defaults to `CodeContextMetrics()`.
     /// - Throws: Rethrows `Store`'s storage errors, or `CancellationError`
     ///   if the calling task is cancelled while sleeping.
     static func run(
@@ -136,7 +138,8 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         extensions: [String],
         sessionProvider: @escaping @Sendable () async -> LspSession<Connection>?,
         configuration: LSPIndexWorkerConfiguration = LSPIndexWorkerConfiguration(),
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        metrics: CodeContextMetrics = CodeContextMetrics()
     ) async throws {
         while !Task.isCancelled {
             let dirtyPaths = try await dirtyFiles(store: store, extensions: extensions, limit: configuration.batchSize)
@@ -150,10 +153,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
                 continue
             }
 
-            for relativePath in dirtyPaths {
-                guard !Task.isCancelled else { return }
-                await processFile(relativePath: relativePath, rootDirectory: rootDirectory, session: session, store: store)
-            }
+            await indexFiles(dirtyPaths, rootDirectory: rootDirectory, session: session, store: store, metrics: metrics)
         }
     }
 
@@ -172,6 +172,8 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///   - session: The live session to index through.
     ///   - configuration: Supplies `batchSize`. Defaults to
     ///     `LSPIndexWorkerConfiguration()`.
+    ///   - metrics: Gets the count of the files that the batch indexed,
+    ///     under the `lsp` layer. Defaults to `CodeContextMetrics()`.
     /// - Returns: The number of dirty files successfully indexed and marked
     ///   `lsp_indexed = 1` this pass — excludes any file left dirty after a
     ///   connection error.
@@ -183,17 +185,44 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         rootDirectory: URL,
         extensions: [String],
         session: LspSession<Connection>,
-        configuration: LSPIndexWorkerConfiguration = LSPIndexWorkerConfiguration()
+        configuration: LSPIndexWorkerConfiguration = LSPIndexWorkerConfiguration(),
+        metrics: CodeContextMetrics = CodeContextMetrics()
     ) async throws -> Int {
         let dirtyPaths = try await dirtyFiles(store: store, extensions: extensions, limit: configuration.batchSize)
+        return await indexFiles(dirtyPaths, rootDirectory: rootDirectory, session: session, store: store, metrics: metrics)
+    }
 
+    /// Indexes each file of one batch in order, then adds the count of the
+    /// files that are now `lsp_indexed = 1` to `metrics`, under the `lsp`
+    /// layer.
+    ///
+    /// The shared body of `run(...)` and `drainBatch(...)`. It stops before
+    /// the next file when the calling task is cancelled, and it records the
+    /// files that it indexed before the stop.
+    /// - Parameters:
+    ///   - relativePaths: The dirty files of the batch, relative to
+    ///     `rootDirectory`.
+    ///   - rootDirectory: The workspace root the paths are relative to.
+    ///   - session: The live session to index through.
+    ///   - store: The workspace's index store to write into.
+    ///   - metrics: Gets the count of the indexed files.
+    /// - Returns: The number of files that are now `lsp_indexed = 1`.
+    @discardableResult
+    private static func indexFiles(
+        _ relativePaths: [String],
+        rootDirectory: URL,
+        session: LspSession<Connection>,
+        store: Store,
+        metrics: CodeContextMetrics
+    ) async -> Int {
         var indexedCount = 0
-        for relativePath in dirtyPaths {
-            let indexed = await processFile(relativePath: relativePath, rootDirectory: rootDirectory, session: session, store: store)
-            if indexed {
+        for relativePath in relativePaths {
+            guard !Task.isCancelled else { break }
+            if await processFile(relativePath: relativePath, rootDirectory: rootDirectory, session: session, store: store) {
                 indexedCount += 1
             }
         }
+        metrics.addFilesIndexed(indexedCount, layer: .lsp)
         return indexedCount
     }
 

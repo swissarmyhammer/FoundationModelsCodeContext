@@ -78,7 +78,7 @@ final class PendingRequestTable: @unchecked Sendable {
     ///
     /// Used exclusively by the reader loop's `route(message:serverName:pendingRequests:notificationContinuation:)`
     /// — the one caller whose response can legitimately arrive before the matching request has
-    /// finished registering its continuation. `performRequest` writes a request to the child
+    /// finished registering its continuation. `sendRequest` writes a request to the child
     /// process's stdin, then separately spawns the task that registers a continuation to await
     /// its reply; nothing enforces that the second step wins the race against a real round trip,
     /// especially once the cooperative thread pool is busy running hundreds of other concurrent
@@ -130,7 +130,9 @@ final class PendingRequestTable: @unchecked Sendable {
 /// with only their method name, request id, direction and byte size, never the payload.
 /// Every request races against an injectable `Clock`-driven timeout
 /// (30 seconds by default), so a server that never answers fails the caller
-/// rather than hanging it forever.
+/// rather than hanging it forever. Each request records its duration in the
+/// injected `CodeContextMetrics`, with the method name, the server name and the
+/// outcome as dimensions.
 public actor ProcessLanguageServerConnection: LanguageServerConnection {
     private let process: Process
     private let stdinHandle: FileHandle
@@ -140,6 +142,9 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     private nonisolated let stderrTailBuffer = BoundedTailBuffer(maxChunks: 20)
     private let requestTimeout: Duration
     private let clock: any Clock<Duration>
+
+    /// Gets the duration of each request, with the method name, the server name and the outcome.
+    private let metrics: CodeContextMetrics
     private var nextRequestID = 0
     private var readerTask: Task<Void, Never>?
     private var stderrTask: Task<Void, Never>?
@@ -169,12 +174,15 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///     `CodeContextError.timeout`. Defaults to 30 seconds.
     ///   - clock: The clock used to schedule the request timeout. Defaults to `ContinuousClock()`;
     ///     tests inject a `ManualClock` to exercise the timeout without waiting in real time.
+    ///   - metrics: Gets the duration of each request. Defaults to `CodeContextMetrics()`, which
+    ///     records into the bootstrapped `MetricsSystem` factory; tests give a `TestMetrics` factory.
     /// - Throws: `CodeContextError.spawnFailed` if the process could not be launched.
     init(
         command: String,
         arguments: [String] = [],
         requestTimeout: Duration = .seconds(30),
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        metrics: CodeContextMetrics = CodeContextMetrics()
     ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ProcessUtilities.envExecutablePath)
@@ -201,6 +209,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         self.stderrHandle = stderrPipe.fileHandleForReading
         self.requestTimeout = requestTimeout
         self.clock = clock
+        self.metrics = metrics
 
         let (notificationStream, continuation) = AsyncStream.makeStream(of: ServerNotification.self)
         self.serverNotifications = notificationStream
@@ -434,8 +443,9 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// Pulls the current diagnostics for a document via `textDocument/diagnostic`.
     public func pullDiagnostics(for uri: DocumentURI) async throws -> [Diagnostic] {
         let params = DocumentDiagnosticParams(textDocument: TextDocumentIdentifier(uri: uri))
-        let (id, data) = try await performRequest(method: "textDocument/diagnostic", params: params)
-        let resultData = try Self.rawResultData(from: data, expectedID: id)
+        let resultData = try await performRequest(method: "textDocument/diagnostic", params: params) { data, id in
+            try Self.rawResultData(from: data, expectedID: id)
+        }
         return DiagnosticsParsing.parseDiagnosticsFromResult(from: resultData)
     }
 
@@ -515,22 +525,59 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///   `CodeContextError.timeout` if no response arrived in time; a `DecodingError` if
     ///   `result` doesn't match `resultType`.
     private func request<Params: Encodable, Result: Decodable>(method: String, params: Params, resultType: Result.Type) async throws -> Result {
-        let (id, data) = try await performRequest(method: method, params: params)
-        return try JSONRPCFraming.decodeResult(as: resultType, from: data, expectedID: id)
+        try await performRequest(method: method, params: params) { data, id in
+            try JSONRPCFraming.decodeResult(as: resultType, from: data, expectedID: id)
+        }
+    }
+
+    /// Sends a request, waits for its response and decodes the response with `decode`, and
+    /// records the duration of the whole request in `metrics`.
+    ///
+    /// The one path of each request. `request(method:params:resultType:)` gives a typed decode;
+    /// `pullDiagnostics(for:)` gives the raw `result` bytes, because
+    /// `DiagnosticsParsing.parseDiagnosticsFromResult` parses them leniently. The timer includes
+    /// the decode, so a server error response, which the decode throws, has the outcome `error`.
+    /// - Parameters:
+    ///   - method: The JSON-RPC method name.
+    ///   - params: The request's parameters.
+    ///   - decode: Makes the result from the raw response message bytes and the request id.
+    /// - Returns: The result that `decode` makes.
+    /// - Throws: `CodeContextError.notRunning` if the connection can't write to the process;
+    ///   `CodeContextError.timeout` if no response arrived in time; whatever `decode` throws.
+    private func performRequest<Params: Encodable, Output>(
+        method: String,
+        params: Params,
+        decode: (_ data: Data, _ id: Int) throws -> Output
+    ) async throws -> Output {
+        let started = ContinuousClock.now
+        do {
+            let (id, data) = try await sendRequest(method: method, params: params)
+            let output = try decode(data, id)
+            recordRequest(method: method, since: started, outcome: .ok)
+            return output
+        } catch {
+            recordRequest(method: method, since: started, outcome: CodeContextMetrics.LSPRequestOutcome(classifying: error))
+            throw error
+        }
+    }
+
+    /// Records the duration of one request in `metrics`.
+    /// - Parameters:
+    ///   - method: The JSON-RPC method name of the request.
+    ///   - started: The time at which the request started.
+    ///   - outcome: How the request ended.
+    private func recordRequest(method: String, since started: ContinuousClock.Instant, outcome: CodeContextMetrics.LSPRequestOutcome) {
+        metrics.recordLSPRequest(duration: started.duration(to: .now), method: method, server: serverName, outcome: outcome)
     }
 
     /// Sends a request and returns its raw response payload, unresolved to a typed result.
-    ///
-    /// Only `pullDiagnostics(for:)` needs this: `textDocument/diagnostic`'s lenient parsing
-    /// (`DiagnosticsParsing.parseDiagnosticsFromResult`) operates on the raw `result` bytes, not
-    /// a fully-typed decode.
     /// - Parameters:
     ///   - method: The JSON-RPC method name.
     ///   - params: The request's parameters.
     /// - Returns: The request's id and the raw response message bytes.
     /// - Throws: `CodeContextError.notRunning` if the connection can't write to the process;
     ///   `CodeContextError.timeout` if no response arrived in time.
-    private func performRequest<Params: Encodable>(method: String, params: Params) async throws -> (id: Int, data: Data) {
+    private func sendRequest<Params: Encodable>(method: String, params: Params) async throws -> (id: Int, data: Data) {
         let id = allocateRequestID()
         let envelope = JSONRPCRequestEnvelope(id: id, method: method, params: params)
         let payload = try JSONEncoder().encode(envelope)
