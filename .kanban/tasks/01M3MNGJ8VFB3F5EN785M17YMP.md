@@ -129,12 +129,28 @@ comments:
     - not pushed. Files .claude/ and .kanban/mcp.*.log are not committed.
     - next: review
   timestamp: 2026-09-29T12:36:50.229110+00:00
+- actor: claude-code
+  id: 01m3pjvm0dprd7ptqzd86wxxqt
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit c281639). 4 files reviewed, 7 validator runs attempted, 0 failed. Counts: findings 0, confirmed 0, refuted 0. The 2 prior findings (code-hygiene/idioms-swift) are checked.
+    - next: The task moved to done. No more work is necessary.
+  timestamp: 2026-09-29T12:39:57.709084+00:00
+- actor: claude-code
+  id: 01m3pjvz6wja8dwpz0s1dyv6j9
+  text: |-
+    ### finish iteration 3 — clean
+    - implement: changed — 2 files (both TelemetryContentSafetyTests.swift: .forEach replaced with for-in over a Mirror read of SpanAttributes storage), 2/2 findings checked
+    - test: green — root swift test --parallel 725 passed; IntegrationTests swift test 9 passed; 0 failed, 0 skipped, 0 compiler warnings. The test step moved realFSEventsDetectsFileWriteAndMarksItDirty to IntegrationTests (load-sensitive; failed 1 time in one integration run).
+    - commit: c281639
+    - review: clean — 0 findings; task moved to done
+  timestamp: 2026-09-29T12:40:09.180670+00:00
 depends_on:
 - 01M3MNG1QASG67M11BWYDV23N3
 - 01M3MNGDM83M4WET55KH1CN8B7
 - 01M3MNG1X8Q7JBS420THQ974FH
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: d380
 title: 'OTel E: add the content-safety test for spans, logs and metrics of this package'
 ---
 ## What
