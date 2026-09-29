@@ -77,6 +77,58 @@ comments:
     - evidence: local commit "test(telemetry): add content-safety tests for spans, logs and metrics" (not pushed)
     - next: review
   timestamp: 2026-09-29T12:06:20.459576+00:00
+- actor: claude-code
+  id: 01m3ph7xah7w2q3pyvc8ehj79f
+  text: |-
+    ### review — findings
+    - evidence: `review sha HEAD~1..HEAD` (commit d384710). 2 findings, 2 confirmed, 0 refuted. IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/TelemetryContentSafetyTests.swift:67, Tests/FoundationModelsCodeContextTests/TelemetryContentSafetyTests.swift:68 (`code-hygiene/idioms-swift` ReplaceForEachWithForLoop).
+    - next: Replace each `.forEach { ... }` with a for-in loop in both files. Then commit and review again. The task stays in review.
+  timestamp: 2026-09-29T12:11:43.313816+00:00
+- actor: claude-code
+  id: 01m3ph89r802vhh02whn1w406r
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 3 files (unit TelemetryContentSafetyTests.swift new, IntegrationTests TelemetryContentSafetyTests.swift new, CodeContextTracing.swift doc comment)
+    - test: green — root swift test --parallel 726 passed; IntegrationTests swift test 8 passed; 0 failed, 0 skipped, 0 compiler warnings
+    - commit: d384710
+    - review: findings — IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/TelemetryContentSafetyTests.swift:67, Tests/FoundationModelsCodeContextTests/TelemetryContentSafetyTests.swift:68 (code-hygiene/idioms-swift)
+  timestamp: 2026-09-29T12:11:56.040289+00:00
+- actor: claude-code
+  id: 01m3phn163m6bdkc7d0yk2ywv6
+  text: |-
+    Review-finding fix (implement step):
+    - Finding 1: `IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/TelemetryContentSafetyTests.swift:67` `code-hygiene/idioms-swift` — ReplaceForEachWithForLoop: replace use of '.forEach { ... }' with for-in loop.
+    - Finding 2: `Tests/FoundationModelsCodeContextTests/TelemetryContentSafetyTests.swift:68` `code-hygiene/idioms-swift` — ReplaceForEachWithForLoop: replace use of '.forEach { ... }' with for-in loop.
+    - Discovery: `SpanAttributes` (swift-distributed-tracing) is not a `Sequence`. Its storage `_attributes: [String: SpanAttribute]` is private, and its only public walk is `forEach(_:)`. Thus a for-in loop cannot walk it directly.
+    - Fix: `attributePlaces(of:owner:)` in both files now reads the storage dictionary through `Mirror(reflecting:).descendant("_attributes")` (named constant `attributeStorageLabel`) and walks it with a for-in loop. If the storage has a different form in a later release, the function gives the full text of the attributes as one place, so no attribute goes out of the check. Each file had only this one `.forEach` call. No other `.forEach` is in either file now.
+    - Deliberate-leak check, done and reverted: the embed span got the first input text as the attribute `probe.leak`. The unit test failed with 2 leaks, each shown as `span FoundationModelsCodeContext.embed probe.leak = string(...)`. This proves that the Mirror path (not the fallback) runs. `git status -- Sources` is clean after the revert.
+  timestamp: 2026-09-29T12:18:53.251966+00:00
+- actor: claude-code
+  id: 01m3phn38h7ec2vszadgbg930v
+  text: |-
+    ### implement — changed
+    - evidence: 2 files — Tests/FoundationModelsCodeContextTests/TelemetryContentSafetyTests.swift, IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/TelemetryContentSafetyTests.swift. Root `swift test --parallel`: 726 tests in 68 suites passed, 0 compiler warnings. `IntegrationTests/` `swift test`: 8 tests in 6 suites passed, 0 compiler warnings. Both review findings flipped to `- [x]`.
+    - next: /review. Task stays in doing. Not committed.
+  timestamp: 2026-09-29T12:18:55.377896+00:00
+- actor: claude-code
+  id: 01m3pjnc1qn7hwx5p2q2zrt1m0
+  text: |-
+    ### test — green
+    - evidence: root package `swift test --parallel`: 725 tests in 68 suites passed, 0 failed, 0 skipped. Integration package `swift test` in IntegrationTests: 9 tests in 7 suites passed, 0 failed, 0 skipped. The only warnings are SwiftPM messages "failed loading/storing cached manifest ... disk I/O error". They come from the manifest cache of this sandbox, not from the code. No compiler warning.
+    - fix: `realFSEventsDetectsFileWriteAndMarksItDirty` in Tests/FoundationModelsCodeContextTests/WatcherTests.swift failed in 2 of 2 full parallel runs (dirty == []) and was skipped in 1 subset run (the FSEvents probe found no delivery). It passed alone. The cause is the real fseventsd delivery: it is slow and intermittent when many tests run at once. A test that skips or fails with load is not acceptable in the unit target. I moved the test to IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/RealFSEventsWatcherTests.swift, removed the runtime skip probe (`fsEventsAreDeliverable`), and updated the header comment of WatcherTests. The moved test uses named constants and a 30 second delivery budget.
+    - risk: in one full run of the integration package the moved test failed after 30 seconds (dirty == []) while the SourceKit test ran at the same time. Two later full runs and three isolated runs passed (2.7 to 10 seconds). Delivery time depends on the load of the machine. I did not find a deterministic cause and I did not repeat runs. If CI shows it again, serialize this test against the live SourceKit suite.
+    - next: review. No commit and no push made. No `swift format` run.
+  timestamp: 2026-09-29T12:36:32.951056+00:00
+- actor: claude-code
+  id: 01m3pjnwxn58cktaz7yy0vmemn
+  text: |-
+    ### commit — changed
+    - evidence: One local commit holds this iteration. Subject: test(telemetry): use for-in loops and move real FSEvents test to integration target
+    - change 1: Both TelemetryContentSafetyTests.swift files now use for-in loops in place of .forEach. This fixes two code-hygiene and idioms-swift review findings.
+    - change 2: The test realFSEventsDetectsFileWriteAndMarksItDirty moved from WatcherTests.swift (unit target) to IntegrationTests RealFSEventsWatcherTests.swift. The test is sensitive to load.
+    - not pushed. Files .claude/ and .kanban/mcp.*.log are not committed.
+    - next: review
+  timestamp: 2026-09-29T12:36:50.229110+00:00
 depends_on:
 - 01M3MNG1QASG67M11BWYDV23N3
 - 01M3MNGDM83M4WET55KH1CN8B7
@@ -126,3 +178,13 @@ Do this:
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
 - Do not run `swift format`.
+
+## Review Findings (2026-09-29 07:06)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 3 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/TelemetryContentSafetyTests.swift:67` `code-hygiene/idioms-swift` — ReplaceForEachWithForLoop: replace use of '.forEach { ... }' with for-in loop.
+- [x] `Tests/FoundationModelsCodeContextTests/TelemetryContentSafetyTests.swift:68` `code-hygiene/idioms-swift` — ReplaceForEachWithForLoop: replace use of '.forEach { ... }' with for-in loop.

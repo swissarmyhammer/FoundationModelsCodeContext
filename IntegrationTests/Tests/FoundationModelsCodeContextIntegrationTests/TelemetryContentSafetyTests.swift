@@ -61,14 +61,25 @@ internal enum TelemetryContentCheck {
     ///   - owner: The text that names the span or the event.
     /// - Returns: One line of text for each attribute.
     private static func attributePlaces(of attributes: SpanAttributes, owner: String) -> [String] {
-        // `SpanAttributes` is not a `Sequence`. `forEach` is its only walk of the attributes, thus
-        // the walk collects them into an array.
+        // `SpanAttributes` is not a `Sequence`, and its only public walk is a closure. A for-in loop
+        // needs the dictionary of the attributes, thus the function reads it through a `Mirror`.
+        // If the storage has a different form, the function gives the full text of the attributes
+        // as one place. Thus no attribute goes out of the check.
+        guard
+            let storage = Mirror(reflecting: attributes).descendant(attributeStorageLabel)
+                as? [String: SpanAttribute]
+        else {
+            return ["\(owner) attributes = \(attributes)"]
+        }
         var places: [String] = []
-        attributes.forEach { key, value in
+        for (key, value) in storage {
             places.append("\(owner) \(key) = \(value)")
         }
         return places
     }
+
+    /// The label of the stored property of `SpanAttributes` that holds the attributes.
+    private static let attributeStorageLabel = "_attributes"
 
     /// Gives the places of the metrics of `metrics`: the name and each dimension of each metric.
     /// - Parameter metrics: The factory that holds the metrics.
