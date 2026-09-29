@@ -38,6 +38,21 @@ import Tracing
 ///
 /// Before you add a key or a name here, make sure that the value it carries is
 /// an identifier, a name, a count or a size.
+///
+/// Two tests prove this rule. Each test puts a marker text in the content,
+/// runs the telemetry paths, and fails on each span name and attribute, log
+/// message and metadata value, and metric name and dimension that holds the
+/// marker:
+///
+/// - `TelemetryContentSafetyTests` in the unit test target uses fakes. It runs
+///   an index pass with embed calls, a watcher batch, a search, a symbol search
+///   and a grep, a forced restart of a language server, and requests through an
+///   LSP session.
+/// - `TelemetryContentSafetyTests` in the `IntegrationTests` package starts a
+///   real scripted language server. It sends requests through
+///   `ProcessLanguageServerConnection`, and it checks the `lspRequest` spans,
+///   the `lsp-wire` records, the standard error records and the
+///   `lsp.request.duration` timers.
 public enum CodeContextTracing {
     /// The text that each span name, each metric name and each logger label
     /// starts with.

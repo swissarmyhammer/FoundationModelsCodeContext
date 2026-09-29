@@ -97,11 +97,28 @@ comments:
     - evidence: local commit "refactor(tracing): share one search span helper" (sha is in git log)
     - next: review. The commit is local. It is not pushed.
   timestamp: 2026-09-28T22:02:39.794931+00:00
+- actor: claude-code
+  id: 01m3n0vnrtw1wz446phywyz16b
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit c7aa309). 4 files reviewed, 2 files in `.kanban/` not reviewed (ignore rule). Counts: 0 findings, 0 confirmed, 0 refuted, 7 attempted, 0 failed. The prior finding `duplication/duplication` at `Sources/FoundationModelsCodeContext/CodeContext.swift:486` is checked.
+    - next: The task moved to `done`. One Tests subtask is not checked: "the enter record exists for the LSP request". A person must decide if this subtask stays open work.
+  timestamp: 2026-09-28T22:06:10.714332+00:00
+- actor: claude-code
+  id: 01m3n0vz5b1kcrvrj611tm6cj2
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 4 files (CodeContextSpans.swift withSearchSpan helper, CodeContext.swift, SearchCode.swift, TracingSpanTests.swift), 1/1 findings checked
+    - test: green — root swift test --parallel 725 passed; IntegrationTests swift test 7 passed; 0 failed, 0 skipped, 0 compiler warnings
+    - commit: c7aa309
+    - review: clean — 0 findings; task moved to done
+    - open for a person: one subtask stays unchecked — the LSP "enter" record test uses CapturedLogRecords, not the Extras TelemetryCapture, because TelemetryCapture sets up logging a second time and stops the test process.
+  timestamp: 2026-09-28T22:06:20.331194+00:00
 depends_on:
 - 01M3MNFXGGMN1K0Q2A0SA5VZ5M
 - 01M3MNG1QASG67M11BWYDV23N3
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: d280
 title: 'OTel C: add spans for the index pass, the watcher batch, each LSP request, each embed call and each search'
 ---
 ## What
