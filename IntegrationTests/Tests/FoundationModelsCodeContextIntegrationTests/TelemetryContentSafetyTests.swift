@@ -17,8 +17,8 @@ import Tracing
 /// The check reads three stores: the finished spans of an explicit `InMemoryTracer`, the metrics
 /// of an explicit `TestMetrics` factory, and the log records of `CapturedLogRecords`, which this
 /// test process sets up one time. The log capture holds the records of all the tasks of the
-/// process, also of a detached task. The standard error loop and the reader loop of
-/// `ProcessLanguageServerConnection` write their records from detached tasks.
+/// process, also of a background thread. The standard error loop and the reader loop of
+/// `ProcessLanguageServerConnection` write their records from dedicated threads.
 internal enum TelemetryContentCheck {
     /// Gives each telemetry place that holds `marker`.
     ///
@@ -117,9 +117,6 @@ internal enum TelemetryContentCheck {
 /// connection. It reads the log records from `CapturedLogRecords`, which this test process sets up
 /// one time.
 internal struct TelemetryContentSafetyTests {
-    /// The command that starts the scripted server.
-    private static let serverCommand = "swift"
-
     /// The JSON-RPC method name of each request of the test.
     private static let hoverMethod = "textDocument/hover"
 
@@ -133,33 +130,23 @@ internal struct TelemetryContentSafetyTests {
     /// The number of requests that the test sends: one gets an answer, and one gets an error.
     private static let requestCount = 2
 
-    /// The time that the test waits for the standard error tail to hold the marker, in seconds.
-    /// It is the same budget as the logging content test of this package.
-    private static let stderrBudgetSeconds = 60
-
-    /// The time between two polls of the standard error tail, in milliseconds.
-    private static let stderrPollIntervalMilliseconds = 10
-
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     internal func aRequestToALanguageServerPutsNoContentInTheTelemetry() async throws {
         _ = CapturedLogRecords.handler
         let marker = Self.makeMarker()
         let tracer = InMemoryTracer()
         let metrics = TestMetrics()
-        let connection = try ProcessLanguageServerConnection(
-            command: Self.serverCommand,
-            arguments: [ScriptedLSPServer.path, try Self.script(holding: marker)],
+        let uri = DocumentURI("file:///\(marker).swift")
+
+        let (hover, failedHover, sawStderr) = try await ScriptedLSPServer.withConnection(
+            steps: Self.steps(holding: marker),
             metrics: CodeContextMetrics(factory: metrics),
             tracer: tracer
-        )
-
-        let uri = DocumentURI("file:///\(marker).swift")
-        let hover = try? await connection.hover(in: uri, at: Position(line: 0, character: 0))
-        let failedHover = try? await connection.hover(in: uri, at: Position(line: 0, character: 0))
-        let sawStderr = try? await poll(budget: .seconds(Self.stderrBudgetSeconds), interval: .milliseconds(Self.stderrPollIntervalMilliseconds)) {
-            connection.recentStderrTail().contains(marker)
+        ) { connection in
+            let hover = try? await connection.hover(in: uri, at: Position(line: 0, character: 0))
+            let failedHover = try? await connection.hover(in: uri, at: Position(line: 0, character: 0))
+            return (hover, failedHover, try await ScriptedLSPServer.waitForStderr(holding: marker, of: connection))
         }
-        await connection.close()
 
         #expect(hover?.contents == marker)
         #expect(failedHover == nil)
@@ -180,14 +167,13 @@ internal struct TelemetryContentSafetyTests {
         "cck-telemetry-marker-\(UUID().uuidString)"
     }
 
-    /// Gives the script of the scripted server. The server writes `marker` to its standard error,
-    /// answers the first request with `marker` and answers the second request with an error whose
-    /// message is `marker`.
+    /// Gives the script steps of the scripted server. The server writes `marker` to its standard
+    /// error, answers the first request with `marker` and answers the second request with an
+    /// error whose message is `marker`.
     /// - Parameter marker: The marker text.
-    /// - Returns: The script as JSON text.
-    /// - Throws: When the script cannot be encoded as JSON.
-    private static func script(holding marker: String) throws -> String {
-        let steps: [[String: Any]] = [
+    /// - Returns: The script steps.
+    private static func steps(holding marker: String) -> [[String: Any]] {
+        [
             ["action": "stderr", "text": marker],
             ["action": "read"],
             ["action": "notify", "method": "window/logMessage", "params": ["type": infoMessageType, "message": marker]],
@@ -196,7 +182,6 @@ internal struct TelemetryContentSafetyTests {
             ["action": "respondError", "which": 1, "code": internalErrorCode, "message": marker],
             ["action": "hang"],
         ]
-        return String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
     }
 
     /// Gives the standard error records of a chunk that has the size of `marker`. The test fails

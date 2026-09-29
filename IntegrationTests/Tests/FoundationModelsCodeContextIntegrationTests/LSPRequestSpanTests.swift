@@ -23,10 +23,6 @@ internal struct LSPRequestSpanTests {
     /// The JSON-RPC method name of the request that each test sends.
     private static let hoverMethod = "textDocument/hover"
 
-    /// The command that starts the scripted server. It is the value of the
-    /// server attribute.
-    private static let serverCommand = "swift"
-
     /// The hover text that the scripted server sends back.
     private static let hoverText = "scripted hover"
 
@@ -41,7 +37,7 @@ internal struct LSPRequestSpanTests {
     /// The message of the "enter" record of each request.
     private static let enterMessage = "enter \(CodeContextTracing.SpanName.lspRequest)"
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     internal func aRequestToAScriptedServerGivesOneClientSpanWithTheMethodName() async throws {
         let tracer = InMemoryTracer()
 
@@ -54,14 +50,14 @@ internal struct LSPRequestSpanTests {
         let span = try Self.onlyRequestSpan(in: tracer)
         #expect(span.kind == .client)
         #expect(span.attributes.get(CodeContextTracing.AttributeKey.lspMethod) == .string(Self.hoverMethod))
-        #expect(span.attributes.get(CodeContextTracing.AttributeKey.lspServer) == .string(Self.serverCommand))
+        #expect(span.attributes.get(CodeContextTracing.AttributeKey.lspServer) == .string(ScriptedLSPServer.command))
         #expect(span.attributes.get(CodeContextTracing.AttributeKey.lspRequestId) != nil)
         #expect(try #require(Self.intValue(of: CodeContextTracing.AttributeKey.lspRequestBytes, in: span)) > 0)
         #expect(try #require(Self.intValue(of: CodeContextTracing.AttributeKey.lspResponseBytes, in: span)) > 0)
         #expect(span.errors.isEmpty)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     internal func aScriptedErrorResponseRecordsOnlyTheErrorTypeOnTheSpan() async throws {
         let tracer = InMemoryTracer()
 
@@ -79,7 +75,7 @@ internal struct LSPRequestSpanTests {
         #expect(span.status?.code == .error)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     internal func aRequestWritesAnEnterRecordBeforeItIsSent() async throws {
         _ = CapturedLogRecords.handler
 
@@ -90,7 +86,7 @@ internal struct LSPRequestSpanTests {
 
         let records = CapturedLogRecords.entries(matching: [
             CodeContextTracing.MetadataKey.lspMethod: Self.hoverMethod,
-            CodeContextTracing.MetadataKey.lspServer: Self.serverCommand,
+            CodeContextTracing.MetadataKey.lspServer: ScriptedLSPServer.command,
         ])
         #expect(records.contains { $0.message.description == Self.enterMessage })
     }
@@ -104,19 +100,8 @@ internal struct LSPRequestSpanTests {
     /// - Throws: The error of the request.
     private static func sendHover(answeredBy answer: [String: Any], tracer: InMemoryTracer) async throws -> Hover? {
         let steps: [[String: Any]] = [["action": "read"], answer, ["action": "hang"]]
-        let script = String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
-        let connection = try ProcessLanguageServerConnection(
-            command: serverCommand,
-            arguments: [ScriptedLSPServer.path, script],
-            tracer: tracer
-        )
-        do {
-            let hover = try await connection.hover(in: DocumentURI("file:///Sample.swift"), at: Position(line: 0, character: 0))
-            await connection.close()
-            return hover
-        } catch {
-            await connection.close()
-            throw error
+        return try await ScriptedLSPServer.withConnection(steps: steps, tracer: tracer) { connection in
+            try await connection.hover(in: DocumentURI("file:///Sample.swift"), at: Position(line: 0, character: 0))
         }
     }
 

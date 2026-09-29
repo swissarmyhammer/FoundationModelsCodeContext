@@ -170,7 +170,9 @@ struct ProcessInstallRunner: InstallRunner {
 
         let tailBuffer = BoundedTailBuffer(maxChunks: 40)
         let outputFileDescriptor = outputPipe.fileHandleForReading.fileDescriptor
-        let drainTask = Task.detached {
+        // A dedicated thread, not a pool thread: the drain blocks in `read(2)` until the
+        // installer exits. See `ProcessUtilities.runOnDedicatedThread(name:_:)`.
+        let drainTask = ProcessUtilities.runOnDedicatedThread(name: "install-output-drain") {
             Self.drainOutput(fileDescriptor: outputFileDescriptor, into: tailBuffer)
         }
 
@@ -210,7 +212,7 @@ struct ProcessInstallRunner: InstallRunner {
     ///   - pid: `process`'s id, captured separately since `Process` is not `Sendable`.
     ///   - timeout: How long to wait before killing `pid` and throwing `CodeContextError.timeout`.
     ///   - clock: The clock the timeout sleeps against.
-    ///   - drainTask: The detached task draining `process`'s combined stdout+stderr into
+    ///   - drainTask: The dedicated-thread task draining `process`'s combined stdout+stderr into
     ///     `tailBuffer`; awaited before resolving so the returned result's `output` is complete.
     ///   - tailBuffer: The bounded tail buffer `drainTask` appends to.
     /// - Returns: The completed run's exit code and output tail.
@@ -300,11 +302,11 @@ struct ProcessInstallRunner: InstallRunner {
 
     /// Reads `fileDescriptor` until EOF, appending every chunk read to `tailBuffer`.
     ///
-    /// Runs detached, outside any actor isolation. Delegates the read-decode-append loop itself
-    /// to the shared `ProcessUtilities.drainChunks(from:bufferSize:onChunk:)` — the same helper
-    /// `ProcessLanguageServerConnection.runStderrDrainLoop` calls — passing only what differs
-    /// between the two call sites: what to do with each decoded chunk (append alone here, vs.
-    /// log-then-append there).
+    /// Runs on a dedicated thread, outside any actor isolation. Delegates the read-decode-append
+    /// loop itself to the shared `ProcessUtilities.drainChunks(from:bufferSize:onChunk:)` — the
+    /// same helper `ProcessLanguageServerConnection.runStderrDrainLoop` calls — passing only what
+    /// differs between the two call sites: what to do with each decoded chunk (append alone here,
+    /// vs. log-then-append there).
     /// - Parameters:
     ///   - fileDescriptor: The pipe read end's raw file descriptor.
     ///   - tailBuffer: The bounded tail buffer to append every read chunk to.

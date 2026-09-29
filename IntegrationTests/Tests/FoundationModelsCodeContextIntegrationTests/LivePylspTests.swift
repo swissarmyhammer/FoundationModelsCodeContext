@@ -47,7 +47,11 @@ struct LivePylspTests {
         return graph.edges.filter { $0.source == .lsp }.map(\.caller.name).sorted()
     }
 
-    @Test(.enabled(if: LivePylspTests.isPylspOnPath, "pylsp not found on $PATH"))
+    /// The time that the test waits for the LSP index layer to give the callers of `helper`. The
+    /// layer drains in less than two seconds on a developer machine.
+    private static let indexBudget: Duration = .seconds(20)
+
+    @Test(.enabled(if: LivePylspTests.isPylspOnPath, "pylsp not found on $PATH"), .timeLimit(.minutes(1)))
     func pythonCallersComeFromReferencesBecausePylspHasNoCallHierarchy() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
@@ -60,7 +64,7 @@ struct LivePylspTests {
 
                 // The LSP index layer drains in the background after the first pass.
                 var callers: [String] = []
-                let indexed = try await poll(budget: .seconds(90), interval: .milliseconds(500)) {
+                let indexed = try await poll(budget: Self.indexBudget, interval: .milliseconds(500)) {
                     callers = await Self.lspCallersOfHelper(context)
                     return callers == Self.expectedCallers
                 }

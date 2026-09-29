@@ -34,6 +34,27 @@ struct LiveSourceKitTests {
     /// can't accidentally land outside the identifier sourcekit-lsp resolves against.
     private static let fixtureCallCharacter = 17
 
+    // MARK: - Time limits
+
+    /// The time that one request to `sourcekit-lsp` waits for its answer. The first
+    /// `textDocument/definition` request can race the package-graph resolution of a cold server,
+    /// thus this is longer than the time of a warm request.
+    private static let requestTimeout: Duration = .seconds(20)
+
+    /// The time that the test waits for `state.isReady` after the first index pass.
+    private static let readyBudget: Duration = .seconds(30)
+
+    /// The time that the test waits for a definition from the live LSP layer.
+    private static let definitionBudget: Duration = .seconds(30)
+
+    /// The time that the test waits for the supervisor to start the killed server again.
+    ///
+    /// The supervisor sees the killed server only at its next health check. The `sourcekit-lsp`
+    /// spec uses the default `ServerSpec.healthCheckInterval` of 60 seconds, and the restart
+    /// then waits for a backoff of 1 second and a new handshake. Thus this wait cannot be a few
+    /// seconds long.
+    private static let restartBudget: Duration = .seconds(75)
+
     // MARK: - Availability
 
     /// Whether `sourcekit-lsp` resolves on `$PATH`, checked via the same shared `BinaryLookup`
@@ -88,10 +109,8 @@ struct LiveSourceKitTests {
     // MARK: - Connection factory
 
     /// Mirrors `LSPDaemon.processConnectionFactory(clock:)`, but with an overridable per-request
-    /// timeout: this suite's very first `textDocument/definition` request can race a real,
-    /// cold-started `sourcekit-lsp`'s background package-graph resolution, and the 30-second
-    /// production default has less headroom than this smoke test needs to stay reliable on a
-    /// loaded machine.
+    /// timeout (`requestTimeout`), so that a request that gets no answer fails in the time limit
+    /// of the test.
     /// - Parameter requestTimeout: The per-request timeout every spawned connection is configured with.
     /// - Returns: A factory that spawns `spec.command` with `spec.arguments` as a real child process.
     private static func liveConnectionFactory(requestTimeout: Duration) -> ConnectionFactory<ProcessLanguageServerConnection> {
@@ -149,13 +168,15 @@ struct LiveSourceKitTests {
 
     // MARK: - The smoke test
 
-    @Test(.enabled(if: LiveSourceKitTests.isSourceKitLSPOnPath, "sourcekit-lsp not found on $PATH"))
+    // The time limit is 2 minutes, not 1 minute: the restart alone takes up to one health-check
+    // interval of 60 seconds (see `restartBudget`). A local run takes about 64 seconds.
+    @Test(.enabled(if: LiveSourceKitTests.isSourceKitLSPOnPath, "sourcekit-lsp not found on $PATH"), .timeLimit(.minutes(2)))
     func liveSourceKitSurvivesACrashAndAutoRestarts() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
 
             // The context stops on every exit path (see `withLiveContext` in IntegrationSupport.swift).
-            let factory = Self.liveConnectionFactory(requestTimeout: .seconds(90))
+            let factory = Self.liveConnectionFactory(requestTimeout: Self.requestTimeout)
             try await withLiveContext(rootDirectory: root, connectionFactory: factory) { context in
                 try await context.start()
                 await context.waitForFirstIndexPass()
@@ -165,7 +186,7 @@ struct LiveSourceKitTests {
                 // Swift workspace is not part of that pass: it drains only in the background
                 // `LSPIndexWorker` task. Thus `state.isReady` can stay `false` for some time after
                 // the wait. Poll for it, and do not assert immediately.
-                let becameReady = try await poll(budget: .seconds(90)) {
+                let becameReady = try await poll(budget: Self.readyBudget) {
                     await context.state.isReady
                 }
                 #expect(becameReady, "workspace never reached state.isReady within budget")
@@ -177,7 +198,7 @@ struct LiveSourceKitTests {
                 #expect(originalPid > 0)
 
                 // Live definition, before crashing anything.
-                let firstResult = try await Self.pollForLiveDefinition(context: context, budget: .seconds(60))
+                let firstResult = try await Self.pollForLiveDefinition(context: context, budget: Self.definitionBudget)
                 #expect(firstResult?.sourceLayer == .liveLSP, "expected a live-LSP definition before the crash, got \(String(describing: firstResult))")
 
                 // Crash the daemon's child process out from under the supervisor.
@@ -189,7 +210,7 @@ struct LiveSourceKitTests {
                 // the killed one somehow lingered as "running".
                 var observedFailedWithAttempts = false
                 var restartedPid: Int32?
-                try await poll(budget: .seconds(150), interval: .milliseconds(200)) {
+                try await poll(budget: Self.restartBudget, interval: .milliseconds(200)) {
                     switch await Self.sourceKitStatus(context)?.state {
                     case .failed(_, let attempts) where attempts >= 1:
                         observedFailedWithAttempts = true
@@ -205,7 +226,7 @@ struct LiveSourceKitTests {
                 #expect(restartedPid != nil, "supervisor never restarted sourcekit-lsp under a fresh pid")
 
                 // Post-restart: a fresh definition must succeed again over the new process.
-                let secondResult = try await Self.pollForLiveDefinition(context: context, budget: .seconds(60))
+                let secondResult = try await Self.pollForLiveDefinition(context: context, budget: Self.definitionBudget)
                 #expect(secondResult?.sourceLayer == .liveLSP, "expected a live-LSP definition after the restart, got \(String(describing: secondResult))")
             }
         }

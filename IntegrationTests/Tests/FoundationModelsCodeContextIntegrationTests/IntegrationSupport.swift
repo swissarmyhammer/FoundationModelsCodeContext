@@ -1,4 +1,5 @@
 import Foundation
+import Tracing
 
 @testable import FoundationModelsCodeContext
 
@@ -59,6 +60,31 @@ func poll(
     }
 }
 
+/// Runs `body`, and then runs `cleanup` on every exit path (success or
+/// throw). Use it to stop a real subprocess, a watcher or a context that a
+/// test starts, so that nothing that the test starts outlives the test.
+///
+/// A `defer` block cannot `await`, thus this helper does the same work for
+/// an `async` cleanup.
+/// - Parameters:
+///   - body: The work.
+///   - cleanup: The work that always runs after `body`.
+/// - Returns: `body`'s result.
+/// - Throws: Rethrows whatever `body` throws, after `cleanup` has run.
+internal func withAsyncCleanup<T>(
+    _ body: () async throws -> T,
+    cleanup: () async -> Void
+) async throws -> T {
+    do {
+        let result = try await body()
+        await cleanup()
+        return result
+    } catch {
+        await cleanup()
+        throw error
+    }
+}
+
 /// Builds a `CodeContext<ProcessLanguageServerConnection>` for
 /// `rootDirectory`, runs `body` against it, and runs `context.stop()` on
 /// every exit path (success or throw), so that no real language-server
@@ -80,13 +106,10 @@ func withLiveContext<T: Sendable>(
         embedder: FakeEmbedder(dimension: liveEmbeddingDimension),
         connectionFactory: connectionFactory
     )
-    do {
-        let result = try await body(context)
+    return try await withAsyncCleanup {
+        try await body(context)
+    } cleanup: {
         await context.stop()
-        return result
-    } catch {
-        await context.stop()
-        throw error
     }
 }
 
@@ -140,7 +163,76 @@ struct FakeEmbedder: TextEmbedding {
 /// The scripted language server of the unit target, which the tests of this
 /// package start as a real `swift <script>` child process. See the header
 /// comment of the script for its script language.
+///
+/// Start the server only through `withConnection(steps:metrics:tracer:_:)`.
+/// It closes the connection on every exit path, and `close()` kills the
+/// child process. A script that ends with a "hang" step never exits by
+/// itself, thus a connection that is not closed leaves a process that runs
+/// forever.
 internal enum ScriptedLSPServer {
+    /// The command that starts the script. It is also the server name in the
+    /// telemetry of the connection.
+    internal static let command = "swift"
+
+    /// The time that one request to the scripted server waits for its answer.
+    /// The script starts in less than one second, thus a few seconds are
+    /// sufficient. A request that gets no answer fails after this time and
+    /// does not hang the test.
+    internal static let requestTimeout: Duration = .seconds(10)
+
+    /// The time that a test waits for the standard error tail of the server
+    /// to hold a text.
+    internal static let stderrBudget: Duration = .seconds(10)
+
+    /// The time between two polls of the standard error tail.
+    internal static let stderrPollInterval: Duration = .milliseconds(10)
+
+    /// Starts the scripted server with `steps`, runs `body` with the
+    /// connection, and closes the connection on every exit path.
+    /// - Parameters:
+    ///   - steps: The script steps. See the header comment of the script.
+    ///   - metrics: The metrics of the connection.
+    ///   - tracer: The tracer of the connection. `nil` reads the bootstrapped
+    ///     tracer.
+    ///   - body: The test body, given the connection.
+    /// - Returns: `body`'s result.
+    /// - Throws: When the steps cannot be encoded as JSON, when the process
+    ///   cannot start, or whatever `body` throws, after the connection closes.
+    internal static func withConnection<T>(
+        steps: [[String: Any]],
+        metrics: CodeContextMetrics = CodeContextMetrics(),
+        tracer: (any Tracer)? = nil,
+        _ body: (ProcessLanguageServerConnection) async throws -> T
+    ) async throws -> T {
+        let script = String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
+        let connection = try ProcessLanguageServerConnection(
+            command: command,
+            arguments: [path, script],
+            requestTimeout: requestTimeout,
+            metrics: metrics,
+            tracer: tracer
+        )
+        return try await withAsyncCleanup {
+            try await body(connection)
+        } cleanup: {
+            await connection.close()
+        }
+    }
+
+    /// Polls the standard error tail of `connection` until it holds `text`,
+    /// for at most `stderrBudget`.
+    /// - Parameters:
+    ///   - text: The text to wait for.
+    ///   - connection: The connection to the scripted server.
+    /// - Returns: `true` when the tail holds `text` in the budget; `false`
+    ///   otherwise.
+    /// - Throws: `CancellationError` when the test is cancelled.
+    internal static func waitForStderr(holding text: String, of connection: ProcessLanguageServerConnection) async throws -> Bool {
+        try await poll(budget: stderrBudget, interval: stderrPollInterval) {
+            connection.recentStderrTail().contains(text)
+        }
+    }
+
     /// The number of path components from this file to the root of the
     /// repository. This file is at
     /// `IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/IntegrationSupport.swift`.

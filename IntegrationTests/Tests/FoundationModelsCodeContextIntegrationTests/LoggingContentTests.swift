@@ -73,21 +73,13 @@ internal enum CapturedLogRecords {
 /// test also finds its own records through values that are not content, so
 /// it cannot pass when the code writes no record at all.
 internal struct LoggingContentTests {
-    /// The time that the test waits for the standard error tail to hold the
-    /// marker, in seconds. It is the same budget as
-    /// `ConnectionTests.recentStderrTailCapturesWhatTheServerPrinted()`.
-    private static let stderrBudgetSeconds = 60
-
-    /// The time between two polls of the standard error tail, in milliseconds.
-    private static let stderrPollIntervalMilliseconds = 10
-
     /// Makes a marker text that no other test makes.
     /// - Returns: The marker text.
     private static func makeMarker() -> String {
         "cck-log-marker-\(UUID().uuidString)"
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     internal func aLanguageServerWritesNoStandardErrorTextAndNoPayloadToTheLog() async throws {
         _ = CapturedLogRecords.handler
         let marker = Self.makeMarker()
@@ -98,14 +90,11 @@ internal struct LoggingContentTests {
             ["action": "respond", "which": 0, "result": ["contents": ["kind": "markdown", "value": marker]]],
             ["action": "hang"],
         ]
-        let script = String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
-        let connection = try ProcessLanguageServerConnection(command: "swift", arguments: [ScriptedLSPServer.path, script])
 
-        let hover = try? await connection.hover(in: DocumentURI("file:///\(marker).swift"), at: Position(line: 0, character: 0))
-        let sawStderr = try? await poll(budget: .seconds(Self.stderrBudgetSeconds), interval: .milliseconds(Self.stderrPollIntervalMilliseconds)) {
-            connection.recentStderrTail().contains(marker)
+        let (hover, sawStderr) = try await ScriptedLSPServer.withConnection(steps: steps) { connection in
+            let hover = try? await connection.hover(in: DocumentURI("file:///\(marker).swift"), at: Position(line: 0, character: 0))
+            return (hover, try await ScriptedLSPServer.waitForStderr(holding: marker, of: connection))
         }
-        await connection.close()
 
         #expect(hover?.contents == marker)
         #expect(sawStderr == true)

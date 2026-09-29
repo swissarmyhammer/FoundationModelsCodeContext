@@ -226,12 +226,18 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
 
         // Captured once, here, while the handles are definitely still open:
         // `ProcessUtilities.readChunk(from:bufferSize:)` operates on these raw descriptors rather
-        // than the `FileHandle` objects themselves, so the detached loops below never touch a
+        // than the `FileHandle` objects themselves, so the background loops below never touch a
         // `FileHandle` concurrently with `close()` (see that function's doc comment for why that
         // matters).
+        //
+        // Each loop blocks in `read(2)` until the child process closes its pipe, thus each loop
+        // runs on a dedicated thread, not on a thread of the cooperative pool. Two blocked loops
+        // for each open connection can fill the pool on a machine with few cores, and then no
+        // request timeout and no `close()` can run. See
+        // `ProcessUtilities.runOnDedicatedThread(name:_:)`.
         let pendingRequests = self.pendingRequests
         let stdoutFileDescriptor = self.stdoutHandle.fileDescriptor
-        self.readerTask = Task.detached {
+        self.readerTask = ProcessUtilities.runOnDedicatedThread(name: "lsp-reader \(command)") {
             Self.runReaderLoop(
                 serverName: command,
                 stdoutFileDescriptor: stdoutFileDescriptor,
@@ -242,7 +248,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
 
         let stderrFileDescriptor = self.stderrHandle.fileDescriptor
         let stderrTailBuffer = self.stderrTailBuffer
-        self.stderrTask = Task.detached {
+        self.stderrTask = ProcessUtilities.runOnDedicatedThread(name: "lsp-stderr \(command)") {
             Self.runStderrDrainLoop(serverName: command, stderrFileDescriptor: stderrFileDescriptor, tailBuffer: stderrTailBuffer)
         }
     }
@@ -780,7 +786,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// Reads framed messages from the child process's stdout until EOF, routing each one to a
     /// pending request (by id) or to `notificationContinuation` (server-initiated notification).
     ///
-    /// Runs detached, outside actor isolation: every value it touches
+    /// Runs on a dedicated thread, outside actor isolation: every value it touches
     /// (`pendingRequests`, `notificationContinuation`) is `Sendable`, so no actor hop is needed
     /// per received message. On EOF (the process exited), fails every still-pending request with
     /// `CodeContextError.notRunning`.

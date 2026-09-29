@@ -11,7 +11,7 @@ import Foundation
 /// - `ProcessInstallRunner`'s tail buffer (`ServerInstaller.swift`; an installer's combined
 ///   stdout+stderr, capped at 40 chunks) feeds `ServerInstaller`'s failure log.
 ///
-/// A plain `NSLock`-guarded class rather than actor state: both call sites append from a detached
+/// A plain `NSLock`-guarded class rather than actor state: both call sites append from a background
 /// drain loop that runs outside actor isolation by design (see `ProcessLanguageServerConnection
 /// .runStderrDrainLoop`'s doc comment), and must be readable synchronously — without an actor hop
 /// — from code that often can't `await` (e.g. from inside a `catch` that's already off the actor).

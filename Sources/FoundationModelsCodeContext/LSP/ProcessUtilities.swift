@@ -17,6 +17,34 @@ enum ProcessUtilities {
     /// one read, without requesting an unboundedly large buffer from the OS.
     static let defaultChunkSize = 65536
 
+    /// Runs `body` on a new dedicated thread, and gives a task that completes when `body` returns.
+    ///
+    /// Use this, not `Task.detached`, for a loop that blocks in `read(2)` until a child process
+    /// closes its pipe. A blocked `read(2)` holds its thread. A thread of the Swift cooperative
+    /// pool is one of a small number of threads (one for each processor core). When the blocked
+    /// loops hold all of these threads, no task of the process can run: a request timeout, a
+    /// `close()` that kills the child and a test all stop, and the process hangs with no output.
+    /// Each `ProcessLanguageServerConnection` has two such loops, so a small number of open
+    /// connections is sufficient to fill the pool on a machine with few cores. A dedicated thread
+    /// is not in the pool, and the returned task only suspends, so it holds no pool thread.
+    /// - Parameters:
+    ///   - name: The name of the thread, for a debugger or a crash report.
+    ///   - body: The blocking work. It runs one time.
+    /// - Returns: A task that completes when `body` returns. Cancelling the task does not stop
+    ///   `body`; close the pipe or stop the child process to stop it.
+    internal static func runOnDedicatedThread(name: String, _ body: @escaping @Sendable () -> Void) -> Task<Void, Never> {
+        Task {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let thread = Thread {
+                    body()
+                    continuation.resume()
+                }
+                thread.name = name
+                thread.start()
+            }
+        }
+    }
+
     /// Reads whatever is currently available from `fileDescriptor`, up to `bufferSize` bytes.
     ///
     /// Issues a single raw POSIX `read(2)` call on the raw file descriptor rather than going
@@ -25,12 +53,12 @@ enum ProcessUtilities {
     /// the process) when the handle is closed concurrently with a blocked read, and even
     /// `FileHandle`'s own `.fileDescriptor` property getter raises the same kind of exception once
     /// the handle has been closed — both exactly what happens when a caller's `close()` closes a
-    /// pipe while a detached drain loop is mid-read. The newer throwing
+    /// pipe while a background drain loop is mid-read. The newer throwing
     /// `FileHandle.read(upToCount:)` avoids the exception but loops internally trying to fill the
     /// full requested count (or reach EOF) rather than returning as soon as any data is available,
     /// so it can block indefinitely against a live process that has written less than `bufferSize`
     /// bytes and has nothing further to send yet. Working from a raw file descriptor captured once
-    /// up front (by both callers, before any detached loop starts) sidesteps both problems: a
+    /// up front (by both callers, before any background loop starts) sidesteps both problems: a
     /// single `read(2)` call returns as soon as any data is ready, matching `availableData`'s
     /// responsiveness, and reports failure as a plain `-1`/`errno` rather than an exception, even
     /// once the underlying descriptor has been closed out from under it.
