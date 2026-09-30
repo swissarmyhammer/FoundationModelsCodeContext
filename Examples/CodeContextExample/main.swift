@@ -130,7 +130,9 @@ private struct HashingEmbedder: TextEmbedding {
     ///
     /// - Parameter vectorLength: The number of hash buckets. It must be more than 0.
     init(vectorLength: Int) {
-        precondition(vectorLength > 0, "HashingEmbedder needs a vector length that is more than 0")
+        guard vectorLength > 0 else {
+            preconditionFailure("HashingEmbedder needs a vector length that is more than 0")
+        }
         self.vectorLength = vectorLength
     }
 

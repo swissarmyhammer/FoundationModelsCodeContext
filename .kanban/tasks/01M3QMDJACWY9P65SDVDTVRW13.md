@@ -50,6 +50,42 @@ comments:
     - note: one build warning "missing creator for mutated node" names the mlx-swift_Cmlx.bundle path. It comes from the dependency build, not from this package code.
     - next: review
   timestamp: 2026-09-30T14:58:39.565879+00:00
+- actor: claude-code
+  id: 01m3sdv495bm38eqj7yj55q5sz
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (137844f); 1 finding (1 confirmed, 2 refuted) — Examples/ManagerExample/main.swift:174 (swift/preconditions)
+    - next: implement the open item in the "Review Findings (2026-09-30 08:59)" section. Remove the same cause from the full file. Then commit and review again. The task stays in review.
+  timestamp: 2026-09-30T15:10:02.021214+00:00
+- actor: claude-code
+  id: 01m3sdvefqtjajn5v0d5xcj49y
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 29 files; Ranker resolved at 39e3717
+    - test: green — swift test, 731 tests in 68 suites passed, 0 skipped
+    - commit: 137844f
+    - review: findings — Examples/ManagerExample/main.swift:174
+  timestamp: 2026-09-30T15:10:12.471260+00:00
+- actor: claude-code
+  id: 01m3se4v8z1yz64ja5hp18mhzq
+  text: 'Finding `swift/preconditions` is done. In `HashingEmbedder.init(vectorLength:)`, `precondition(vectorLength > 0, ...)` is now `guard vectorLength > 0 else { preconditionFailure(...) }`. I made this change in the two Examples that have this embedder: `Examples/ManagerExample/main.swift` and `Examples/CodeContextExample/main.swift`. A search of all files in 137844f found no other `precondition(`, `assert(` or `fatalError(` call. A search of `Examples/` finds no `precondition(` now. The behavior did not change, and no test target can get to these Examples (each is a private type in an executable target). Thus there is no new unit test. The check is `swift build --product` for each Example.'
+  timestamp: 2026-09-30T15:15:20.479280+00:00
+- actor: claude-code
+  id: 01m3se4xkrs1gf7d7bm0ht86ss
+  text: |-
+    ### implement — changed
+    - evidence: 2 files — Examples/ManagerExample/main.swift, Examples/CodeContextExample/main.swift. `swift build`: complete. `swift build --product CodeContextExample` and `--product ManagerExample`: complete. `swift test`: 731 tests in 68 suites passed. The only build warning is the known mlx-swift_Cmlx.bundle "missing creator for mutated node" from the dependency build.
+    - open: "CI is green on the pushed commit" is for the commit and push steps.
+    - next: /review
+  timestamp: 2026-09-30T15:15:22.872746+00:00
+- actor: claude-code
+  id: 01m3seeq3wdbb4gm2d7k29n1gr
+  text: |-
+    ### test — green
+    - evidence: swift build (default, CodeContextExample, ManagerExample) complete; swift test — 731 tests in 68 suites passed, 0 failed, 0 skipped; IntegrationTests swift build --build-tests complete.
+    - warnings: only "missing creator for mutated node" for the mlx-swift_Cmlx.bundle. The build system prints it. It comes from a dependency, not from this package code. There are zero warnings from this package code.
+    - next: none. No file was changed. No commit was made.
+  timestamp: 2026-09-30T15:20:43.900454+00:00
 position_column: doing
 position_ordinal: '80'
 title: Take the embedding dimension from the first vector, not from TextEmbedding.dimension
@@ -76,3 +112,12 @@ title: Take the embedding dimension from the first vector, not from TextEmbeddin
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass. #model-pool
+
+## Review Findings (2026-09-30 08:59)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 29 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Examples/ManagerExample/main.swift:174` `swift/preconditions` — Use `guard` to validate preconditions at the head of the scope, not `precondition()`. `guard` states the requirement explicitly where a reader looks for it first, rather than relying on the standard library precondition function. Replace `precondition(vectorLength > 0, "HashingEmbedder needs a vector length that is more than 0")` with `guard vectorLength > 0 else { preconditionFailure("HashingEmbedder needs a vector length that is more than 0") }`.
