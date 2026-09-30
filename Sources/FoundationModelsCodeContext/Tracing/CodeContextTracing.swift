@@ -124,7 +124,9 @@ public enum CodeContextTracing {
         /// The number of strings that one embed call embeds.
         public static let embeddingInputCount = "embedding.input_count"
 
-        /// The length of each vector that one embed call makes.
+        /// The length of each vector that one embed call makes. The span gets it from the first
+        /// vector that the call returns, not from the embedder: `TextEmbedding` declares no
+        /// vector length.
         public static let embeddingDimension = "embedding.dimension"
 
         /// The number of results that one search gives.
@@ -216,7 +218,9 @@ public enum CodeContextTracing {
         /// The exit code of a process that the package ran.
         public static let exitCode = "process.exit_code"
 
-        /// The length of each vector that the embedder makes.
+        /// The length of each vector that the embedder makes. The index pass gets it from the
+        /// first vector that the embedder returns, not from the embedder: `TextEmbedding`
+        /// declares no vector length.
         public static let embeddingDimension = AttributeKey.embeddingDimension
 
         /// The length of each vector that the index holds from an earlier

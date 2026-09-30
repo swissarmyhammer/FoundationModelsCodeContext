@@ -13,8 +13,9 @@ import FoundationModelsCodeContext
 ///
 /// This package loads no embedding model. The caller gives any `TextEmbedding` value to
 /// `CodeContextManager(embedder:)`, and the manager gives that one embedder to each root it opens. The protocol has
-/// two members: `dimension`, and `embed(_:)`, which returns one unit-length vector for each text. A production host
-/// wraps its real model (for example an MLX embedder) in a small conformance with these two members. This file
+/// one member: `embed(_:)`, which returns one unit-length vector for each text. The protocol declares no vector
+/// length: each `CodeContext` reads the length from the first vector that the embedder returns. A production host
+/// wraps its real model (for example an MLX embedder) in a small conformance with this one member. This file
 /// defines `HashingEmbedder`, a conformance that needs no model and no network (see `CodeContextExample` for more).
 ///
 /// ## What this file does and does not exercise
@@ -39,7 +40,7 @@ let query = arguments.count > 2 ? arguments[2] : "TODO"
 // `CodeContextExample`, but this file gives it to a manager, not to one context.
 // The number of hash buckets, thus the length of each embedding vector.
 let embeddingDimension = 256
-private let embedder = HashingEmbedder(dimension: embeddingDimension)
+private let embedder = HashingEmbedder(vectorLength: embeddingDimension)
 
 // MARK: - Create the manager and discover every repo root under the parent directory
 
@@ -146,10 +147,11 @@ func firstRegularFile(under directory: URL) -> URL? {
 
 /// A `TextEmbedding` that needs no model: it counts hashed tokens.
 ///
-/// This type shows all of the contract that a caller supplies: a `dimension`,
-/// and an `embed(_:)` that returns one unit-length vector for each text. A
-/// production host puts its real model (for example an MLX embedder) behind
-/// the same two members.
+/// This type shows all of the contract that a caller supplies: an `embed(_:)`
+/// that returns one unit-length vector for each text. The embedder declares no
+/// vector length: CodeContext reads the length from the vectors. A production
+/// host puts its real model (for example an MLX embedder) behind the same
+/// member.
 ///
 /// The vectors are the same in each process. The bucket of a token is the
 /// 64-bit FNV-1a hash of its UTF-8 bytes. Do not use `Hasher` or `hashValue`
@@ -163,20 +165,20 @@ private struct HashingEmbedder: TextEmbedding {
     private static let fnvPrime: UInt64 = 0x0000_0100_0000_01B3
 
     /// The length of each vector that `embed(_:)` returns.
-    let dimension: Int
+    let vectorLength: Int
 
-    /// Makes an embedder that returns vectors of `dimension` length.
+    /// Makes an embedder that returns vectors of `vectorLength` length.
     ///
-    /// - Parameter dimension: The number of hash buckets. It must be more than 0.
-    init(dimension: Int) {
-        precondition(dimension > 0, "HashingEmbedder needs a dimension that is more than 0")
-        self.dimension = dimension
+    /// - Parameter vectorLength: The number of hash buckets. It must be more than 0.
+    init(vectorLength: Int) {
+        precondition(vectorLength > 0, "HashingEmbedder needs a vector length that is more than 0")
+        self.vectorLength = vectorLength
     }
 
     /// Returns one L2-normalized vector of bucket counts for each text, in order.
     ///
     /// - Parameter texts: The texts to embed.
-    /// - Returns: One `dimension`-length vector for each text, in the order of `texts`.
+    /// - Returns: One `vectorLength`-length vector for each text, in the order of `texts`.
     func embed(_ texts: [String]) async throws -> [[Float]] {
         texts.map(vector(for:))
     }
@@ -186,7 +188,7 @@ private struct HashingEmbedder: TextEmbedding {
     /// - Parameter text: The text to embed.
     /// - Returns: A unit-length vector. When `text` has no tokens, the zero vector, unchanged.
     private func vector(for text: String) -> [Float] {
-        let counts = Self.tokens(in: text).reduce(into: [Float](repeating: 0, count: dimension)) { counts, token in
+        let counts = Self.tokens(in: text).reduce(into: [Float](repeating: 0, count: vectorLength)) { counts, token in
             counts[bucket(for: token)] += 1
         }
         let magnitude = counts.reduce(0) { sum, count in sum + count * count }.squareRoot()
@@ -196,15 +198,15 @@ private struct HashingEmbedder: TextEmbedding {
         return counts.map { count in count / magnitude }
     }
 
-    /// The bucket of `token`: the 64-bit FNV-1a hash of its UTF-8 bytes, modulo `dimension`.
+    /// The bucket of `token`: the 64-bit FNV-1a hash of its UTF-8 bytes, modulo `vectorLength`.
     ///
     /// - Parameter token: One token from `tokens(in:)`.
-    /// - Returns: An index in `0..<dimension`.
+    /// - Returns: An index in `0..<vectorLength`.
     private func bucket(for token: String) -> Int {
         let hash = token.utf8.reduce(Self.fnvOffsetBasis) { hash, byte in
             (hash ^ UInt64(byte)) &* Self.fnvPrime
         }
-        return Int(hash % UInt64(dimension))
+        return Int(hash % UInt64(vectorLength))
     }
 
     /// Splits `text` on each character that is not a letter, a digit or `_`, and makes each token lowercase.

@@ -108,7 +108,7 @@ struct SearchCodeTests {
             )
             let corpus = SearchCorpus(store: store)
 
-            let result = try await SearchCode.run(corpus: corpus, embedder: FakeEmbedder(dimension: Self.embeddingDimension), query: "retry backoff strategy")
+            let result = try await SearchCode.run(corpus: corpus, embedder: FakeEmbedder(vectorLength: Self.embeddingDimension), query: "retry backoff strategy")
 
             let hit = try #require(result.hits.first { $0.symbolPath == "Network.retryBackoffStrategy" })
             #expect(hit.hit.signals.bm25 > 0.0)
@@ -123,7 +123,7 @@ struct SearchCodeTests {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
             let query = "retry backoff strategy"
-            let embedder = FakeEmbedder(dimension: Self.embeddingDimension)
+            let embedder = FakeEmbedder(vectorLength: Self.embeddingDimension)
 
             // A chunk with zero token/trigram overlap with `query` — verified
             // directly below, per the "assert the per-signal claim directly"
@@ -248,7 +248,7 @@ struct SearchCodeTests {
     func fullyEmbeddedCorpusHasNoIndexingProgressNote() async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
-            let embedder = FakeEmbedder(dimension: Self.embeddingDimension)
+            let embedder = FakeEmbedder(vectorLength: Self.embeddingDimension)
             let vector = try #require(try await embedder.embed(["parse the configuration file"]).first)
             try await insertChunk(
                 store: store,

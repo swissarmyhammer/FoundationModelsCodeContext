@@ -48,7 +48,7 @@ struct SearchCorpusIncrementalTests {
     /// incremental-vs-wholesale comparisons below start from a fully-loaded
     /// cache.
     private static func seedManyFileCorpus(store: Store) async throws {
-        let embedder = FakeEmbedder(dimension: embeddingDimension)
+        let embedder = FakeEmbedder(vectorLength: embeddingDimension)
         let fixtures: [(file: String, symbol: String, text: String)] = [
             ("Alpha.swift", "Alpha.parseConfig", "parse the configuration file for alpha"),
             ("Beta.swift", "Beta.retryBackoff", "apply retry backoff strategy before requesting again"),
@@ -70,7 +70,7 @@ struct SearchCorpusIncrementalTests {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
             try await Self.seedManyFileCorpus(store: store)
-            let embedder = FakeEmbedder(dimension: Self.embeddingDimension)
+            let embedder = FakeEmbedder(vectorLength: Self.embeddingDimension)
 
             // Warm the incremental corpus's cache on the seeded state.
             let incremental = SearchCorpus(store: store)
@@ -189,7 +189,7 @@ struct SearchCorpusIncrementalTests {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
             try await Self.seedManyFileCorpus(store: store)
-            let embedder = FakeEmbedder(dimension: Self.embeddingDimension)
+            let embedder = FakeEmbedder(vectorLength: Self.embeddingDimension)
 
             let corpus = SearchCorpus(store: store)
             let before = try await corpus.snapshot()
@@ -250,7 +250,7 @@ struct SearchCorpusIncrementalTests {
             // `hasEmbedding` signature would see no change here and keep serving
             // the stale 16-dim vectors; the byte-length signature catches it.
             let widerDimension = Self.embeddingDimension * 2
-            let widerEmbedder = FakeEmbedder(dimension: widerDimension)
+            let widerEmbedder = FakeEmbedder(vectorLength: widerDimension)
             let chunkIds: [Int64] = try await store.read { db in
                 try Int64.fetchAll(db, sql: "SELECT id FROM ts_chunks ORDER BY id")
             }

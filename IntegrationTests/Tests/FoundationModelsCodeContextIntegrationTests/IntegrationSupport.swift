@@ -103,7 +103,7 @@ func withLiveContext<T: Sendable>(
 ) async throws -> T {
     let context = try await CodeContext<ProcessLanguageServerConnection>(
         rootDirectory: rootDirectory,
-        embedder: FakeEmbedder(dimension: liveEmbeddingDimension),
+        embedder: FakeEmbedder(vectorLength: liveEmbeddingDimension),
         connectionFactory: connectionFactory
     )
     return try await withAsyncCleanup {
@@ -119,23 +119,25 @@ func withLiveContext<T: Sendable>(
 /// from a stable FNV-1a hash of the text (not Swift's per-process `Hasher`,
 /// which is seed-randomized), so tests run without a real model or GPU. This
 /// copy drops the root unit target's injected-failure hook; this suite does
-/// not use it.
+/// not use it. The double declares no length: `TextEmbedding` has no
+/// `dimension` requirement.
 struct FakeEmbedder: TextEmbedding {
-    let dimension: Int
+    /// The length of every vector this embedder produces.
+    let vectorLength: Int
 
     func embed(_ texts: [String]) async throws -> [[Float]] {
-        texts.map { text in Self.vector(forText: text, dimension: dimension) }
+        texts.map { text in Self.vector(forText: text, vectorLength: vectorLength) }
     }
 
     /// Deterministically derives an L2-normalized vector from `text`'s
     /// stable hash.
-    private static func vector(forText text: String, dimension: Int) -> [Float] {
-        guard dimension > 0 else {
+    private static func vector(forText text: String, vectorLength: Int) -> [Float] {
+        guard vectorLength > 0 else {
             return []
         }
 
         var generator = SplitMix64(seed: fnv1aHash(ofText: text))
-        var components = (0..<dimension).map { _ in Float.random(in: -1...1, using: &generator) }
+        var components = (0..<vectorLength).map { _ in Float.random(in: -1...1, using: &generator) }
         let magnitude = sqrt(
             components.reduce(Float(0)) { partial, component in partial + component * component })
         if magnitude > 0 {

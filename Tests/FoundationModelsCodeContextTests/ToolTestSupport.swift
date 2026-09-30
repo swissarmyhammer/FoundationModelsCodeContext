@@ -44,7 +44,7 @@ enum ToolTest {
             try write(source, to: file, in: root)
             let context = try await CodeContext<FakeLanguageServerConnection>(
                 rootDirectory: root,
-                embedder: FakeEmbedder(dimension: embeddingDimension),
+                embedder: FakeEmbedder(vectorLength: embeddingDimension),
                 eventSource: FakeFileEventSource(),
                 autoInstall: LspAutoInstall(isEnabled: false),
                 connectionFactory: fakeConnectionFactory(pid: fakeProcessIdentifier, processState: ProcessState())

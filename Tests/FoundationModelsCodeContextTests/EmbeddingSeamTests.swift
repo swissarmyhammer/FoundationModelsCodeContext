@@ -13,7 +13,7 @@ struct EmbeddingSeamTests {
 
     @Test
     func fakeEmbedderProducesTheSameVectorForTheSameTextEveryCall() async throws {
-        let embedder = FakeEmbedder(dimension: 16)
+        let embedder = FakeEmbedder(vectorLength: 16)
 
         let first = try await embedder.embed(["func add() {}"])
         let second = try await embedder.embed(["func add() {}"])
@@ -23,7 +23,7 @@ struct EmbeddingSeamTests {
 
     @Test
     func fakeEmbedderProducesDifferentVectorsForDifferentText() async throws {
-        let embedder = FakeEmbedder(dimension: 16)
+        let embedder = FakeEmbedder(vectorLength: 16)
 
         let vectors = try await embedder.embed(["func add() {}", "func subtract() {}"])
 
@@ -32,7 +32,7 @@ struct EmbeddingSeamTests {
 
     @Test
     func fakeEmbedderProducesL2NormalizedVectorsOfTheConfiguredDimension() async throws {
-        let embedder = FakeEmbedder(dimension: 12)
+        let embedder = FakeEmbedder(vectorLength: 12)
 
         let vectors = try await embedder.embed(["func add() {}", "struct Sample {}"])
 
@@ -50,7 +50,7 @@ struct EmbeddingSeamTests {
             try write("struct Struct {\n    func method() {}\n}\n", to: "Sample.swift", in: root)
             _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
 
-            try await TreeSitterWorker.run(store: store, rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
+            try await TreeSitterWorker.run(store: store, rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8))
 
             let embeddings: [Data] = try await store.read { db in
                 try Data.fetchAll(db, sql: "SELECT embedding FROM ts_chunks ORDER BY id")
@@ -77,7 +77,7 @@ struct EmbeddingSeamTests {
             try write("func topLevel() {}\n", to: "Sample.swift", in: root)
             _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
 
-            let embedder = FakeEmbedder(dimension: 8, failure: SampleError())
+            let embedder = FakeEmbedder(vectorLength: 8, failure: SampleError())
             try await TreeSitterWorker.run(store: store, rootDirectory: root, embedder: embedder)
 
             let (totalChunks, nullEmbeddings) = try await store.read { db in
@@ -117,7 +117,7 @@ struct EmbeddingSeamTests {
             let store = try Store(rootDirectory: root)
             try write("func original() {}\n", to: "Sample.swift", in: root)
             _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
-            try await TreeSitterWorker.run(store: store, rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
+            try await TreeSitterWorker.run(store: store, rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8))
 
             let embeddedBeforeRechunk: Bool = try await store.read { db in
                 try Bool.fetchOne(db, sql: "SELECT embedded FROM indexed_files WHERE file_path = ?", arguments: ["Sample.swift"]) ?? false
@@ -149,7 +149,7 @@ struct EmbeddingSeamTests {
             try write("func topLevel() {}\n", to: "Sample.swift", in: root)
             _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
 
-            try await TreeSitterWorker.run(store: store, rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
+            try await TreeSitterWorker.run(store: store, rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8))
 
             let firstPassDimension: Int = try await store.read { db in
                 let embedding = try Data.fetchOne(db, sql: "SELECT embedding FROM ts_chunks LIMIT 1")
@@ -160,7 +160,7 @@ struct EmbeddingSeamTests {
             // No new dirty tree-sitter files this pass — only the embedder's
             // dimension changed. The worker must still detect the mismatch
             // against the stored `meta` dimension and fully re-embed.
-            try await TreeSitterWorker.run(store: store, rootDirectory: root, embedder: FakeEmbedder(dimension: 16))
+            try await TreeSitterWorker.run(store: store, rootDirectory: root, embedder: FakeEmbedder(vectorLength: 16))
 
             let secondPassDimension: Int = try await store.read { db in
                 let embedding = try Data.fetchOne(db, sql: "SELECT embedding FROM ts_chunks LIMIT 1")

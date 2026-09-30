@@ -32,15 +32,15 @@ func write(_ content: String, to relativePath: String, in root: URL) throws {
 /// the public API accepts the type.
 struct CallerDefinedEmbedder: TextEmbedding {
     /// The length of each vector that `embed(_:)` returns.
-    let dimension: Int
+    let vectorLength: Int
 
-    /// Returns one `dimension`-length vector for each text, in order.
+    /// Returns one `vectorLength`-length vector for each text, in order.
     ///
     /// - Parameter texts: The texts to embed.
     /// - Returns: One vector for each text, in the order of `texts`.
     func embed(_ texts: [String]) async throws -> [[Float]] {
         texts.map { text in
-            [Float(text.count)] + Array(repeating: 0, count: dimension - 1)
+            [Float(text.count)] + Array(repeating: 0, count: vectorLength - 1)
         }
     }
 }

@@ -7,8 +7,11 @@ import FoundationModelsRanker
 /// one time, and the same value goes to `CodeContext(rootDirectory:embedder:)`,
 /// `CodeContextManager(embedder:)`, and each FoundationModelsRanker API that takes an embedder.
 ///
-/// The contract: `embed(_:)` returns one vector for each input, in input order. Each vector is
-/// `dimension` long and L2-normalized. The host supplies the model. This package has no embedding
+/// The contract: `embed(_:)` returns one vector for each input, in input order. All the vectors of
+/// one embedder have the same length, and each vector is L2-normalized. The protocol declares no
+/// vector length: an embedder that loads its model at the first call cannot know the length before
+/// that call. The index gets the length from the first vector that the embedder returns (see
+/// `MeasuredEmbedder`). The host supplies the model. This package has no embedding
 /// model and no Router of its own. Tests use `FakeEmbedder`, a deterministic double that needs no
 /// GPU.
 public typealias TextEmbedding = FoundationModelsRanker.TextEmbedding

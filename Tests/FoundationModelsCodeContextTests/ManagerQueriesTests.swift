@@ -29,7 +29,7 @@ struct ManagerQueriesTests {
     /// - Returns: A manager wired to fake filesystem-event and connection sources for testing.
     private static func makeManager() async -> CodeContextManager<FakeLanguageServerConnection> {
         await CodeContextManager<FakeLanguageServerConnection>(
-            embedder: FakeEmbedder(dimension: 8),
+            embedder: FakeEmbedder(vectorLength: 8),
             eventSource: FakeFileEventSource(),
             connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
         )

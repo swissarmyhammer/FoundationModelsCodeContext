@@ -62,7 +62,7 @@ struct CodeContextE2ETests {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
 
-            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
+            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8))
 
             try await context.start()
             await context.waitForFirstIndexPass()
@@ -96,7 +96,7 @@ struct CodeContextE2ETests {
             try Self.writeFixture(in: root)
             try write("func blocked() {}", to: "Blocked/Blocked.swift", in: root)
 
-            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
+            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8))
 
             // Block read access to a subdirectory so `Reconciler.reconcile`'s directory walk
             // (`start()`'s first throwing step) fails without touching the store's own already-open
@@ -139,7 +139,7 @@ struct CodeContextE2ETests {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
 
-            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
+            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8))
             try await context.start()
             await context.waitForFirstIndexPass()
 
@@ -165,7 +165,7 @@ struct CodeContextE2ETests {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
 
-            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
+            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8))
             try await context.start()
             await context.waitForFirstIndexPass()
 
@@ -206,8 +206,8 @@ struct CodeContextE2ETests {
                     in: rootB
                 )
 
-                let contextA = try await Self.makeCodeContext(rootDirectory: rootA, embedder: FakeEmbedder(dimension: 8))
-                let contextB = try await Self.makeCodeContext(rootDirectory: rootB, embedder: FakeEmbedder(dimension: 8))
+                let contextA = try await Self.makeCodeContext(rootDirectory: rootA, embedder: FakeEmbedder(vectorLength: 8))
+                let contextB = try await Self.makeCodeContext(rootDirectory: rootB, embedder: FakeEmbedder(vectorLength: 8))
 
                 async let startA: Void = contextA.start()
                 async let startB: Void = contextB.start()
@@ -269,7 +269,7 @@ struct CodeContextE2ETests {
 
             let context = try await CodeContext<FakeLanguageServerConnection>(
                 rootDirectory: root,
-                embedder: FakeEmbedder(dimension: 8),
+                embedder: FakeEmbedder(vectorLength: 8),
                 eventSource: FakeFileEventSource(),
                 installRunner: runner,
                 connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())

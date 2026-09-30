@@ -95,7 +95,7 @@ struct CodeContextStartTests {
             await log.closeGate()
             let context = try await Self.makeCodeContext(
                 rootDirectory: root,
-                embedder: GatedEmbedder(dimension: Self.dimension, log: log)
+                embedder: GatedEmbedder(vectorLength: Self.dimension, log: log)
             )
 
             try await context.start()
@@ -125,7 +125,7 @@ struct CodeContextStartTests {
             await log.closeGate()
             let context = try await Self.makeCodeContext(
                 rootDirectory: root,
-                embedder: GatedEmbedder(dimension: Self.dimension, log: log)
+                embedder: GatedEmbedder(vectorLength: Self.dimension, log: log)
             )
             try await context.start()
             await log.waitForFirstCall()
@@ -146,7 +146,7 @@ struct CodeContextStartTests {
             await log.closeGate()
             let context = try await Self.makeCodeContext(
                 rootDirectory: root,
-                embedder: GatedEmbedder(dimension: Self.dimension, log: log)
+                embedder: GatedEmbedder(vectorLength: Self.dimension, log: log)
             )
             try await context.start()
             await log.waitForFirstCall()
@@ -169,7 +169,7 @@ struct CodeContextStartTests {
             let eventSource = FakeFileEventSource()
             let context = try await Self.makeCodeContext(
                 rootDirectory: root,
-                embedder: GatedEmbedder(dimension: Self.dimension, log: log),
+                embedder: GatedEmbedder(vectorLength: Self.dimension, log: log),
                 clock: clock,
                 eventSource: eventSource
             )
@@ -199,7 +199,7 @@ struct CodeContextStartTests {
             await log.closeGate()
             let context = try await Self.makeCodeContext(
                 rootDirectory: root,
-                embedder: GatedEmbedder(dimension: Self.dimension, log: log),
+                embedder: GatedEmbedder(vectorLength: Self.dimension, log: log),
                 clock: ManualClock()
             )
             try await context.start()
@@ -224,7 +224,7 @@ struct CodeContextStartTests {
             await log.closeGate()
             let context = try await Self.makeCodeContext(
                 rootDirectory: root,
-                embedder: GatedEmbedder(dimension: Self.dimension, log: log),
+                embedder: GatedEmbedder(vectorLength: Self.dimension, log: log),
                 clock: ManualClock()
             )
             try await context.start()
@@ -277,7 +277,7 @@ struct CodeContextStartTests {
     func anEmbedderTurnsTheEmbeddingLayerOn() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
-            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(dimension: Self.dimension))
+            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(vectorLength: Self.dimension))
             try await context.start()
             await context.waitForFirstIndexPass()
 
@@ -286,6 +286,31 @@ struct CodeContextStartTests {
             #expect(status.filesEmbedded == Self.fixtureFileCount)
             let result = try await context.searchCode(query: "hello")
             #expect(!result.hits.isEmpty)
+            await context.stop()
+        }
+    }
+
+    /// The first pass of a context learns the vector length from one probe
+    /// vector. A second pass uses the length that the context keeps, thus it
+    /// embeds no probe again, and it embeds only the chunks.
+    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    func theProbeIsEmbeddedOneTimeOnlyForTheLifeOfAContext() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixture(in: root)
+            let log = EmbedCallLog()
+            let context = try await Self.makeCodeContext(
+                rootDirectory: root,
+                embedder: GatedEmbedder(vectorLength: Self.dimension, log: log),
+                clock: ManualClock()
+            )
+            try await context.start()
+            await context.waitForFirstIndexPass()
+
+            _ = try await context.rebuildIndex(layer: .treeSitter)
+
+            let passCount = 2
+            #expect(await log.probeCallCount == 1)
+            #expect(await log.batchSizes.reduce(0, +) == Self.fixtureFileCount * passCount)
             await context.stop()
         }
     }

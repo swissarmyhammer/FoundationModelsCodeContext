@@ -1,5 +1,6 @@
 import Foundation
-import FoundationModelsCodeContext
+
+@testable import FoundationModelsCodeContext
 
 /// The record of each `embed(_:)` call of a `GatedEmbedder`, and the gate that
 /// can hold those calls.
@@ -8,9 +9,17 @@ import FoundationModelsCodeContext
 /// test then examines the system while the step is not complete. The step
 /// continues when the test opens the gate, or when the task of the step is
 /// cancelled.
+///
+/// The log keeps the probe calls of `MeasuredEmbedder` apart from the chunk
+/// batches. A probe call is not in `batchSizes`, it does not stop at the gate,
+/// and it does not end `waitForFirstCall()`.
 actor EmbedCallLog {
-    /// The number of texts in each `embed(_:)` call, in call order.
+    /// The number of texts in each chunk-batch `embed(_:)` call, in call order.
     private(set) var batchSizes: [Int] = []
+
+    /// The number of `embed(_:)` calls that embedded the probe text of
+    /// `MeasuredEmbedder`.
+    private(set) var probeCallCount = 0
 
     /// `true` while each `embed(_:)` call must stop at the gate.
     private var isGated = false
@@ -18,7 +27,7 @@ actor EmbedCallLog {
     /// The `embed(_:)` calls that wait at the closed gate, by wait identifier.
     private var gateWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
-    /// The tests that wait for the first `embed(_:)` call.
+    /// The tests that wait for the first chunk-batch `embed(_:)` call.
     private var firstCallWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Makes each subsequent `embed(_:)` call stop until `openGate()`.
@@ -37,7 +46,8 @@ actor EmbedCallLog {
         }
     }
 
-    /// Returns when the embedder has received one `embed(_:)` call or more.
+    /// Returns when the embedder has received one chunk-batch `embed(_:)` call
+    /// or more.
     func waitForFirstCall() async {
         if !batchSizes.isEmpty {
             return
@@ -47,7 +57,8 @@ actor EmbedCallLog {
         }
     }
 
-    /// Records one `embed(_:)` call, then waits while the gate is closed.
+    /// Records one chunk-batch `embed(_:)` call, then waits while the gate is
+    /// closed.
     ///
     /// The wait stops when the gate opens, and also when the task of the
     /// caller is cancelled.
@@ -63,6 +74,11 @@ actor EmbedCallLog {
         if isGated {
             await waitAtGate()
         }
+    }
+
+    /// Records one `embed(_:)` call that embedded the probe text.
+    func recordProbeCall() {
+        probeCallCount += 1
     }
 
     /// Waits until the gate opens or the task of the caller is cancelled.
@@ -96,16 +112,23 @@ actor EmbedCallLog {
 ///
 /// The vectors are the vectors of `FakeEmbedder`, thus they are deterministic.
 /// A call whose task is cancelled throws `CancellationError`, as a real
-/// embedding model can do.
+/// embedding model can do. A call that embeds only the probe text of
+/// `MeasuredEmbedder` is recorded as a probe call and does not stop at the
+/// gate.
 struct GatedEmbedder: TextEmbedding {
-    let dimension: Int
+    /// The length of every vector this embedder produces.
+    let vectorLength: Int
 
     /// The record of the calls, and the gate that holds them.
     let log: EmbedCallLog
 
     func embed(_ texts: [String]) async throws -> [[Float]] {
-        await log.recordCall(batchSize: texts.count)
+        if texts == [MeasuredEmbedder.probeText] {
+            await log.recordProbeCall()
+        } else {
+            await log.recordCall(batchSize: texts.count)
+        }
         try Task.checkCancellation()
-        return try await FakeEmbedder(dimension: dimension).embed(texts)
+        return try await FakeEmbedder(vectorLength: vectorLength).embed(texts)
     }
 }

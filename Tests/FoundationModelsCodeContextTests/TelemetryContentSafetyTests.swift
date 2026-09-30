@@ -234,7 +234,7 @@ internal struct TelemetryContentSafetyTests {
     private static func runIndexPassAndSearches(root: URL, capture: ContentSafetyCapture) async throws {
         let context = try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: root,
-            embedder: FakeEmbedder(dimension: embeddingDimension),
+            embedder: FakeEmbedder(vectorLength: embeddingDimension),
             clock: ManualClock(),
             eventSource: FakeFileEventSource(),
             autoInstall: LspAutoInstall(isEnabled: false),

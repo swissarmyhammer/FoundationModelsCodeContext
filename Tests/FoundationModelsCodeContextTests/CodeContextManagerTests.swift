@@ -21,7 +21,7 @@ struct CodeContextManagerTests {
     ///   embedding layer off. The default is a `FakeEmbedder`.
     /// - Returns: A manager wired to fake filesystem-event and connection sources for testing.
     private static func makeManager(
-        embedder: TextEmbedding? = FakeEmbedder(dimension: embeddingDimension)
+        embedder: TextEmbedding? = FakeEmbedder(vectorLength: embeddingDimension)
     ) async -> CodeContextManager<FakeLanguageServerConnection> {
         await CodeContextManager<FakeLanguageServerConnection>(
             embedder: embedder,
@@ -459,7 +459,7 @@ struct CodeContextManagerTests {
             await runner.updateResult(.success(InstallRunResult(exitCode: 1, output: "boom")))
 
             let manager = await CodeContextManager<FakeLanguageServerConnection>(
-                embedder: FakeEmbedder(dimension: 8),
+                embedder: FakeEmbedder(vectorLength: 8),
                 eventSource: FakeFileEventSource(),
                 installRunner: runner,
                 connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())

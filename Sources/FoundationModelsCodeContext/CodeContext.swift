@@ -39,11 +39,15 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// data-race-free, so consumers can read it without `await`.
     public nonisolated let rootDirectory: URL
 
-    /// The embedder used by the tree-sitter worker's embedding step and by `searchCode(...)`.
+    /// The embedder used by the tree-sitter worker's embedding step and by `searchCode(...)`, and
+    /// the vector length that the embedder returns.
+    ///
+    /// The context keeps this one value for its life. Thus the index passes get the vector length
+    /// from one probe vector only, at the first pass (see `MeasuredEmbedder`).
     ///
     /// `nil` means that the host turned the embedding layer off: no pass makes embeddings, and
     /// `searchCode(...)` and `findDuplicates(...)` throw `CodeContextError.embeddingDisabled`.
-    private let embedder: TextEmbedding?
+    private let measuredEmbedder: MeasuredEmbedder?
 
     /// The workspace's index store, opened once in `init`.
     private let store: Store
@@ -212,7 +216,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) async throws {
         self.rootDirectory = rootDirectory
-        self.embedder = embedder
+        measuredEmbedder = embedder.map(MeasuredEmbedder.init(embedder:))
         self.clock = clock
         self.eventSource = eventSource
         self.metrics = metrics
@@ -569,10 +573,10 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// - Throws: `CodeContextError.embeddingDisabled` when the host turned the embedding layer
     ///   off.
     private func requireEmbedder() throws -> TextEmbedding {
-        guard let embedder else {
+        guard let measuredEmbedder else {
             throw CodeContextError.embeddingDisabled
         }
-        return embedder
+        return measuredEmbedder.embedder
     }
 
     /// See `QueryAST.run(rootDirectory:language:query:options:)`.
@@ -891,7 +895,13 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             attributes: { $0[CodeContextTracing.AttributeKey.indexLayer] = CodeContextMetrics.dimensionValue(of: .treeSitter) }
         ) { span in
             let started = ContinuousClock.now
-            let filesIndexed = try await TreeSitterWorker.run(store: store, rootDirectory: rootDirectory, embedder: embedder, tracer: tracer)
+            let filesIndexed = try await TreeSitterWorker.run(
+                store: store,
+                rootDirectory: rootDirectory,
+                measuredEmbedder: measuredEmbedder,
+                embeddingBatchSize: TreeSitterWorker.defaultEmbeddingBatchSize,
+                tracer: tracer
+            )
             span.attributes[CodeContextTracing.AttributeKey.indexFilesIndexed] = filesIndexed
             try await markUncoveredLspFilesDone()
             await publishIndexingStatus()
@@ -924,7 +934,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             filesParsed: status.treeSitterIndexedFiles,
             filesEmbedded: status.embeddedIndexedFiles,
             filesLspIndexed: status.lspIndexedFiles,
-            isEmbeddingEnabled: embedder != nil
+            isEmbeddingEnabled: measuredEmbedder != nil
         )
         await state.publishIndexing(progress)
     }

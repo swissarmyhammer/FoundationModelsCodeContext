@@ -48,6 +48,13 @@ public enum TreeSitterWorker {
     /// The embedding step, when `embedder` is given, runs independently of
     /// how many files were chunked this pass (see `embedDirtyChunks`).
     ///
+    /// `TextEmbedding` declares no vector length, thus each call of this
+    /// function measures `embedder` again: the embedding step embeds one probe
+    /// text before the chunks (see `MeasuredEmbedder`). `CodeContext` keeps one
+    /// `MeasuredEmbedder` for its life and calls
+    /// `run(store:rootDirectory:measuredEmbedder:embeddingBatchSize:tracer:)`,
+    /// thus it embeds the probe one time only.
+    ///
     /// - Parameters:
     ///   - store: The workspace's index store to drain and write into.
     ///   - rootDirectory: The workspace root dirty file paths are relative
@@ -74,6 +81,45 @@ public enum TreeSitterWorker {
         embeddingBatchSize: Int = TreeSitterWorker.defaultEmbeddingBatchSize,
         tracer: (any Tracer)? = nil
     ) async throws -> Int {
+        try await run(
+            store: store,
+            rootDirectory: rootDirectory,
+            measuredEmbedder: embedder.map(MeasuredEmbedder.init(embedder:)),
+            embeddingBatchSize: embeddingBatchSize,
+            tracer: tracer
+        )
+    }
+
+    /// Drains and processes every file with `ts_indexed = 0` in `store`, then
+    /// — if `measuredEmbedder` is given — embeds every file with
+    /// `embedded = 0`.
+    ///
+    /// This is `run(store:rootDirectory:embedder:embeddingBatchSize:tracer:)`
+    /// for a caller that keeps one `MeasuredEmbedder` for more than one pass.
+    /// The measured embedder keeps the vector length that it learned, thus a
+    /// pass after the first embeds no probe text.
+    ///
+    /// - Parameters:
+    ///   - store: The workspace's index store to drain and write into.
+    ///   - rootDirectory: The workspace root dirty file paths are relative
+    ///     to.
+    ///   - measuredEmbedder: The embedder of the embedding step and its
+    ///     vector length, or `nil` to skip embedding entirely.
+    ///   - embeddingBatchSize: The maximum number of chunk texts in one
+    ///     `embed(_:)` call. A value less than 1 is used as 1.
+    ///   - tracer: The tracer of the span of each `embed(_:)` call, or `nil`
+    ///     to read the bootstrapped tracer at the time of each call.
+    /// - Returns: The number of dirty tree-sitter files drained this pass.
+    /// - Throws: Rethrows `Store`'s storage errors. Throws `CancellationError`
+    ///   when the task is cancelled.
+    @discardableResult
+    internal static func run(
+        store: Store,
+        rootDirectory: URL,
+        measuredEmbedder: MeasuredEmbedder?,
+        embeddingBatchSize: Int,
+        tracer: (any Tracer)?
+    ) async throws -> Int {
         let dirtyPaths = try await store.drainTsDirty()
 
         for relativePath in dirtyPaths {
@@ -88,8 +134,13 @@ public enum TreeSitterWorker {
             }
         }
 
-        if let embedder {
-            try await embedDirtyChunks(embedder: embedder, store: store, batchSize: max(1, embeddingBatchSize), tracer: tracer)
+        if let measuredEmbedder {
+            try await embedDirtyChunks(
+                measuredEmbedder: measuredEmbedder,
+                store: store,
+                batchSize: max(1, embeddingBatchSize),
+                tracer: tracer
+            )
         }
 
         return dirtyPaths.count
@@ -232,45 +283,96 @@ public enum TreeSitterWorker {
     /// vectors through `EmbeddingCodec` and marking each file's `embedded`
     /// flag once its whole batch succeeds.
     ///
-    /// Before draining, reconciles `embedder`'s dimension against the one
-    /// recorded in `meta` the last time embedding ran (see
-    /// `reconcileEmbedderDimension`): a mismatch clears every chunk's
-    /// embedding and every file's `embedded` flag, so the drain below picks
-    /// up the whole index for full re-embedding instead of leaving stale,
-    /// wrong-dimension vectors in place. This runs regardless of how many
-    /// files the tree-sitter pass just chunked — including a pass with zero
-    /// dirty files, which is how a dimension change alone (no source
-    /// changes) still triggers a full re-embed.
+    /// Before draining, gets the dimension of the embedder from the length of
+    /// the first vector that it returns (see `measureDimension`), and
+    /// reconciles that dimension against the one recorded in `meta` the last
+    /// time embedding ran (see `reconcileEmbedderDimension`): a mismatch
+    /// clears every chunk's embedding and every file's `embedded` flag, so
+    /// the drain below picks up the whole index for full re-embedding instead
+    /// of leaving stale, wrong-dimension vectors in place. This runs
+    /// regardless of how many files the tree-sitter pass just chunked —
+    /// including a pass with zero dirty files, which is how a dimension change
+    /// alone (no source changes) still triggers a full re-embed.
+    ///
+    /// When the embedder gives no dimension, the step embeds nothing. Each
+    /// dirty file stays dirty, thus a later pass embeds it.
     ///
     /// The step looks for task cancellation before each file, and
     /// `embedInBatches` looks for it before each batch, thus a cancelled
     /// pass stops after one batch at most.
     ///
     /// Each `embed(_:)` call runs in its own span through `tracer`.
-    private static func embedDirtyChunks(embedder: TextEmbedding, store: Store, batchSize: Int, tracer: (any Tracer)?) async throws {
-        try await reconcileEmbedderDimension(embedder: embedder, store: store)
+    private static func embedDirtyChunks(
+        measuredEmbedder: MeasuredEmbedder,
+        store: Store,
+        batchSize: Int,
+        tracer: (any Tracer)?
+    ) async throws {
+        guard let dimension = try await measureDimension(of: measuredEmbedder, tracer: tracer) else {
+            return
+        }
+        try await reconcileEmbedderDimension(dimension, store: store)
 
         let dirtyPaths = try await store.drainEmbeddingDirty()
         for filePath in dirtyPaths {
             try Task.checkCancellation()
-            try await embedChunks(forFilePath: filePath, embedder: embedder, store: store, batchSize: batchSize, tracer: tracer)
+            try await embedChunks(
+                forFilePath: filePath,
+                embedder: measuredEmbedder.embedder,
+                store: store,
+                batchSize: batchSize,
+                tracer: tracer
+            )
         }
     }
 
-    /// Compares `embedder.dimension` against the dimension stored in `meta`
-    /// and, on a mismatch, clears every chunk's embedding and resets every
-    /// file's `embedded` flag so the next drain fully re-embeds the index.
+    /// Gives the dimension of the embedder: the length of the first vector
+    /// that it returns.
+    ///
+    /// When the embedder has returned no vector yet, `measuredEmbedder`
+    /// embeds one probe text. When that probe fails, or gives no vector, the
+    /// function writes a warning and gives `nil`: the pass then skips the
+    /// embedding step, and a later pass measures again.
+    ///
+    /// - Parameters:
+    ///   - measuredEmbedder: The embedder and the vector length that it knows.
+    ///   - tracer: The tracer of the span of the probe call.
+    /// - Returns: The dimension, or `nil` when the embedder gives none.
+    /// - Throws: `CancellationError` when the task is cancelled.
+    private static func measureDimension(of measuredEmbedder: MeasuredEmbedder, tracer: (any Tracer)?) async throws -> Int? {
+        do {
+            return try await measuredEmbedder.vectorLength(tracer: tracer)
+        } catch {
+            // A cancelled embedder can throw an error of its own type.
+            // A cancelled pass must stop, not skip the step and continue.
+            try Task.checkCancellation()
+            Log.embedding.warning(
+                "the embedder gave no vector length; the pass skips the embedding step",
+                metadata: [CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error)]
+            )
+            return nil
+        }
+    }
+
+    /// Compares `dimension` against the dimension stored in `meta` and, on a
+    /// mismatch, clears every chunk's embedding and resets every file's
+    /// `embedded` flag so the next drain fully re-embeds the index.
     ///
     /// No stored dimension (a fresh index, or one that has never embedded)
     /// is not a mismatch — it just records the current dimension.
-    private static func reconcileEmbedderDimension(embedder: TextEmbedding, store: Store) async throws {
+    ///
+    /// - Parameters:
+    ///   - dimension: The length of the first vector that the embedder
+    ///     returned.
+    ///   - store: The index store that records the dimension.
+    private static func reconcileEmbedderDimension(_ dimension: Int, store: Store) async throws {
         let storedDimension = try await store.embedderDimension()
-        if let storedDimension, storedDimension != embedder.dimension {
+        if let storedDimension, storedDimension != dimension {
             Log.embedding.notice(
                 "the embedder dimension changed; the index clears all embeddings and embeds all chunks again",
                 metadata: [
                     CodeContextTracing.MetadataKey.embeddingStoredDimension: .stringConvertible(storedDimension),
-                    CodeContextTracing.MetadataKey.embeddingDimension: .stringConvertible(embedder.dimension),
+                    CodeContextTracing.MetadataKey.embeddingDimension: .stringConvertible(dimension),
                 ]
             )
             try await store.write { db in
@@ -278,7 +380,7 @@ public enum TreeSitterWorker {
                 try db.execute(sql: "UPDATE \(Schema.IndexedFiles.table) SET \(Schema.IndexedFiles.embedded) = 0")
             }
         }
-        try await store.setEmbedderDimension(embedder.dimension)
+        try await store.setEmbedderDimension(dimension)
     }
 
     /// Embeds the texts of `chunks` in batches of `batchSize` texts at most.

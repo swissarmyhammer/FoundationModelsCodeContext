@@ -125,8 +125,12 @@ internal enum CodeContextSpans {
     /// Embeds `texts` with `embedder` in one ``CodeContextTracing/SpanName/embed`` span, and writes
     /// one "enter" log record before the call.
     ///
-    /// The span and the record hold the count of the texts and the dimension of the embedder. They
-    /// never hold the texts.
+    /// The span and the record hold the count of the texts. They never hold the texts.
+    ///
+    /// `TextEmbedding` declares no vector length. Thus the span gets the dimension after the call,
+    /// from the length of the first vector that the call returns. The "enter" record is written
+    /// before the call, thus it holds no dimension. A call that throws, or that returns no vector,
+    /// gives a span with no dimension.
     ///
     /// - Parameters:
     ///   - texts: The texts to embed.
@@ -139,16 +143,14 @@ internal enum CodeContextSpans {
             CodeContextTracing.SpanName.embed,
             tracer: tracer,
             logger: Log.embedding,
-            attributes: { attributes in
-                attributes[CodeContextTracing.AttributeKey.embeddingInputCount] = texts.count
-                attributes[CodeContextTracing.AttributeKey.embeddingDimension] = embedder.dimension
-            },
-            metadata: [
-                CodeContextTracing.MetadataKey.embeddingInputCount: .stringConvertible(texts.count),
-                CodeContextTracing.MetadataKey.embeddingDimension: .stringConvertible(embedder.dimension),
-            ]
-        ) { _ in
-            try await embedder.embed(texts)
+            attributes: { $0[CodeContextTracing.AttributeKey.embeddingInputCount] = texts.count },
+            metadata: [CodeContextTracing.MetadataKey.embeddingInputCount: .stringConvertible(texts.count)]
+        ) { span in
+            let vectors = try await embedder.embed(texts)
+            if let dimension = vectors.first?.count {
+                span.attributes[CodeContextTracing.AttributeKey.embeddingDimension] = dimension
+            }
+            return vectors
         }
     }
 

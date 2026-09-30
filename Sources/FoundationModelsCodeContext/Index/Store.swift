@@ -373,7 +373,8 @@ public final class Store: Sendable {
     /// The embedder dimension recorded the last time chunks were embedded,
     /// or `nil` if none has been recorded yet.
     ///
-    /// Callers compare this against the current embedder's `dimension`; a
+    /// Callers compare this against the length of the first vector that the
+    /// current embedder returns (`TextEmbedding` declares no length); a
     /// mismatch means every chunk must be treated as un-embedded and
     /// re-embedded (see plan.md "Embeddings").
     ///

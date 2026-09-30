@@ -23,7 +23,7 @@ struct CodeContextRootDirectoryPublicVisibilityTests {
     @Test
     func rootDirectoryIsPubliclyReadableWithoutAwait() async throws {
         try await withTemporaryWorkspace { root in
-            let context = try await CodeContext(rootDirectory: root, embedder: FakeEmbedder(dimension: 8))
+            let context = try await CodeContext(rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8))
 
             // The actual assertion is as much that this *compiles* as that it matches: reading
             // `rootDirectory` with no `await`, from a file with no `@testable import`, is only

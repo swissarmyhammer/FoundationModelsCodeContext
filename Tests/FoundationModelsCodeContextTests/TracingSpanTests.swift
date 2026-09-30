@@ -57,11 +57,12 @@ internal struct TracingSpanTests {
     @Test(.timeLimit(.minutes(TracingSpanTests.timeLimitMinutes)))
     internal func theEmbedSpansOfAnIndexPassAreChildrenOfThePassSpan() async throws {
         let tracer = InMemoryTracer()
-        try await Self.runFirstIndexPass(embedder: FakeEmbedder(dimension: Self.embeddingDimension), tracer: tracer)
+        try await Self.runFirstIndexPass(embedder: FakeEmbedder(vectorLength: Self.embeddingDimension), tracer: tracer)
 
         let passSpan = try #require(Self.spans(named: CodeContextTracing.SpanName.indexPass, in: tracer).first)
         let embedSpans = Self.spans(named: CodeContextTracing.SpanName.embed, in: tracer)
-        #expect(embedSpans.count == Self.fixtureFileCount)
+        // One embed span for each fixture file, and one for the probe that gets the vector length.
+        #expect(embedSpans.count == Self.fixtureFileCount + 1)
         for embedSpan in embedSpans {
             #expect(embedSpan.parentSpanID == passSpan.spanID)
             #expect(embedSpan.attributes.get(CodeContextTracing.AttributeKey.embeddingDimension) == .int64(Int64(Self.embeddingDimension)))
@@ -124,7 +125,7 @@ internal struct TracingSpanTests {
 
             let result = try await SearchCode.run(
                 corpus: corpus,
-                embedder: FakeEmbedder(dimension: Self.embeddingDimension),
+                embedder: FakeEmbedder(vectorLength: Self.embeddingDimension),
                 query: Self.searchQuery,
                 topK: Self.searchLimit,
                 tracer: tracer
@@ -152,7 +153,7 @@ internal struct TracingSpanTests {
 
             _ = try await SearchCode.run(
                 corpus: corpus,
-                embedder: FakeEmbedder(dimension: Self.embeddingDimension),
+                embedder: FakeEmbedder(vectorLength: Self.embeddingDimension),
                 query: Self.searchQuery,
                 tracer: InMemoryTracer()
             )
@@ -170,7 +171,7 @@ internal struct TracingSpanTests {
 
             _ = try await SearchCode.run(
                 corpus: corpus,
-                embedder: FakeEmbedder(dimension: Self.embeddingDimension, failure: failure),
+                embedder: FakeEmbedder(vectorLength: Self.embeddingDimension, failure: failure),
                 query: Self.searchQuery,
                 tracer: tracer
             )
@@ -181,6 +182,8 @@ internal struct TracingSpanTests {
             #expect(String(describing: recorded.error) == String(reflecting: MarkedEmbedError.self))
             #expect(!String(reflecting: recorded.error).contains(Self.searchQuery))
             #expect(embedSpan.status?.code == .error)
+            // The span gets the dimension from a returned vector. A failed call returns none.
+            #expect(embedSpan.attributes.get(CodeContextTracing.AttributeKey.embeddingDimension) == nil)
         }
     }
 
@@ -188,7 +191,7 @@ internal struct TracingSpanTests {
     internal func aSearchWithNoTracerGivesTheSameHits() async throws {
         try await withTemporaryWorkspace { root in
             let corpus = try await Self.makeEmbeddedCorpus(root: root)
-            let embedder = FakeEmbedder(dimension: Self.embeddingDimension)
+            let embedder = FakeEmbedder(vectorLength: Self.embeddingDimension)
 
             let traced = try await SearchCode.run(corpus: corpus, embedder: embedder, query: Self.searchQuery, tracer: InMemoryTracer())
             let untraced = try await SearchCode.run(corpus: corpus, embedder: embedder, query: Self.searchQuery)
@@ -330,7 +333,7 @@ internal struct TracingSpanTests {
     /// - Returns: The corpus.
     private static func makeEmbeddedCorpus(root: URL) async throws -> SearchCorpus {
         let store = try Store(rootDirectory: root)
-        let vectors = try await FakeEmbedder(dimension: embeddingDimension).embed([searchQuery])
+        let vectors = try await FakeEmbedder(vectorLength: embeddingDimension).embed([searchQuery])
         try await insertChunk(
             store: store,
             filePath: "Network.swift",
