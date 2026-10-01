@@ -91,8 +91,24 @@ comments:
     - evidence: refactor(languages): share one file extension helper (local commit, not pushed; sha is in the step block of the commit reply)
     - next: review
   timestamp: 2026-10-01T23:11:42.188951+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3ww3ddhay9b8yef4znx2gdd
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (057912c). 0 findings, 0 confirmed, 0 refuted. 14 pairs attempted, 0 failed. 10 files reviewed. All prior findings are checked.
+    - next: The task is in done. No more work is necessary.
+  timestamp: 2026-10-01T23:16:56.881098+00:00
+- actor: claude-code
+  id: 01m3ww3mve0w475m0sjj2v8mtk
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 10 files (shared Languages.normalizedFileExtension helper)
+    - test: green — swift test 758 passed; IntegrationTests 11 passed; swift format lint 0 findings
+    - commit: 057912c
+    - review: clean — 0 findings
+  timestamp: 2026-10-01T23:17:04.494340+00:00
+position_column: done
+position_ordinal: d780
 title: isReady stays false for ever when a detected server is .notFound and its files are LSP-dirty
 ---
 ## Problem
