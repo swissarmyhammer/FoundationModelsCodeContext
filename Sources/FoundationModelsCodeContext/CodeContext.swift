@@ -918,7 +918,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// - Throws: Rethrows `Store`'s storage errors.
     private func markUncoveredLspFilesDone() async throws {
         let dirtyPaths = try await store.drainLspDirty()
-        for relativePath in dirtyPaths where !coveredLspExtensions.contains(Self.lspFileExtension(of: relativePath)) {
+        for relativePath in dirtyPaths where !coveredLspExtensions.contains(Languages.normalizedFileExtension(ofPath: relativePath)) {
             try await store.markIndexed(filePath: relativePath, layer: .lsp)
         }
     }
@@ -949,7 +949,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     private func lspUnavailableFileCount() async -> Int {
         let unavailableExtensions = Self.unavailableExtensions(for: await supervisor.status())
         guard !unavailableExtensions.isEmpty, let dirtyPaths = try? await store.drainLspDirty() else { return 0 }
-        return dirtyPaths.count { unavailableExtensions.contains(Self.lspFileExtension(of: $0)) }
+        return dirtyPaths.count { unavailableExtensions.contains(Languages.normalizedFileExtension(ofPath: $0)) }
     }
 
     /// Reads `supervisor.status()` and republishes it into `state.servers`.
@@ -964,7 +964,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// - Parameter filePath: The file to route, relative to `rootDirectory`.
     /// - Returns: The routed session, or `nil` if unavailable.
     private func session(forFilePath filePath: String) async -> LspSession<Connection>? {
-        await supervisor.session(forFileExtension: URL(fileURLWithPath: filePath).pathExtension)
+        await supervisor.session(forFileExtension: Languages.normalizedFileExtension(ofPath: filePath))
     }
 
     // MARK: - Server-spec extension mapping
@@ -1004,14 +1004,6 @@ public actor CodeContext<Connection: LanguageServerConnection> {
                 .filter { CodeContextState.isSettledAndNotRunning($0.state) }
                 .flatMap { extensions(forCommand: $0.command) }
         )
-    }
-
-    /// The file extension of `relativePath`, lowercased and with no leading dot, in the form that
-    /// `coveredLspExtensions` and `extensions(forCommand:)` hold.
-    /// - Parameter relativePath: A file path relative to `rootDirectory`.
-    /// - Returns: The lowercased extension, or an empty string when the path has none.
-    private static func lspFileExtension(of relativePath: String) -> String {
-        URL(fileURLWithPath: relativePath).pathExtension.lowercased()
     }
 }
 

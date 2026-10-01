@@ -74,7 +74,7 @@ enum Walker {
     static func enumerateFiles(rootDirectory: URL, extensions: Set<String>? = nil) throws -> [URL] {
         let allowedExtensions = extensions ?? knownLanguageExtensions
         return try walkEntries(rootDirectory: rootDirectory)
-            .filter { !$0.isDirectory && allowedExtensions.contains($0.url.pathExtension.lowercased()) }
+            .filter { !$0.isDirectory && allowedExtensions.contains(Languages.normalizedFileExtension(of: $0.url)) }
             .map(\.url)
     }
 

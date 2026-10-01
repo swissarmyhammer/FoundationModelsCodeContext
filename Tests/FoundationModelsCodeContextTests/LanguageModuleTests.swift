@@ -1,3 +1,4 @@
+import Foundation
 import SwiftTreeSitter
 import Testing
 
@@ -88,6 +89,23 @@ struct LanguageModuleTests {
         #expect(Languages.module(forFileExtension: "yml")?.name == "yaml")
         #expect(Languages.module(forFileExtension: "md")?.name == "markdown")
         #expect(Languages.module(forFileExtension: "sh")?.name == "bash")
+    }
+
+    @Test
+    func normalizedFileExtensionOfAPathIsLowercased() {
+        #expect(Languages.normalizedFileExtension(ofPath: "Sources/App/Main.SWIFT") == "swift")
+    }
+
+    @Test
+    func normalizedFileExtensionOfAPathWithNoExtensionIsEmpty() {
+        #expect(Languages.normalizedFileExtension(ofPath: "Makefile").isEmpty)
+        #expect(Languages.normalizedFileExtension(ofPath: "lib.d/README").isEmpty)
+    }
+
+    @Test
+    func normalizedFileExtensionOfAURLIsLowercased() {
+        let url = URL(fileURLWithPath: "/tmp/project/Server.PHP")
+        #expect(Languages.normalizedFileExtension(of: url) == "php")
     }
 
     @Test

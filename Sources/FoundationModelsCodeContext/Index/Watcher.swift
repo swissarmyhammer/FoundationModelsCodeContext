@@ -299,7 +299,7 @@ public actor Watcher {
         guard let relativePath = RelativePath.of(url, relativeTo: rootDirectory) else {
             return nil
         }
-        guard allowedExtensions.contains(url.pathExtension.lowercased()) else {
+        guard allowedExtensions.contains(Languages.normalizedFileExtension(of: url)) else {
             return nil
         }
         guard !relativePath.split(separator: "/").contains(where: { $0.hasPrefix(".") }) else {

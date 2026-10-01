@@ -514,7 +514,7 @@ public enum GrepCode {
             guard !extensions.isEmpty else {
                 return true
             }
-            return extensions.contains(URL(fileURLWithPath: filePath).pathExtension.lowercased())
+            return extensions.contains(Languages.normalizedFileExtension(ofPath: filePath))
         }
 
         /// Whether `filePath` matches `filePattern` via POSIX `fnmatch`, or

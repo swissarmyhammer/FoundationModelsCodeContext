@@ -310,7 +310,7 @@ extension LSPIndexWorker {
     /// - Returns: One entry for each call inside a callable symbol; empty
     ///   when no language module parses the file.
     private static func calls(in filePath: String, contents: String, callables: [FlatSymbol]) -> [(caller: FlatSymbol, position: Position)] {
-        guard let module = Languages.module(forFileExtension: URL(fileURLWithPath: filePath).pathExtension) else {
+        guard let module = Languages.module(forFileExtension: Languages.normalizedFileExtension(ofPath: filePath)) else {
             return []
         }
         let file = SourceFile(relativePath: filePath, contents: contents)

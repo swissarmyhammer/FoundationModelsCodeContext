@@ -1,3 +1,5 @@
+import Foundation
+
 /// The single place a new language is wired in.
 ///
 /// Adding a language means adding one new `LanguageModule` conformance
@@ -76,5 +78,26 @@ public enum Languages {
         return all.first { module in
             module.fileExtensions.contains { $0.lowercased() == normalized }
         }
+    }
+
+    /// Gives the extension of a file path in the form that extension matching uses.
+    ///
+    /// This is the one place that gets the extension of a file for routing and
+    /// filtering. Use it, and do not repeat the `pathExtension.lowercased()` logic.
+    ///
+    /// - Parameter path: A file path, absolute or relative to a workspace root.
+    /// - Returns: The lowercased extension with no leading dot, or an empty string
+    ///   when the path has no extension.
+    static func normalizedFileExtension(ofPath path: String) -> String {
+        (path as NSString).pathExtension.lowercased()
+    }
+
+    /// Gives the extension of a file URL in the form that extension matching uses.
+    ///
+    /// - Parameter url: A file URL.
+    /// - Returns: The lowercased extension with no leading dot, or an empty string
+    ///   when the URL has no extension.
+    static func normalizedFileExtension(of url: URL) -> String {
+        normalizedFileExtension(ofPath: url.path)
     }
 }

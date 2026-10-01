@@ -159,7 +159,7 @@ public enum ProjectDetection {
         let root = rootDirectory.standardizedFileURL
         var extensionsByDirectory: [URL: Set<String>] = [:]
         for entry in entries where !entry.isDirectory {
-            let fileExtension = entry.url.pathExtension.lowercased()
+            let fileExtension = Languages.normalizedFileExtension(of: entry.url)
             guard !fileExtension.isEmpty else { continue }
             var directory = entry.url.deletingLastPathComponent().standardizedFileURL
             while extensionsByDirectory[directory, default: []].insert(fileExtension).inserted, directory != root {

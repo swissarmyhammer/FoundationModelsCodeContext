@@ -191,7 +191,7 @@ public enum TreeSitterWorker {
             return nil
         }
 
-        let fileExtension = URL(fileURLWithPath: relativePath).pathExtension
+        let fileExtension = Languages.normalizedFileExtension(ofPath: relativePath)
         guard let module = Languages.module(forFileExtension: fileExtension) else {
             Log.index.warning(
                 "no language module parses the file",

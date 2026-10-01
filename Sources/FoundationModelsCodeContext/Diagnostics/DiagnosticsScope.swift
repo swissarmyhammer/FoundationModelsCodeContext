@@ -95,7 +95,7 @@ enum DiagnosticsScopeResolver {
     /// - Parameter relativePath: The workspace-relative path to check.
     /// - Returns: `true` if the path's extension is registered by an LSP-backed `Languages.all` module.
     private static func isDiagnosableExtension(_ relativePath: String) -> Bool {
-        let fileExtension = (relativePath as NSString).pathExtension.lowercased()
+        let fileExtension = Languages.normalizedFileExtension(ofPath: relativePath)
         guard !fileExtension.isEmpty else { return false }
         return knownExtensions.contains(fileExtension)
     }

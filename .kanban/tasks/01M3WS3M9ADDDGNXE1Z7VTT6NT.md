@@ -43,6 +43,54 @@ comments:
     - evidence: 78b78b1 fix(index): count LSP-unavailable files as drained so isReady becomes true
     - next: review
   timestamp: 2026-10-01T22:52:28.736622+00:00
+- actor: claude-code
+  id: 01m3wv5g4q1z2w713x13q120ap
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (4dc5dfc). 1 finding, 1 confirmed, 0 refuted. Sources/FoundationModelsCodeContext/CodeContext.swift:1013 (duplication/duplication).
+    - next: Do the open item in the "Review Findings (2026-10-01 17:52)" section. Then do the review again.
+  timestamp: 2026-10-01T23:00:36.631618+00:00
+- actor: claude-code
+  id: 01m3wv5tc0gxfw24bx1hcn66wx
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 7 files (CodeContextState.swift, CodeContext.swift, 4 test files, plan.md)
+    - test: green — swift test 755 passed; IntegrationTests 11 passed; swift format lint 0 findings
+    - commit: 4dc5dfc
+    - review: findings — Sources/FoundationModelsCodeContext/CodeContext.swift:1013 (duplication: lspFileExtension)
+  timestamp: 2026-10-01T23:00:47.104534+00:00
+- actor: claude-code
+  id: 01m3wvhx91nep9awyfhxyv1tak
+  text: |-
+    Review finding fixed (duplication: lspFileExtension).
+    - Discovery: the line refs of the finding are not exact. Diagnose.swift `documentURI` and Walker.swift `relativePath` do not get a file extension. The real copies of the extension logic were in CodeContext.swift (`lspFileExtension`, `session(forFilePath:)`), DiagnosticsScope.swift (`isDiagnosableExtension`), Walker.swift (`enumerateFiles`), Watcher.swift (`acceptedRelativePath`), GrepCode.swift (`ChunkFilter.matchesLanguage`), ProjectDetection.swift (`subtreeFileExtensions`), TreeSitterWorker.swift (`readAndChunk`) and LSPIndexWorker+References.swift (`calls`).
+    - Fix: one shared helper in Languages.swift: `Languages.normalizedFileExtension(ofPath:)` and `Languages.normalizedFileExtension(of:)` (URL). Each site above now calls it. `CodeContext.lspFileExtension` is deleted. No `pathExtension` stays in Sources outside the helper.
+    - Behavior is the same: the three sites that did not lowercase give the extension to `Languages.module(forFileExtension:)`, which lowercases it.
+    - TDD: three new tests in LanguageModuleTests (`normalizedFileExtension...`). RED was a compile failure (no member); GREEN passed.
+    - Not changed: the repeated `module.fileExtensions.map { $0.lowercased() }` sets (Walker, Watcher, DiagnosticsScope, CodeContext, QueryAST). That is a different cause (the extension set of the modules, not the extension of a path), and the finding does not name it.
+  timestamp: 2026-10-01T23:07:23.297454+00:00
+- actor: claude-code
+  id: 01m3wvj0vrrt14y2vvgstzte09
+  text: |-
+    ### implement — changed
+    - evidence: 10 files — Sources/FoundationModelsCodeContext/Languages/Languages.swift, Sources/FoundationModelsCodeContext/CodeContext.swift, Sources/FoundationModelsCodeContext/Diagnostics/DiagnosticsScope.swift, Sources/FoundationModelsCodeContext/Index/Walker.swift, Sources/FoundationModelsCodeContext/Index/Watcher.swift, Sources/FoundationModelsCodeContext/Index/TreeSitterWorker.swift, Sources/FoundationModelsCodeContext/Index/LSPIndexWorker+References.swift, Sources/FoundationModelsCodeContext/Ops/GrepCode.swift, Sources/FoundationModelsCodeContext/Projects/ProjectDetection.swift, Tests/FoundationModelsCodeContextTests/LanguageModuleTests.swift. `swift test`: 758 tests in 68 suites passed, 0 failed, 0 skipped. `swift format lint -s -r Sources Tests`: exit 0. The only warning is the known dependency build-system warning "missing creator for mutated node" (mlx-swift_Cmlx.bundle).
+    - next: /review
+  timestamp: 2026-10-01T23:07:26.968314+00:00
+- actor: claude-code
+  id: 01m3wvsa5h13jwrhn5sxf7a0ph
+  text: |-
+    ### test - green
+    - evidence: swift test (root) - 758 tests in 68 suites passed, 0 failed, 0 skipped. swift test --package-path IntegrationTests - 11 tests in 8 suites passed, 0 failed, 0 skipped. swift format lint -s -r Sources Tests - 0 findings.
+    - note: one build-system warning ("missing creator for mutated node ... mlx-swift_Cmlx.bundle") comes from the mlx-swift dependency bundle. It is not from this repo's code.
+    - next: review
+  timestamp: 2026-10-01T23:11:25.873955+00:00
+- actor: claude-code
+  id: 01m3wvst3ce40f3r3bjhb31jek
+  text: |-
+    ### commit — changed
+    - evidence: refactor(languages): share one file extension helper (local commit, not pushed; sha is in the step block of the commit reply)
+    - next: review
+  timestamp: 2026-10-01T23:11:42.188951+00:00
 position_column: doing
 position_ordinal: '80'
 title: isReady stays false for ever when a detected server is .notFound and its files are LSP-dirty
@@ -64,3 +112,15 @@ Example: a tree with `composer.json` and one `.php` file, with no `intelephense`
 - [x] The test of the work list passes.
 - [x] A file of a `.notFound` server is indexed when the server starts later.
 #bug #index #lsp
+
+## Review Findings (2026-10-01 17:52)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 6 file(s) reviewed, 5 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `plan.md` — no validator matches this file
+
+- [x] `Sources/FoundationModelsCodeContext/CodeContext.swift:1013` `duplication/duplication` — The new `lspFileExtension` function duplicates logic already implemented in Diagnose.swift:161 (`documentURI`), DiagnosticsScope.swift:96 (`isDiagnosableExtension`), and Walker.swift:175 (`relativePath`). Multiple implementations of the same URL pathExtension.lowercased() operation will drift out of sync if one is fixed and the others are not. Consolidate file extension lowercasing into a single shared utility. Either extract a public static function (if these modules should share it) or refactor Diagnose.swift, DiagnosticsScope.swift, and Walker.swift to call CodeContext.lspFileExtension instead of duplicating the logic. As written, the counterpart implementations are outside this change; refactoring them is a separate task.
