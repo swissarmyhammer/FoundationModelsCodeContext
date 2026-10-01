@@ -4,13 +4,14 @@ import Operations
 /// The `grep code` operation of the `code_search` tool.
 ///
 /// It finds the indexed code chunks whose text matches a regular expression.
-/// For each matching line, the answer is the innermost indexed symbol that
-/// holds the line, for example the method and not its class.
+/// For each match, the answer is the innermost indexed symbol that holds the
+/// start of the match, for example the method and not its class. Two symbols
+/// on one line each give their own answer.
 @Generable
 @Operation(
     verb: "grep",
     noun: "code",
-    description: "Find the indexed code chunks whose text matches a regular expression. For each matching line, the answer is the innermost indexed symbol that holds the line, for example the method and not its class. You can search only some languages, or only the files that match a glob."
+    description: "Find the indexed code chunks whose text matches a regular expression. For each match, the answer is the innermost indexed symbol that holds the start of the match, for example the method and not its class. You can search only some languages, or only the files that match a glob."
 )
 internal struct GrepCodeOperation {
     /// The regular expression to search for.

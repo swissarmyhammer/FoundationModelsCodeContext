@@ -23,8 +23,9 @@ public struct GrepMatchPosition: Codable, Sendable, Equatable {
 
 /// One `ts_chunks` chunk whose text matched `GrepCode.run(store:pattern:languages:filePattern:maxResults:)`'s pattern.
 ///
-/// The chunk is the innermost indexed symbol that holds a matching line: a
-/// match in one method of a class gives the method chunk, not the class
+/// The chunk is the innermost indexed symbol whose byte range holds the start
+/// of a match: a match in one method of a class gives the method chunk, not
+/// the class chunk. Two sibling symbols on one line each give their own
 /// chunk.
 public struct GrepCodeMatch: Codable, Sendable, Equatable {
     /// The path of the file containing this chunk.
@@ -44,7 +45,8 @@ public struct GrepCodeMatch: Codable, Sendable, Equatable {
 
     /// Every position within `text` where the pattern matched, in the order
     /// the regex engine found them. `GrepCode.run` keeps only the positions
-    /// on lines that no smaller matching chunk holds.
+    /// that this chunk owns: no matching chunk that is more inner found a
+    /// match that starts at the same byte of the file.
     public let matches: [GrepMatchPosition]
 
     /// Creates a grep match.
@@ -72,7 +74,7 @@ public struct GrepCodeResult: Codable, Sendable, Equatable {
     public let pattern: String
 
     /// Chunks that matched the pattern, capped at `maxResults`. Each chunk
-    /// is the innermost symbol for one or more matching lines, and it
+    /// is the innermost symbol for one or more match positions, and it
     /// occurs one time only.
     public let matches: [GrepCodeMatch]
 
@@ -116,14 +118,20 @@ public enum GrepCode {
     ///
     /// Matching itself runs concurrently across chunks via a `TaskGroup`.
     /// The chunker writes nested chunks, so a match in a method also matches
-    /// the class that holds the method. Thus each matching line goes to the
-    /// innermost matching chunk that has a match on that line: the smallest
-    /// line range, then the latest start line, then the deepest symbol path.
-    /// A chunk that gets no line is not in the result, and a chunk keeps
-    /// only the match positions on its own lines. The resulting matches are
-    /// then sorted by `(filePath, startLine)` for deterministic output
-    /// (task-group completion order is not otherwise guaranteed) before the
-    /// `maxResults` cap is applied.
+    /// the class that holds the method. Thus each match position goes to the
+    /// innermost chunk that found a match at that position. The position is
+    /// the absolute start of the match in its file, and the chunk byte range
+    /// holds it. The innermost chunk has the smallest byte range, then the
+    /// largest start byte, then the deepest symbol path. Two sibling chunks
+    /// on one line do not hold the same positions, so each sibling keeps its
+    /// own matches. A chunk that gets no position is not in the result, and
+    /// a chunk keeps only the match positions that it gets.
+    ///
+    /// The task group gives the hits in a random order. Thus the hits are
+    /// sorted by file path, start line, start byte, end byte and symbol path
+    /// before the owners are chosen. The result is in that order, and it does
+    /// not change between calls. The `maxResults` cap applies after this
+    /// step.
     ///
     /// - Parameters:
     ///   - store: The workspace's index store to search.
@@ -171,9 +179,7 @@ public enum GrepCode {
             return results
         }
 
-        let sortedMatches = innermostMatches(of: allHits).sorted { lhs, rhs in
-            lhs.filePath != rhs.filePath ? lhs.filePath < rhs.filePath : lhs.startLine < rhs.startLine
-        }
+        let sortedMatches = innermostMatches(of: allHits.sorted { orderKey(of: $0) < orderKey(of: $1) })
         let truncated = sortedMatches.count > maxResults
 
         return GrepCodeResult(
@@ -196,7 +202,7 @@ public enum GrepCode {
 
     /// Compiles `pattern` and runs it against `chunk.text`, or returns
     /// `nil` if it doesn't match at all. The returned hit also holds the
-    /// file line where each match position starts.
+    /// byte range of the chunk in its file.
     ///
     /// Recompiles `pattern` locally (rather than accepting an
     /// already-compiled `Regex`) so this can run as the body of a
@@ -229,91 +235,84 @@ public enum GrepCode {
             text: chunk.text,
             matches: positions
         )
-        return ChunkHit(
-            match: match,
-            positionLines: startLines(of: positions, in: chunk.text, firstLine: chunk.startLine)
-        )
+        return ChunkHit(match: match, startByte: chunk.startByte, endByte: chunk.endByte)
     }
 
-    /// The zero-based file line where each of `positions` starts.
+    /// The key that sets the order of the hits before `innermostMatches(of:)`
+    /// chooses the owners, and thus the order of the result.
     ///
-    /// The regex engine gives `positions` in text order, so one walk over
-    /// the UTF-8 bytes of `text` counts the newlines before each start.
+    /// The order is the file path, the start line, the start byte, the end
+    /// byte and then the symbol path. The task group gives the hits in a
+    /// random order. This sort makes the order fixed, so a full tie in
+    /// `nestingKey(of:)` has the same result in each call.
     ///
-    /// - Parameters:
-    ///   - positions: The match positions within `text`, in text order.
-    ///   - text: The chunk's source text.
-    ///   - firstLine: The zero-based file line where `text` starts.
-    /// - Returns: One file line for each position, in the same order.
-    private static func startLines(of positions: [GrepMatchPosition], in text: String, firstLine: Int) -> [Int] {
-        let bytes = Array(text.utf8)
-        let newline = UInt8(ascii: "\n")
-        var line = firstLine
-        var scannedBytes = 0
-        return positions.map { position in
-            line += bytes[scannedBytes..<position.start].count(where: { $0 == newline })
-            scannedBytes = position.start
-            return line
-        }
+    /// - Parameter hit: The chunk that matched.
+    /// - Returns: A key that is smaller for the hit that comes first.
+    private static func orderKey(of hit: ChunkHit) -> (String, Int, Int, Int, String) {
+        (hit.match.filePath, hit.match.startLine, hit.startByte, hit.endByte, hit.match.symbolPath)
     }
 
-    /// Gives each line where the pattern matched to the innermost chunk
-    /// that has a match on that line, and keeps each chunk only for the
-    /// lines it gets.
+    /// Gives each match position to the innermost chunk that holds it, and
+    /// keeps each chunk only for the positions it gets.
     ///
-    /// The chunker writes nested chunks: a class chunk holds the text of
-    /// each method chunk, so a match in one method also matches the class.
-    /// This step removes the class from that answer. A chunk that gets no
-    /// line is not in the result. A chunk that gets some lines keeps only
-    /// the match positions on those lines.
+    /// A position is the absolute start of a match in its file: the start
+    /// byte of the chunk plus the start of the match in the chunk text. A
+    /// chunk holds a position when its byte range holds that start. The
+    /// chunker writes nested chunks: a class chunk holds the text of each
+    /// method chunk, so a match in one method also matches the class at the
+    /// same position. From the chunks that found a match at a position,
+    /// `nestingKey(of:)` chooses the innermost one. Thus the method gets the
+    /// position and the class does not. Two sibling chunks on one line do
+    /// not hold the same positions, so each sibling keeps its own matches.
     ///
-    /// - Parameter hits: Every chunk that matched, from all files.
-    /// - Returns: One match for each chunk that gets one line or more, in
-    ///   no specified order.
+    /// A chunk that gets no position is not in the result. A chunk that gets
+    /// some positions keeps only those positions. On a full tie in
+    /// `nestingKey(of:)`, the first hit in the order of `hits` gets the
+    /// position.
+    ///
+    /// - Parameter hits: Every chunk that matched, from all files, in the
+    ///   order of `orderKey(of:)`.
+    /// - Returns: One match for each chunk that gets one position or more, in
+    ///   the order of `hits`.
     private static func innermostMatches(of hits: [ChunkHit]) -> [GrepCodeMatch] {
-        Dictionary(grouping: hits, by: \.match.filePath).values.flatMap(innermostMatches(inFile:))
-    }
-
-    /// `innermostMatches(of:)` for the hits of one file.
-    ///
-    /// - Parameter hits: The chunks of one file that matched.
-    /// - Returns: One match for each chunk that gets one line or more.
-    private static func innermostMatches(inFile hits: [ChunkHit]) -> [GrepCodeMatch] {
-        let lineOwners = Dictionary(
-            hits.indices.flatMap { index in hits[index].positionLines.map { line in (line, index) } },
+        let owners = Dictionary(
+            hits.indices.flatMap { index in hits[index].filePositions.map { position in (position, index) } },
             uniquingKeysWith: { first, second in
-                nestingKey(of: hits[second].match) < nestingKey(of: hits[first].match) ? second : first
+                nestingKey(of: hits[second]) < nestingKey(of: hits[first]) ? second : first
             }
         )
         return hits.indices.compactMap { index in
-            matchKeepingOwnedLines(of: hits[index]) { line in lineOwners[line] == index }
+            matchKeepingOwnedPositions(of: hits[index]) { position in owners[position] == index }
         }
     }
 
     /// The order that puts an inner chunk before a chunk that holds it.
     ///
-    /// A smaller line range comes first. On a tie, the later start line
-    /// comes first, then the deeper symbol path. The symbol path text
-    /// breaks a last tie, so the choice does not change from one call to
-    /// the next.
+    /// A smaller byte range (`endByte - startByte`) comes first. On a tie,
+    /// the larger start byte comes first, then the deeper symbol path. The
+    /// symbol path text breaks a last tie.
     ///
-    /// - Parameter match: The chunk match to order.
+    /// - Parameter hit: The chunk that matched.
     /// - Returns: A key that is smaller for the more inner chunk.
-    private static func nestingKey(of match: GrepCodeMatch) -> (Int, Int, Int, String) {
-        let depth = match.symbolPath.components(separatedBy: Chunker.symbolPathSeparator).count
-        return (match.endLine - match.startLine, -match.startLine, -depth, match.symbolPath)
+    private static func nestingKey(of hit: ChunkHit) -> (Int, Int, Int, String) {
+        let depth = hit.match.symbolPath.components(separatedBy: Chunker.symbolPathSeparator).count
+        return (hit.endByte - hit.startByte, -hit.startByte, -depth, hit.match.symbolPath)
     }
 
-    /// `hit`'s match with only the positions whose line `isOwned` accepts,
-    /// or `nil` when no position stays.
+    /// `hit`'s match with only the positions that `isOwned` accepts, or `nil`
+    /// when no position stays.
     ///
     /// - Parameters:
     ///   - hit: The chunk that matched.
-    ///   - isOwned: Whether `hit` is the innermost chunk for a file line.
+    ///   - isOwned: Whether `hit` is the innermost chunk for a match position
+    ///     in its file.
     /// - Returns: The match with the kept positions, or `nil`.
-    private static func matchKeepingOwnedLines(of hit: ChunkHit, isOwned: (Int) -> Bool) -> GrepCodeMatch? {
-        let keptPositions = zip(hit.match.matches, hit.positionLines)
-            .filter { _, line in isOwned(line) }
+    private static func matchKeepingOwnedPositions(
+        of hit: ChunkHit,
+        isOwned: (FilePosition) -> Bool
+    ) -> GrepCodeMatch? {
+        let keptPositions = zip(hit.match.matches, hit.filePositions)
+            .filter { _, filePosition in isOwned(filePosition) }
             .map { position, _ in position }
         guard !keptPositions.isEmpty else {
             return nil
@@ -328,19 +327,41 @@ public enum GrepCode {
         )
     }
 
-    /// One chunk whose text matched, with the zero-based file line where
-    /// each of its match positions starts.
+    /// The absolute start of one match in its file.
+    private struct FilePosition: Hashable {
+        /// The path of the file that holds the match.
+        let filePath: String
+
+        /// The start offset of the match, in UTF-8 bytes, within the file.
+        let byte: Int
+    }
+
+    /// One chunk whose text matched, with the byte range of the chunk in
+    /// its file.
     private struct ChunkHit: Sendable {
         /// The chunk and all its match positions.
         let match: GrepCodeMatch
 
-        /// The file line of each entry in `match.matches`, in the same order.
-        let positionLines: [Int]
+        /// The chunk's start offset, in UTF-8 bytes, within its file.
+        let startByte: Int
+
+        /// The chunk's end offset, in UTF-8 bytes, within its file.
+        let endByte: Int
+
+        /// The absolute start of each entry in `match.matches`, in the same
+        /// order.
+        var filePositions: [FilePosition] {
+            match.matches.map { position in
+                FilePosition(filePath: match.filePath, byte: startByte + position.start)
+            }
+        }
     }
 
     /// One `ts_chunks` row loaded for grepping, before pattern matching.
     private struct ChunkRow: Sendable {
         let filePath: String
+        let startByte: Int
+        let endByte: Int
         let startLine: Int
         let endLine: Int
         let symbolPath: String
@@ -359,7 +380,8 @@ public enum GrepCode {
             try Row.fetchAll(
                 db,
                 sql: """
-                    SELECT \(Schema.TsChunks.filePath), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
+                    SELECT \(Schema.TsChunks.filePath), \(Schema.TsChunks.startByte), \(Schema.TsChunks.endByte), \
+                           \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
                            \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.text) \
                     FROM \(Schema.TsChunks.table)
                     """
@@ -367,6 +389,8 @@ public enum GrepCode {
             .map { row in
                 ChunkRow(
                     filePath: row[Schema.TsChunks.filePath],
+                    startByte: row[Schema.TsChunks.startByte],
+                    endByte: row[Schema.TsChunks.endByte],
                     startLine: row[Schema.TsChunks.startLine],
                     endLine: row[Schema.TsChunks.endLine],
                     symbolPath: row[Schema.TsChunks.symbolPath],

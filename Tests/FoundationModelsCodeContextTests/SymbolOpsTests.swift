@@ -364,9 +364,27 @@ private func seedNestedClassFixture(store: Store, root: URL) async throws {
     try await TreeSitterWorker.run(store: store, rootDirectory: root)
 }
 
+/// Seeds `store` with one chunker-populated file.
+///
+/// - Parameters:
+///   - source: The text of the file.
+///   - fileName: The path of the file, relative to `root`.
+///   - store: The index store to fill.
+///   - root: The workspace root.
+private func seedSingleFileFixture(_ source: String, named fileName: String, store: Store, root: URL) async throws {
+    try write(source, to: fileName, in: root)
+    _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+    try await TreeSitterWorker.run(store: store, rootDirectory: root)
+}
+
 /// Tests for `GrepCode`: regex matching over `ts_chunks.text` with position
 /// reporting, language/file-pattern filters, and `maxResults` capping.
 struct GrepCodeTests {
+    /// How many times `grepCodeKeepsEachArrowFunctionOnOneLineInEveryCall`
+    /// sends its query, to show that the result does not change from one
+    /// call to the next.
+    private static let repeatedCallCount = 5
+
     @Test
     func grepCodeAnswersAMatchInOneMethodWithThatMethodNotTheClass() async throws {
         try await withTemporaryWorkspace { root in
@@ -406,6 +424,59 @@ struct GrepCodeTests {
             #expect(result.matches.map(\.symbolPath) == ["Model", "Model._do_insert"])
             let classMatch = try #require(result.matches.first)
             #expect(classMatch.matches.count == 1)
+        }
+    }
+
+    @Test
+    func grepCodeKeepsTheMatchOfEachSiblingFunctionOnOneLine() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedSingleFileFixture(
+                "function a() { return NEEDLE; } function b() { return NEEDLE; }\n",
+                named: "siblings.js",
+                store: store,
+                root: root
+            )
+
+            let result = try await GrepCode.run(store: store, pattern: "NEEDLE")
+
+            #expect(result.matches.map(\.symbolPath) == ["a", "b"])
+        }
+    }
+
+    @Test
+    func grepCodeAnswersAMatchInAnExportedFunctionWithTheFunction() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedSingleFileFixture(
+                "export function foo() {\n    return NEEDLE;\n}\n",
+                named: "exported.js",
+                store: store,
+                root: root
+            )
+
+            let result = try await GrepCode.run(store: store, pattern: "NEEDLE")
+
+            #expect(result.matches.map(\.symbolPath) == ["foo"])
+        }
+    }
+
+    @Test
+    func grepCodeKeepsEachArrowFunctionOnOneLineInEveryCall() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedSingleFileFixture(
+                "const x = () => NEEDLE + 1; const y = () => NEEDLE + 2;\n",
+                named: "arrows.js",
+                store: store,
+                root: root
+            )
+
+            for _ in 0..<Self.repeatedCallCount {
+                let result = try await GrepCode.run(store: store, pattern: "NEEDLE")
+
+                #expect(result.matches.map(\.text) == ["() => NEEDLE + 1", "() => NEEDLE + 2"])
+            }
         }
     }
 
