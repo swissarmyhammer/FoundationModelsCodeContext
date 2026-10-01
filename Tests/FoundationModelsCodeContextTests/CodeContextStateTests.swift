@@ -54,6 +54,47 @@ struct CodeContextStateTests {
         #expect(isReady)
     }
 
+    // MARK: - IndexProgress with LSP files that have no server
+
+    @Test
+    func isDrainedTreatsTheLspFilesWithoutAServerAsNotPending() {
+        let progress = IndexProgress(
+            filesWalked: 10, filesParsed: 10, filesEmbedded: 10, filesLspIndexed: 8, filesLspUnavailable: 2
+        )
+
+        #expect(progress.isDrained)
+    }
+
+    @Test
+    func isDrainedNeedsEachLspFileThatHasAServer() {
+        let progress = IndexProgress(
+            filesWalked: 10, filesParsed: 10, filesEmbedded: 10, filesLspIndexed: 8, filesLspUnavailable: 1
+        )
+
+        #expect(!progress.isDrained)
+    }
+
+    // MARK: - Settled servers that do not run
+
+    @Test
+    func isSettledAndNotRunningIsTrueForANotFoundServer() {
+        #expect(CodeContextState.isSettledAndNotRunning(.notFound))
+    }
+
+    @Test
+    func isSettledAndNotRunningIsTrueForAServerThatStoppedItsRetries() {
+        #expect(CodeContextState.isSettledAndNotRunning(.failed(reason: "crash", attempts: 5)))
+    }
+
+    @Test
+    func isSettledAndNotRunningIsFalseForAServerThatRunsOrCanStillStart() {
+        let states: [LSPDaemonState] = [
+            .running(pid: 1), .failed(reason: "crash", attempts: 4), .notStarted, .starting, .installing, .shuttingDown,
+        ]
+
+        #expect(states.allSatisfy { !CodeContextState.isSettledAndNotRunning($0) })
+    }
+
     // MARK: - Publisher -> main-actor mutation
 
     @Test

@@ -48,8 +48,24 @@ comments:
     - evidence: 988459e fix(lsp): start a language server only for a project with a file of its language
     - next: none. The commit is local. No push.
   timestamp: 2026-10-01T22:28:22.475490+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3wswc48arehbpv8g2wm6fwy
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (5c9b3da). 0 findings, 0 confirmed, 1 refuted, 14 attempted, 0 failed. 10 files were reviewed. 5 files were not reviewed: the .kanban/ files (ignore rule) and plan.md (no validator).
+    - next: none. The task moved to done.
+  timestamp: 2026-10-01T22:38:09.032975+00:00
+- actor: claude-code
+  id: 01m3wswkmytx5wmy4m366s1y4y
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 11 files (5 Sources, 1 new; plan.md; 5 Tests)
+    - test: green — swift test 748 passed; IntegrationTests 11 passed; swift format lint 0 findings
+    - commit: 5c9b3da
+    - review: clean — 0 findings, 1 refuted
+  timestamp: 2026-10-01T22:38:16.734212+00:00
+position_column: done
+position_ordinal: d680
 title: A mostly-Python tree starts clangd and typescript-language-server, and stop() logs cancellation as LSP index errors
 ---
 ## Problem

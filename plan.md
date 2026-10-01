@@ -565,11 +565,18 @@ public final class CodeContextState {
     public private(set) var rootDirectory: URL             // the workspace this state describes
     public private(set) var projects: [DetectedProject]    // filled by detection during start()
     public private(set) var servers: [ServerStatus]        // per daemon: state, pid, restarts, lastError
-    public private(set) var indexing: IndexProgress        // files walked/parsed/embedded/lsp-indexed, per layer
+    public private(set) var indexing: IndexProgress        // files walked/parsed/embedded/lsp-indexed/lsp-unavailable
     public private(set) var diagnostics: [DocumentURI: [Diagnostic]]  // live cache, updated as servers publish
     public private(set) var isReady: Bool                  // all layers drained, servers settled
 }
 ```
+
+`IndexProgress.filesLspUnavailable` counts the LSP-dirty files whose server
+is settled and does not run (`.notFound`, or `.failed` after the last retry).
+The LSP layer is drained when `filesLspIndexed + filesLspUnavailable` reaches
+`filesWalked`. Thus a server that is not found does not keep `isReady` false.
+The files stay LSP-dirty, and the LSP index worker indexes them when a
+`forceRestart()` starts the server.
 
 **How you get to it — vended off the `CodeContext` instance.** There is no
 global; state is strictly per-workspace, scoped to the `CodeContext` that

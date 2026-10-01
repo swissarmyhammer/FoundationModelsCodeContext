@@ -918,9 +918,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// - Throws: Rethrows `Store`'s storage errors.
     private func markUncoveredLspFilesDone() async throws {
         let dirtyPaths = try await store.drainLspDirty()
-        for relativePath in dirtyPaths {
-            let fileExtension = URL(fileURLWithPath: relativePath).pathExtension.lowercased()
-            guard !coveredLspExtensions.contains(fileExtension) else { continue }
+        for relativePath in dirtyPaths where !coveredLspExtensions.contains(Self.lspFileExtension(of: relativePath)) {
             try await store.markIndexed(filePath: relativePath, layer: .lsp)
         }
     }
@@ -935,9 +933,23 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             filesParsed: status.treeSitterIndexedFiles,
             filesEmbedded: status.embeddedIndexedFiles,
             filesLspIndexed: status.lspIndexedFiles,
+            filesLspUnavailable: await lspUnavailableFileCount(),
             isEmbeddingEnabled: measuredEmbedder != nil
         )
         await state.publishIndexing(progress)
+    }
+
+    /// Counts the LSP-dirty files whose language server is settled and does not run
+    /// (`CodeContextState.isSettledAndNotRunning(_:)`), for `IndexProgress.filesLspUnavailable`.
+    ///
+    /// The files stay LSP-dirty. Thus when a `forceRestart()` starts the server later, the
+    /// `LSPIndexWorker` of the server indexes them. A storage failure gives `0`, because this
+    /// count is part of the best-effort refresh of `publishIndexingStatus()`.
+    /// - Returns: The number of LSP-dirty files that no server can index now.
+    private func lspUnavailableFileCount() async -> Int {
+        let unavailableExtensions = Self.unavailableExtensions(for: await supervisor.status())
+        guard !unavailableExtensions.isEmpty, let dirtyPaths = try? await store.drainLspDirty() else { return 0 }
+        return dirtyPaths.count { unavailableExtensions.contains(Self.lspFileExtension(of: $0)) }
     }
 
     /// Reads `supervisor.status()` and republishes it into `state.servers`.
@@ -980,6 +992,26 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         Languages.all
             .filter { module in module.languageServer?.command == command }
             .flatMap { module in module.fileExtensions.map { $0.lowercased() } }
+    }
+
+    /// The file extensions (lowercased, no leading dot) of every server in `servers` that is
+    /// settled and does not run (`CodeContextState.isSettledAndNotRunning(_:)`).
+    /// - Parameter servers: The status of each managed daemon.
+    /// - Returns: The union of the extensions of each such server.
+    private static func unavailableExtensions(for servers: [ServerStatus]) -> Set<String> {
+        Set(
+            servers
+                .filter { CodeContextState.isSettledAndNotRunning($0.state) }
+                .flatMap { extensions(forCommand: $0.command) }
+        )
+    }
+
+    /// The file extension of `relativePath`, lowercased and with no leading dot, in the form that
+    /// `coveredLspExtensions` and `extensions(forCommand:)` hold.
+    /// - Parameter relativePath: A file path relative to `rootDirectory`.
+    /// - Returns: The lowercased extension, or an empty string when the path has none.
+    private static func lspFileExtension(of relativePath: String) -> String {
+        URL(fileURLWithPath: relativePath).pathExtension.lowercased()
     }
 }
 

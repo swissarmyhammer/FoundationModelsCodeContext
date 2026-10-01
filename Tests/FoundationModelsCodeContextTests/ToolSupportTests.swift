@@ -49,7 +49,7 @@ struct ToolSupportTests {
         let text = try Self.encodedText(ToolOutcome.success(progress))
 
         #expect(text == (try Self.encodedText(progress)))
-        #expect(text == #"{"filesEmbedded":2,"filesLspIndexed":1,"filesParsed":3,"filesWalked":4,"isEmbeddingEnabled":true}"#)
+        #expect(text == #"{"filesEmbedded":2,"filesLspIndexed":1,"filesLspUnavailable":0,"filesParsed":3,"filesWalked":4,"isEmbeddingEnabled":true}"#)
     }
 
     @Test

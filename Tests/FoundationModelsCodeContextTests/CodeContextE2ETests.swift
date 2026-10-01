@@ -306,4 +306,71 @@ struct CodeContextE2ETests {
             await context.stop()
         }
     }
+
+    // MARK: - isReady with a server that is not found
+
+    /// Whether `intelephense` is absent from `$PATH`, thus the daemon of the PHP fixture settles
+    /// at `.notFound` when auto-install is off. The check uses the same `BinaryLookup` helper as
+    /// `LSPDaemon`. On a machine that has `intelephense`, the daemon starts a real process, thus
+    /// the tests that use this gate skip.
+    private static var isIntelephenseAbsent: Bool {
+        !BinaryLookup.isOnPath("intelephense")
+    }
+
+    /// Writes a PHP fixture into `root`: the `composer.json` marker and one `.php` file.
+    private static func writePHPFixture(in root: URL) throws {
+        try write("{\"name\": \"fixture/fixture\"}", to: "composer.json", in: root)
+        try write("<?php\nfunction greet() { return 1; }\n", to: "greet.php", in: root)
+    }
+
+    /// Builds a `CodeContext` for `rootDirectory` with auto-install off, thus a server that is
+    /// not on `$PATH` settles at `.notFound` immediately.
+    private static func makeCodeContextWithoutAutoInstall(
+        rootDirectory: URL
+    ) async throws -> CodeContext<FakeLanguageServerConnection> {
+        try await CodeContext<FakeLanguageServerConnection>(
+            rootDirectory: rootDirectory,
+            embedder: FakeEmbedder(vectorLength: 8),
+            eventSource: FakeFileEventSource(),
+            autoInstall: LspAutoInstall(isEnabled: false),
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
+        )
+    }
+
+    @Test(.enabled(if: CodeContextE2ETests.isIntelephenseAbsent, "gated on intelephense absent from $PATH"))
+    func isReadyBecomesTrueWhenTheServerOfAnLspDirtyFileIsNotFound() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writePHPFixture(in: root)
+            let context = try await Self.makeCodeContextWithoutAutoInstall(rootDirectory: root)
+
+            try await context.start()
+            await context.waitForFirstIndexPass()
+
+            let serverState = await context.lspStatus().first { $0.command == "intelephense" }?.state
+            #expect(serverState == .notFound)
+            #expect(await context.state.isReady, "a file whose server is .notFound must not block isReady")
+
+            await context.stop()
+        }
+    }
+
+    /// The file of a `.notFound` server must stay LSP-dirty: the `LSPIndexWorker` of that server
+    /// indexes each dirty file when the server starts later (see
+    /// `LSPIndexWorkerTests.runSleepsForSessionUnavailableSleepThenDrainsOnceASessionAppears`).
+    @Test(.enabled(if: CodeContextE2ETests.isIntelephenseAbsent, "gated on intelephense absent from $PATH"))
+    func theFileOfANotFoundServerStaysLspDirty() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writePHPFixture(in: root)
+            let context = try await Self.makeCodeContextWithoutAutoInstall(rootDirectory: root)
+
+            try await context.start()
+            await context.waitForFirstIndexPass()
+
+            let status = await context.indexStatus()
+            #expect(status.filesLspUnavailable == 1)
+            #expect(status.filesLspIndexed == status.filesWalked - 1)
+
+            await context.stop()
+        }
+    }
 }

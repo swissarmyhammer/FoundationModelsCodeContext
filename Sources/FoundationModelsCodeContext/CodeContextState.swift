@@ -9,7 +9,7 @@ import Observation
 /// finished that layer. `CodeContextState.isReady` treats a layer as drained once its count has
 /// caught up to `filesWalked` (see `isDrained`).
 ///
-/// The JSON keys are the stored property names: the four file counts and
+/// The JSON keys are the stored property names: the five file counts and
 /// `isEmbeddingEnabled`. `isDrained` is a computed value, so the JSON does not
 /// include it.
 public struct IndexProgress: Sendable, Equatable, Encodable {
@@ -25,6 +25,14 @@ public struct IndexProgress: Sendable, Equatable, Encodable {
     /// The number of files with LSP indexing complete (`lsp_indexed = 1`).
     public let filesLspIndexed: Int
 
+    /// The number of files with LSP indexing not complete (`lsp_indexed = 0`) whose language
+    /// server is settled and does not run: the server is not found, or it stopped its retries.
+    ///
+    /// No worker can index these files until a `forceRestart()` starts the server. Thus
+    /// `isDrained` does not wait for them. The files stay LSP-dirty, and the LSP index worker
+    /// of the server indexes them when the server starts.
+    public let filesLspUnavailable: Int
+
     /// Whether the embedding layer is on.
     ///
     /// The layer is off when the host gave no embedder to `CodeContext`. Then
@@ -37,12 +45,22 @@ public struct IndexProgress: Sendable, Equatable, Encodable {
     ///   - filesParsed: The number of files with tree-sitter parsing complete.
     ///   - filesEmbedded: The number of files with embedding complete.
     ///   - filesLspIndexed: The number of files with LSP indexing complete.
+    ///   - filesLspUnavailable: The number of files with LSP indexing not complete whose language
+    ///     server is settled and does not run. Defaults to `0`.
     ///   - isEmbeddingEnabled: Whether the embedding layer is on. Defaults to `true`.
-    public init(filesWalked: Int, filesParsed: Int, filesEmbedded: Int, filesLspIndexed: Int, isEmbeddingEnabled: Bool = true) {
+    public init(
+        filesWalked: Int,
+        filesParsed: Int,
+        filesEmbedded: Int,
+        filesLspIndexed: Int,
+        filesLspUnavailable: Int = 0,
+        isEmbeddingEnabled: Bool = true
+    ) {
         self.filesWalked = filesWalked
         self.filesParsed = filesParsed
         self.filesEmbedded = filesEmbedded
         self.filesLspIndexed = filesLspIndexed
+        self.filesLspUnavailable = filesLspUnavailable
         self.isEmbeddingEnabled = isEmbeddingEnabled
     }
 
@@ -54,10 +72,12 @@ public struct IndexProgress: Sendable, Equatable, Encodable {
     /// outstanding for any layer.
     ///
     /// When the embedding layer is off (`isEmbeddingEnabled == false`), `filesEmbedded` is not
-    /// part of the comparison, because no pass makes embeddings.
+    /// part of the comparison, because no pass makes embeddings. The LSP layer counts the files
+    /// of `filesLspUnavailable` as not pending, because no server can index them now.
     public var isDrained: Bool {
         let isEmbeddingDrained = !isEmbeddingEnabled || filesEmbedded >= filesWalked
-        return filesParsed >= filesWalked && isEmbeddingDrained && filesLspIndexed >= filesWalked
+        let isLspDrained = filesLspIndexed + filesLspUnavailable >= filesWalked
+        return filesParsed >= filesWalked && isEmbeddingDrained && isLspDrained
     }
 }
 
@@ -190,7 +210,7 @@ public final class CodeContextState {
     /// shared because `LSPDaemon` never exposes that threshold — it's an internal detail of its
     /// own retry policy, whereas this is a distinct concern (classifying a snapshot for SwiftUI
     /// state) that needs the same number without reaching into `LSPDaemon`'s private state.
-    private static let maxConsecutiveFailures = 5
+    private nonisolated static let maxConsecutiveFailures = 5
 
     /// Computes `isReady` from an indexing snapshot and a server-status snapshot.
     ///
@@ -216,7 +236,7 @@ public final class CodeContextState {
     /// - Parameter state: The daemon lifecycle state to classify.
     /// - Returns: `true` for `.running` and `.notFound`, `true` for `.failed` once `attempts` has
     ///   reached `maxConsecutiveFailures`, and `false` for every other state.
-    private static func isSettled(_ state: LSPDaemonState) -> Bool {
+    private nonisolated static func isSettled(_ state: LSPDaemonState) -> Bool {
         switch state {
         case .running, .notFound:
             true
@@ -225,5 +245,17 @@ public final class CodeContextState {
         case .notStarted, .starting, .installing, .shuttingDown:
             false
         }
+    }
+
+    /// Whether a daemon lifecycle state is settled (`isSettled(_:)`) and has no running server.
+    ///
+    /// No worker can index a file of such a server until a `forceRestart()` starts the server.
+    /// `CodeContext` uses this to count `IndexProgress.filesLspUnavailable`.
+    /// - Parameter state: The daemon lifecycle state to classify.
+    /// - Returns: `true` for `.notFound`, `true` for `.failed` once `attempts` has reached
+    ///   `maxConsecutiveFailures`, and `false` for every other state.
+    nonisolated static func isSettledAndNotRunning(_ state: LSPDaemonState) -> Bool {
+        if case .running = state { return false }
+        return isSettled(state)
     }
 }
