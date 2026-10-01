@@ -80,8 +80,24 @@ comments:
     - evidence: one local commit, "fix(grep): make grepCode fast on a large tree". Not pushed.
     - next: review
   timestamp: 2026-10-01T21:49:44.104061+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m3wqkf1jw47ae9vmwnv1zebb
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (71e549d). 0 findings, 0 confirmed, 0 refuted. 14 validator runs, 0 failed. 10 files reviewed. 7 files not reviewed: 6 .kanban files (excluded by .reviewignore) and docs/tools.md (no validator matches this file).
+    - next: none. The task is in done.
+  timestamp: 2026-10-01T21:58:19.954680+00:00
+- actor: claude-code
+  id: 01m3wqkpwbe8v4q82x5wp058hy
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 7 files (GrepCode.swift, GrepCodeOperation.swift, docs/tools.md, 2 unit test files, IntegrationTests/Package.swift, new GrepCodeScaleTests.swift)
+    - test: green — swift test 741 passed; IntegrationTests 11 passed; swift format lint exit 0
+    - commit: 71e549d
+    - review: clean — 0 findings (14 validator runs)
+  timestamp: 2026-10-01T21:58:27.979716+00:00
+position_column: done
+position_ordinal: d580
 title: grepCode takes 95 s to more than 120 s on a fresh Django clone while the first index pass runs
 ---
 ## Problem
