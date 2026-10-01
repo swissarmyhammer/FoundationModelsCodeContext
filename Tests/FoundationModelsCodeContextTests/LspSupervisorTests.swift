@@ -76,12 +76,22 @@ struct LspSupervisorTests {
         }
     }
 
+    /// Writes a Rust backend and two TypeScript apps. Each `package.json`
+    /// has one TypeScript file below it, because a `package.json` alone
+    /// does not identify TypeScript.
+    /// - Parameter root: The workspace root to write the fixture into.
+    private static func writePolyglotFixture(in root: URL) throws {
+        try write("[package]\nname = \"backend\"", to: "backend/Cargo.toml", in: root)
+        for app in ["frontend", "admin"] {
+            try write("{\"name\": \"\(app)\"}", to: "\(app)/package.json", in: root)
+            try write("export const app = 1;\n", to: "\(app)/src/index.ts", in: root)
+        }
+    }
+
     @Test
     func startDedupesPolyglotFixtureToExactlyTwoDaemons() async throws {
         try await withTemporaryWorkspace { root in
-            try write("[package]\nname = \"backend\"", to: "backend/Cargo.toml", in: root)
-            try write("{\"name\": \"web\"}", to: "frontend/package.json", in: root)
-            try write("{\"name\": \"admin\"}", to: "admin/package.json", in: root)
+            try Self.writePolyglotFixture(in: root)
 
             let supervisor = LspSupervisor<FakeLanguageServerConnection>(
                 workspaceRoot: root,
@@ -95,6 +105,27 @@ struct LspSupervisorTests {
             let commands = Set(statuses.map(\.command))
             #expect(commands == ["rust-analyzer", "typescript-language-server"])
             #expect(statuses.count == 2, "two js dirs sharing typescript-language-server must dedupe to one daemon")
+        }
+    }
+
+    @Test
+    func startOnAPythonTreeWithANodeMarkerAndADocsMakefileStartsOnlyPylsp() async throws {
+        try await withTemporaryWorkspace { root in
+            try writeMostlyPythonTree(in: root)
+
+            // No install runs: a machine with no `pylsp` on `$PATH` must not start a real installer.
+            let supervisor = LspSupervisor<FakeLanguageServerConnection>(
+                workspaceRoot: root,
+                clock: ManualClock(),
+                autoInstall: LspAutoInstall(isEnabled: false),
+                connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
+            )
+
+            try await supervisor.start()
+
+            let commands = await supervisor.status().map(\.command)
+            #expect(commands == ["pylsp"])
+            await supervisor.shutdown()
         }
     }
 
@@ -121,9 +152,7 @@ struct LspSupervisorTests {
     @Test
     func trulyConcurrentStartCallsCoalesceWithoutDuplicatingOrOrphaningADaemon() async throws {
         try await withTemporaryWorkspace { root in
-            try write("[package]\nname = \"backend\"", to: "backend/Cargo.toml", in: root)
-            try write("{\"name\": \"web\"}", to: "frontend/package.json", in: root)
-            try write("{\"name\": \"admin\"}", to: "admin/package.json", in: root)
+            try Self.writePolyglotFixture(in: root)
 
             let supervisor = LspSupervisor<FakeLanguageServerConnection>(
                 workspaceRoot: root,

@@ -471,4 +471,75 @@ struct LSPIndexWorkerReferencesTests {
             #expect(indexedCounts.last == 0)
         }
     }
+
+    // MARK: - Stop during an index pass
+
+    /// How long the scripted `references` request waits before it answers.
+    /// Each test cancels the index task long before this time.
+    private static let unansweredRequestWait: Duration = .seconds(60)
+
+    /// Starts `LSPIndexWorker.run` on one dirty Python file whose
+    /// `references` request does not answer, cancels the task while that
+    /// request is in flight, and waits for the task to end. `CodeContext.stop()`
+    /// cancels each LSP index task in the same way.
+    /// - Parameters:
+    ///   - root: The workspace root.
+    ///   - logHandler: Keeps the log records of the session.
+    /// - Returns: The relative path of the file. No other test uses this path,
+    ///   thus a test can find its own records in `CapturedLogRecords`.
+    private static func stopIndexTaskDuringReferences(root: URL, logHandler: InMemoryLogHandler) async throws -> String {
+        let relativePath = "stop-\(UUID().uuidString)/sample.py"
+        let store = try Store(rootDirectory: root)
+        try write(sampleSource, to: relativePath, in: root)
+        try await store.markDirty(filePath: relativePath, contentHash: Data(relativePath.utf8), fileSize: 1)
+
+        let connection = FakeLanguageServerConnection()
+        await connection.setDocumentSymbolsResult(
+            .success([
+                flatSymbol(name: "helper", kind: .function, startLine: 0, endLine: 2),
+                flatSymbol(name: "main", kind: .function, startLine: 4, endLine: 6),
+            ]),
+            for: uri(for: relativePath, in: root)
+        )
+        let (requestStarted, requestStartedContinuation) = AsyncStream.makeStream(of: Void.self)
+        await connection.setReferencesCallHook {
+            requestStartedContinuation.yield()
+            try await Task.sleep(for: unansweredRequestWait)
+        }
+        let session = LspSession.makePylsp(over: connection, logHandler: logHandler)
+
+        let indexTask = Task {
+            try await LSPIndexWorker<FakeLanguageServerConnection>.run(
+                store: store, rootDirectory: root, extensions: ["py"], sessionProvider: { session }
+            )
+        }
+        var requests = requestStarted.makeAsyncIterator()
+        _ = await requests.next()
+        indexTask.cancel()
+        _ = await indexTask.result
+        return relativePath
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func stoppingTheIndexTaskDuringAReferencesRequestWritesNoErrorRecord() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let relativePath = try await Self.stopIndexTaskDuringReferences(root: root, logHandler: InMemoryLogHandler())
+
+            let records = CapturedLogRecords.entries(matching: [CodeContextTracing.MetadataKey.filePath: relativePath])
+            #expect(!records.isEmpty, "the worker records the stop of the file")
+            #expect(records.allSatisfy { $0.level < .error })
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func stoppingTheIndexTaskDuringAReferencesRequestLogsNoRequestFailure() async throws {
+        try await withTemporaryWorkspace { root in
+            let logHandler = InMemoryLogHandler()
+
+            _ = try await Self.stopIndexTaskDuringReferences(root: root, logHandler: logHandler)
+
+            #expect(logHandler.entries.isEmpty)
+        }
+    }
 }

@@ -23,6 +23,21 @@ func write(_ content: String, to relativePath: String, in root: URL) throws {
     try content.write(to: url, atomically: true, encoding: .utf8)
 }
 
+/// Writes a tree with the markers of a Django checkout and Python sources
+/// only: a `pyproject.toml` and two modules, a `package.json` at the root
+/// (Django has one for the JavaScript tests of the admin) and a
+/// `docs/Makefile` (Django builds its docs with one). The tree has no C,
+/// C++, TypeScript or JavaScript file. Shared by `ProjectDetectionTests`
+/// and `LspSupervisorTests`.
+/// - Parameter root: The workspace root to write the tree into.
+func writeMostlyPythonTree(in root: URL) throws {
+    try write("[project]\nname = \"site\"\nversion = \"0.1.0\"\n", to: "pyproject.toml", in: root)
+    try write("def helper():\n    return 1\n", to: "site/helpers.py", in: root)
+    try write("from site.helpers import helper\n\n\ndef main():\n    return helper()\n", to: "site/main.py", in: root)
+    try write("{\"name\": \"site\", \"private\": true}\n", to: "package.json", in: root)
+    try write("html:\n\tsphinx-build -b html . _build\n", to: "docs/Makefile", in: root)
+}
+
 /// A `TextEmbedding` that the caller defines, with no model and no network.
 ///
 /// The public-API test suites use this type. Those suites see only the public

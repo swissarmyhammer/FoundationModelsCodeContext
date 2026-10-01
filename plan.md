@@ -363,6 +363,14 @@ what decides which language servers to spawn.
   declared by its `LanguageModule` (same marker semantics as the Rust crate).
   One directory can match **multiple types**, and a monorepo yields one
   `DetectedProject(type, directory)` per hit.
+- **Shared markers need a source file**: a marker that more than one module
+  declares (`package.json` for typescript/tsx/javascript,
+  `CMakeLists.txt`/`Makefile` for c/cpp) does not identify one language. It
+  gives a project only when its directory, or a directory below it, holds a
+  non-ignored file with an extension of that module. Thus a mostly-Python
+  tree with a root `package.json` and a `docs/Makefile` (Django) starts no
+  clangd and no typescript-language-server. A marker of one module only
+  (`Cargo.toml`, `go.mod`, ...) gives a project with no further check.
 - **Output → servers**: the union of detected types maps through each
   module's `languageServer` spec, **deduped by command**, so a polyglot monorepo with
   six `package.json`s still runs exactly one `typescript-language-server`.

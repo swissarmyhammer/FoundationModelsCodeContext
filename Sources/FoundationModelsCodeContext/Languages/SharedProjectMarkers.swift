@@ -6,6 +6,10 @@
 /// that marker list once here, rather than three copies, keeps the same
 /// single-source-of-truth guarantee for project-marker data that
 /// `SharedServerSpecs` gives the LSP server specs.
+///
+/// A marker of this type does not identify one language, thus
+/// `ProjectDetection.detectProjects(rootDirectory:)` gives a project for it
+/// only when a source file of the module is below the marker directory.
 enum SharedProjectMarkers {
     /// The `package.json` marker shared by the TypeScript, TSX, and
     /// JavaScript modules.

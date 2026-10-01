@@ -8,7 +8,10 @@ import Testing
 /// dedupe-by-command server specs, and gitignore-aware exclusion via the
 /// shared `Walker` — port of `swissarmyhammer-project-detection`'s
 /// `detect.rs` test suite, scoped to this task's `DetectedProject(language,
-/// directory)` result shape (no workspace-info parsing).
+/// directory)` result shape (no workspace-info parsing). A marker that more
+/// than one module declares (`package.json`, `Makefile`) gives a project only
+/// when a source file of the language is below it, thus each fixture with
+/// such a marker writes one source file of each expected language.
 struct ProjectDetectionTests {
     @Test
     func detectsSingleRustProject() async throws {
@@ -28,8 +31,11 @@ struct ProjectDetectionTests {
         try await withTemporaryWorkspace { root in
             try write("// swift package", to: "Package.swift", in: root)
             try write("[package]\nname = \"backend\"", to: "backend/Cargo.toml", in: root)
-            try write("{\"name\": \"web\"}", to: "frontend/package.json", in: root)
-            try write("{\"name\": \"admin\"}", to: "admin/package.json", in: root)
+            for app in ["frontend", "admin"] {
+                try write("{\"name\": \"\(app)\"}", to: "\(app)/package.json", in: root)
+                try write("export const app = 1;\n", to: "\(app)/src/index.ts", in: root)
+                try write("module.exports = {};\n", to: "\(app)/config.js", in: root)
+            }
 
             let projects = try ProjectDetection.detectProjects(rootDirectory: root)
 
@@ -62,6 +68,8 @@ struct ProjectDetectionTests {
         try await withTemporaryWorkspace { root in
             try write("[package]\nname = \"a\"", to: "Cargo.toml", in: root)
             try write("{\"name\": \"a\"}", to: "package.json", in: root)
+            try write("export const a = 1;\n", to: "web/index.ts", in: root)
+            try write("module.exports = {};\n", to: "web/config.js", in: root)
 
             let projects = try ProjectDetection.detectProjects(rootDirectory: root)
 
@@ -102,6 +110,7 @@ struct ProjectDetectionTests {
     func gitignoredSubtreeProducesNoDetections() async throws {
         try await withTemporaryWorkspace { root in
             try write("{\"name\": \"root\"}", to: "package.json", in: root)
+            try write("export const a = 1;\n", to: "src/index.ts", in: root)
             try write("node_modules/\n", to: ".gitignore", in: root)
             try write(
                 "{\"name\": \"nested\"}",
@@ -119,14 +128,67 @@ struct ProjectDetectionTests {
     @Test
     func serverSpecsDedupesTwoPackageJSONHitsToOneTypeScriptLanguageServerSpec() async throws {
         try await withTemporaryWorkspace { root in
-            try write("{\"name\": \"web\"}", to: "frontend/package.json", in: root)
-            try write("{\"name\": \"admin\"}", to: "admin/package.json", in: root)
+            for app in ["frontend", "admin"] {
+                try write("{\"name\": \"\(app)\"}", to: "\(app)/package.json", in: root)
+                try write("export const app = 1;\n", to: "\(app)/src/index.ts", in: root)
+            }
 
             let projects = try ProjectDetection.detectProjects(rootDirectory: root)
             let specs = ProjectDetection.serverSpecs(for: projects)
 
             let typeScriptServerSpecs = specs.filter { $0.command == "typescript-language-server" }
             #expect(typeScriptServerSpecs.count == 1)
+        }
+    }
+
+    // MARK: - A marker needs a source file of its language
+
+    @Test
+    func aPythonTreeWithANodeMarkerAndADocsMakefileGivesOnlyAPythonProject() async throws {
+        try await withTemporaryWorkspace { root in
+            try writeMostlyPythonTree(in: root)
+
+            let projects = try ProjectDetection.detectProjects(rootDirectory: root)
+
+            #expect(Set(projects.map(\.language)) == ["python"])
+        }
+    }
+
+    @Test
+    func aMarkerGivesAProjectWhenASourceFileOfItsLanguageIsBelowTheMarkerDirectory() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("all:\n\tcc -o app src/main.c\n", to: "Makefile", in: root)
+            try write("int main(void) { return 0; }\n", to: "src/main.c", in: root)
+
+            let projects = try ProjectDetection.detectProjects(rootDirectory: root)
+
+            let cDirectories = projects.filter { $0.language == "c" }.map(\.directory.standardizedFileURL)
+            #expect(cDirectories == [root.standardizedFileURL])
+        }
+    }
+
+    @Test
+    func aSourceFileOutsideTheMarkerDirectoryGivesTheMarkerNoProject() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("html:\n\techo docs\n", to: "docs/Makefile", in: root)
+            try write("int main(void) { return 0; }\n", to: "src/main.c", in: root)
+
+            let projects = try ProjectDetection.detectProjects(rootDirectory: root)
+
+            #expect(!projects.contains { $0.language == "c" })
+        }
+    }
+
+    @Test
+    func aSourceFileInAnIgnoredDirectoryGivesTheMarkerNoProject() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("{\"name\": \"root\"}", to: "package.json", in: root)
+            try write("node_modules/\n", to: ".gitignore", in: root)
+            try write("export const a = 1;\n", to: "node_modules/some-package/index.ts", in: root)
+
+            let projects = try ProjectDetection.detectProjects(rootDirectory: root)
+
+            #expect(!projects.contains { $0.language == "typescript" })
         }
     }
 

@@ -129,6 +129,12 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
     /// controlled timing for; see `LiveOpsExtendedTests`'s rename-atomicity test.
     var renameCallHook: (@Sendable (Call) async -> Void)?
 
+    /// Optional hook that `references(in:at:includeDeclaration:)` calls after it records its
+    /// call and before it returns its scripted result. An error that the hook throws is the
+    /// error of the request. A test uses it to keep a request in flight until the task of the
+    /// caller is cancelled, as a real server that has not answered yet.
+    var referencesCallHook: (@Sendable () async throws -> Void)?
+
     private let notificationContinuation: AsyncStream<ServerNotification>.Continuation
 
     /// Server-initiated notifications, fed by tests via `emit(notification:)`.
@@ -246,6 +252,13 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
         renameCallHook = hook
     }
 
+    /// Installs (or clears) `referencesCallHook`.
+    /// - Parameter hook: Called after `references(in:at:includeDeclaration:)` records its call,
+    ///   before it returns its scripted result. Pass `nil` to remove a previously installed hook.
+    func setReferencesCallHook(_ hook: (@Sendable () async throws -> Void)?) {
+        referencesCallHook = hook
+    }
+
     /// Pushes a server-initiated notification onto `serverNotifications`, simulating an
     /// unsolicited message like `textDocument/publishDiagnostics`.
     /// - Parameter notification: The notification to emit.
@@ -317,6 +330,7 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
 
     func references(in uri: DocumentURI, at position: Position, includeDeclaration: Bool) async throws -> [Location] {
         calls.append(.references(uri: uri, position: position, includeDeclaration: includeDeclaration))
+        try await referencesCallHook?()
         return try (referencesResultsByPosition[PositionQuery(uri: uri, position: position)] ?? referencesResult).get()
     }
 

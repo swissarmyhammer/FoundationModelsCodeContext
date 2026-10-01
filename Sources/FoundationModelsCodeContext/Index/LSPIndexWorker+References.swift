@@ -107,7 +107,7 @@ extension LSPIndexWorker {
         do {
             return try await session.references(uri: uri, at: namePosition, includeDeclaration: false)
         } catch {
-            await session.logFailure(of: .references, filePath: symbol.filePath, error: error)
+            await logRequestFailure(of: .references, filePath: symbol.filePath, error: error, session: session)
             return nil
         }
     }
@@ -336,7 +336,7 @@ extension LSPIndexWorker {
         do {
             return try await session.definition(uri: uri, at: position)
         } catch {
-            await session.logFailure(of: .definition, filePath: filePath, error: error)
+            await logRequestFailure(of: .definition, filePath: filePath, error: error, session: session)
             return []
         }
     }
@@ -363,12 +363,10 @@ extension LSPIndexWorker {
                 ) ?? false
             }
         } catch {
-            Log.lsp.error(
+            logStoreFailure(
                 "the content hashes of a file could not be read; the call sites of the file are not checked",
-                metadata: [
-                    CodeContextTracing.MetadataKey.filePath: .string(filePath),
-                    CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
-                ]
+                filePath: filePath,
+                error: error
             )
             return false
         }

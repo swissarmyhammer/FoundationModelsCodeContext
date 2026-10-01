@@ -75,6 +75,12 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
 ///   one time for each (server, request) pair. A server that refuses a
 ///   request for each symbol thus writes one log line, not one line for each
 ///   symbol.
+/// - A stop of the task is not a failure. `CodeContext.stop()` cancels the
+///   task while a request or a store call is in flight, and that call then
+///   throws `CancellationError` (the store wraps it in
+///   `CodeContextError.storage`). The worker writes one debug record for
+///   it, no warning and no error, and the file stays dirty for the next
+///   pass (see `LSPIndexWorker+FailureLog.swift`).
 ///
 /// Every symbol/edge write and the `lsp_indexed` flag flip for one file
 /// happen inside a single `Store.write` transaction (see
@@ -369,13 +375,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
                 )
             }
         } catch {
-            Log.lsp.error(
-                "the LSP index of a file could not be written to the store",
-                metadata: [
-                    CodeContextTracing.MetadataKey.filePath: .string(relativePath),
-                    CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
-                ]
-            )
+            logStoreFailure("the LSP index of a file could not be written to the store", filePath: relativePath, error: error)
             return false
         }
 
@@ -407,14 +407,14 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         do {
             try await session.syncOpen(uri: uri, text: contents)
         } catch {
-            await session.logFailure(of: .syncOpen, filePath: relativePath, error: error)
+            await logRequestFailure(of: .syncOpen, filePath: relativePath, error: error, session: session)
             return nil
         }
 
         do {
             return try await session.documentSymbols(uri: uri)
         } catch {
-            await session.logFailure(of: .documentSymbols, filePath: relativePath, error: error)
+            await logRequestFailure(of: .documentSymbols, filePath: relativePath, error: error, session: session)
             return nil
         }
     }
@@ -430,7 +430,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         do {
             try await session.didClose(uri: uri)
         } catch {
-            await session.logFailure(of: .didClose, filePath: relativePath, error: error)
+            await logRequestFailure(of: .didClose, filePath: relativePath, error: error, session: session)
         }
     }
 
@@ -462,13 +462,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         do {
             try await store.markIndexed(filePath: relativePath, layer: .lsp)
         } catch {
-            Log.lsp.error(
-                "a file that the LSP index worker skips could not be marked indexed",
-                metadata: [
-                    CodeContextTracing.MetadataKey.filePath: .string(relativePath),
-                    CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
-                ]
-            )
+            logStoreFailure("a file that the LSP index worker skips could not be marked indexed", filePath: relativePath, error: error)
         }
         return true
     }
@@ -727,7 +721,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         do {
             items = try await session.prepareCallHierarchy(uri: uri, position: position)
         } catch {
-            await session.logFailure(of: .prepareCallHierarchy, filePath: filePath, error: error)
+            await logRequestFailure(of: .prepareCallHierarchy, filePath: filePath, error: error, session: session)
             return []
         }
         guard let item = items.first else {
@@ -738,7 +732,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         do {
             outgoing = try await session.outgoingCalls(item: item)
         } catch {
-            await session.logFailure(of: .outgoingCalls, filePath: filePath, error: error)
+            await logRequestFailure(of: .outgoingCalls, filePath: filePath, error: error, session: session)
             return []
         }
 
