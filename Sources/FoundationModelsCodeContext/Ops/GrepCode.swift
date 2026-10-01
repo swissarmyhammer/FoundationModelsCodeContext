@@ -45,8 +45,9 @@ public struct GrepCodeMatch: Codable, Sendable, Equatable {
 
     /// Every position within `text` where the pattern matched, in the order
     /// the regex engine found them. `GrepCode.run` keeps only the positions
-    /// that this chunk owns: no matching chunk that is more inner found a
-    /// match that starts at the same byte of the file.
+    /// that this chunk owns: the byte range of this chunk holds the start of
+    /// the match, and no matching chunk that is more inner and holds that
+    /// byte found a match that starts at the same byte of the file.
     public let matches: [GrepMatchPosition]
 
     /// Creates a grep match.
@@ -120,12 +121,17 @@ public enum GrepCode {
     /// The chunker writes nested chunks, so a match in a method also matches
     /// the class that holds the method. Thus each match position goes to the
     /// innermost chunk that found a match at that position. The position is
-    /// the absolute start of the match in its file, and the chunk byte range
-    /// holds it. The innermost chunk has the smallest byte range, then the
-    /// largest start byte, then the deepest symbol path. Two sibling chunks
-    /// on one line do not hold the same positions, so each sibling keeps its
-    /// own matches. A chunk that gets no position is not in the result, and
-    /// a chunk keeps only the match positions that it gets.
+    /// the absolute start of the match in its file. Only a chunk whose byte
+    /// range holds the position (`startByte <= position < endByte`) can own
+    /// it. A zero-length match at the end of a chunk text starts at the
+    /// `endByte` of that chunk, so that chunk cannot own it. When no chunk
+    /// that found the match holds its position, the position is dropped, the
+    /// same as a match in no symbol gives no result. The innermost chunk has
+    /// the smallest byte range, then the largest start byte, then the deepest
+    /// symbol path. Two sibling chunks on one line do not hold the same
+    /// positions, so each sibling keeps its own matches. A chunk that gets no
+    /// position is not in the result, and a chunk keeps only the match
+    /// positions that it gets.
     ///
     /// The task group gives the hits in a random order. Thus the hits are
     /// sorted by file path, start line, start byte, end byte and symbol path
@@ -257,13 +263,20 @@ public enum GrepCode {
     ///
     /// A position is the absolute start of a match in its file: the start
     /// byte of the chunk plus the start of the match in the chunk text. A
-    /// chunk holds a position when its byte range holds that start. The
+    /// chunk holds a position when `startByte <= position < endByte`. The
     /// chunker writes nested chunks: a class chunk holds the text of each
     /// method chunk, so a match in one method also matches the class at the
-    /// same position. From the chunks that found a match at a position,
-    /// `nestingKey(of:)` chooses the innermost one. Thus the method gets the
-    /// position and the class does not. Two sibling chunks on one line do
-    /// not hold the same positions, so each sibling keeps its own matches.
+    /// same position. From the chunks that found a match at a position and
+    /// that hold it, `nestingKey(of:)` chooses the innermost one. Thus the
+    /// method gets the position and the class does not. Two sibling chunks on
+    /// one line do not hold the same positions, so each sibling keeps its own
+    /// matches.
+    ///
+    /// A zero-length match at the end of a chunk text starts at the `endByte`
+    /// of that chunk, so that chunk does not hold it. A chunk that holds it,
+    /// for example the class around a method, can own it. When no chunk that
+    /// found the match holds its position, no chunk gets the position and it
+    /// is dropped, the same as a match in no symbol gives no result.
     ///
     /// A chunk that gets no position is not in the result. A chunk that gets
     /// some positions keeps only those positions. On a full tie in
@@ -276,7 +289,9 @@ public enum GrepCode {
     ///   the order of `hits`.
     private static func innermostMatches(of hits: [ChunkHit]) -> [GrepCodeMatch] {
         let owners = Dictionary(
-            hits.indices.flatMap { index in hits[index].filePositions.map { position in (position, index) } },
+            hits.indices.flatMap { index in
+                hits[index].filePositions.filter(hits[index].holds).map { position in (position, index) }
+            },
             uniquingKeysWith: { first, second in
                 nestingKey(of: hits[second]) < nestingKey(of: hits[first]) ? second : first
             }
@@ -354,6 +369,18 @@ public enum GrepCode {
             match.matches.map { position in
                 FilePosition(filePath: match.filePath, byte: startByte + position.start)
             }
+        }
+
+        /// Whether the byte range of this chunk holds `position`.
+        ///
+        /// The range is `startByte ..< endByte`. A zero-length match at the
+        /// end of the chunk text starts at `endByte`, so this chunk does not
+        /// hold it.
+        ///
+        /// - Parameter position: The absolute start of a match in its file.
+        /// - Returns: `true` when `startByte <= position.byte < endByte`.
+        func holds(_ position: FilePosition) -> Bool {
+            (startByte..<endByte).contains(position.byte)
         }
     }
 

@@ -481,6 +481,28 @@ struct GrepCodeTests {
     }
 
     @Test
+    func grepCodeGivesAZeroLengthMatchAtTheEndOfAMethodToTheClass() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let source = "class A:\n    def f(self):\n        return x\n\n    y = 1\n"
+            let methodText = "def f(self):\n        return x"
+            try await seedSingleFileFixture(source, named: "boundary.py", store: store, root: root)
+            let methodRange = try #require(source.range(of: methodText))
+            let methodEndByte = source.utf8.distance(from: source.startIndex, to: methodRange.upperBound)
+
+            let result = try await GrepCode.run(store: store, pattern: #"\b"#)
+
+            // The class starts at byte 0 of the file, so an offset in its text
+            // is also an offset in the file.
+            let classMatch = try #require(result.matches.first { $0.symbolPath == "A" })
+            #expect(classMatch.matches.map(\.start).contains(methodEndByte))
+            for match in result.matches {
+                #expect(match.matches.allSatisfy { $0.start < match.text.utf8.count })
+            }
+        }
+    }
+
+    @Test
     func grepCodeFindsMatchesWithBytePositions() async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
