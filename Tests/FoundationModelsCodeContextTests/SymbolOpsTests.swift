@@ -338,9 +338,77 @@ struct SymbolOpsTests {
     }
 }
 
+/// Seeds `store` with a chunker-populated Python class that has three
+/// methods. The class chunk holds the text of each method chunk, so a pattern
+/// in one method matches the class chunk and the method chunk.
+///
+/// The zero-based lines are: `class Model` at 0, `save` at 1 to 2,
+/// `_save_table` at 4 to 5 and `_do_insert` at 7 to 8.
+private func seedNestedClassFixture(store: Store, root: URL) async throws {
+    try write(
+        """
+        class Model:
+            def save(self):
+                return self._save_table()
+
+            def _save_table(self):
+                return self._do_insert()
+
+            def _do_insert(self):
+                return 1
+        """,
+        to: "model.py",
+        in: root
+    )
+    _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+    try await TreeSitterWorker.run(store: store, rootDirectory: root)
+}
+
 /// Tests for `GrepCode`: regex matching over `ts_chunks.text` with position
 /// reporting, language/file-pattern filters, and `maxResults` capping.
 struct GrepCodeTests {
+    @Test
+    func grepCodeAnswersAMatchInOneMethodWithThatMethodNotTheClass() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedNestedClassFixture(store: store, root: root)
+
+            let result = try await GrepCode.run(store: store, pattern: "def _save_table")
+
+            #expect(result.matches.map(\.symbolPath) == ["Model._save_table"])
+            let match = try #require(result.matches.first)
+            #expect(match.startLine == 4)
+            #expect(match.endLine == 5)
+            #expect(!result.truncated)
+        }
+    }
+
+    @Test
+    func grepCodeAnswersMatchesInTwoMethodsWithTheTwoMethods() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedNestedClassFixture(store: store, root: root)
+
+            let result = try await GrepCode.run(store: store, pattern: "def _save_table|def _do_insert")
+
+            #expect(result.matches.map(\.symbolPath) == ["Model._save_table", "Model._do_insert"])
+        }
+    }
+
+    @Test
+    func grepCodeKeepsTheClassForAMatchOnTheClassLineOnly() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedNestedClassFixture(store: store, root: root)
+
+            let result = try await GrepCode.run(store: store, pattern: "class Model|def _do_insert")
+
+            #expect(result.matches.map(\.symbolPath) == ["Model", "Model._do_insert"])
+            let classMatch = try #require(result.matches.first)
+            #expect(classMatch.matches.count == 1)
+        }
+    }
+
     @Test
     func grepCodeFindsMatchesWithBytePositions() async throws {
         try await withTemporaryWorkspace { root in

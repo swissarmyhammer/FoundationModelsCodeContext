@@ -69,7 +69,7 @@ again.
 | `list symbol` | Give each symbol of one file, in the order of the file. |
 | `get callgraph` | Walk the call graph from one symbol. |
 | `get blastradius` | Find the symbols and the files that a change to one file, or to one symbol, can affect. |
-| `grep code` | Find the indexed code chunks whose text matches a regular expression. |
+| `grep code` | Find the indexed code chunks whose text matches a regular expression. For each matching line, the answer is the innermost indexed symbol that holds the line, for example the method and not its class. |
 | `search code` | Find the code chunks that are near a free-text query. |
 | `find duplicates` | Find the code chunks that are near-duplicates of each other. |
 | `query ast` | Run a tree-sitter S-expression query on the files of one language. |
