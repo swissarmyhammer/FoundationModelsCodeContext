@@ -114,12 +114,13 @@ internal enum CodeContextSpans {
         try await withSpan(
             spanName,
             tracer: tracer,
-            attributes: { $0[CodeContextTracing.AttributeKey.searchLimit] = limit }
-        ) { span in
-            let output = try await body()
-            span.attributes[CodeContextTracing.AttributeKey.searchResultCount] = resultCount(output)
-            return output
-        }
+            attributes: { $0[CodeContextTracing.AttributeKey.searchLimit] = limit },
+            { span in
+                let output = try await body()
+                span.attributes[CodeContextTracing.AttributeKey.searchResultCount] = resultCount(output)
+                return output
+            }
+        )
     }
 
     /// Embeds `texts` with `embedder` in one ``CodeContextTracing/SpanName/embed`` span, and writes
@@ -144,14 +145,15 @@ internal enum CodeContextSpans {
             tracer: tracer,
             logger: Log.embedding,
             attributes: { $0[CodeContextTracing.AttributeKey.embeddingInputCount] = texts.count },
-            metadata: [CodeContextTracing.MetadataKey.embeddingInputCount: .stringConvertible(texts.count)]
-        ) { span in
-            let vectors = try await embedder.embed(texts)
-            if let dimension = vectors.first?.count {
-                span.attributes[CodeContextTracing.AttributeKey.embeddingDimension] = dimension
+            metadata: [CodeContextTracing.MetadataKey.embeddingInputCount: .stringConvertible(texts.count)],
+            { span in
+                let vectors = try await embedder.embed(texts)
+                if let dimension = vectors.first?.count {
+                    span.attributes[CodeContextTracing.AttributeKey.embeddingDimension] = dimension
+                }
+                return vectors
             }
-            return vectors
-        }
+        )
     }
 
     /// Runs `body`, and gives its value or its error as a result. When `body` throws, the span

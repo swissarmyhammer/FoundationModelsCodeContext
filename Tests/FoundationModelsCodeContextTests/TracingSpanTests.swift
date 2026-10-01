@@ -272,10 +272,11 @@ internal struct TracingSpanTests {
                 CodeContextTracing.SpanName.grepCode,
                 tracer: tracer,
                 limit: Self.searchLimit,
-                resultCount: { (values: [Int]) in values.count }
-            ) {
-                throw failure
-            }
+                resultCount: { (values: [Int]) in values.count },
+                {
+                    throw failure
+                }
+            )
         }
 
         let span = try #require(Self.spans(named: CodeContextTracing.SpanName.grepCode, in: tracer).first)

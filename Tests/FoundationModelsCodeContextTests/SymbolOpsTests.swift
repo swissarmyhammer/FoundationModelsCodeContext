@@ -627,6 +627,38 @@ struct GrepCodeTests {
     }
 
     @Test
+    func grepCodeOnACompleteIndexTellsThatTheIndexIsNotPartial() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedSingleFileFixture("func hello() {}\n", named: "Sample.swift", store: store, root: root)
+
+            let result = try await GrepCode.run(store: store, pattern: "hello")
+
+            #expect(result.unindexedFiles == 0)
+            #expect(!result.isIndexPartial)
+        }
+    }
+
+    @Test
+    func grepCodeTellsHowManyFilesTheIndexDoesNotHoldYet() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedSingleFileFixture("func hello() {}\n", named: "Sample.swift", store: store, root: root)
+            // The reconcile finds the two new files, but no tree-sitter pass
+            // indexes them before the search.
+            try write("func hello() {}\n", to: "Pending.swift", in: root)
+            try write("def hello():\n    pass\n", to: "pending.py", in: root)
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            let result = try await GrepCode.run(store: store, pattern: "hello")
+
+            #expect(result.unindexedFiles == 2)
+            #expect(result.isIndexPartial)
+            #expect(result.matches.map(\.filePath) == ["Sample.swift"])
+        }
+    }
+
+    @Test
     func grepCodeNoMatchesReturnsEmptyResult() async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)

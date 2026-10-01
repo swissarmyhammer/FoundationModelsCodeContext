@@ -125,6 +125,20 @@ struct ResultEncodingTests {
         #expect(try Self.encodedText(result) == #"{"hits":[],"query":"q"}"#)
     }
 
+    // MARK: - GrepCodeResult
+
+    @Test
+    func grepCodeResultEncodesTheCountOfUnindexedFilesAndDecodesItBack() throws {
+        let result = GrepCodeResult(pattern: "p", matches: [], totalChunksSearched: 3, truncated: false, unindexedFiles: 2)
+
+        let text = try Self.encodedText(result)
+        let decoded = try JSONDecoder().decode(GrepCodeResult.self, from: try Self.encodeSorted(result))
+
+        #expect(text == #"{"matches":[],"pattern":"p","totalChunksSearched":3,"truncated":false,"unindexedFiles":2}"#)
+        #expect(decoded == result)
+        #expect(decoded.isIndexPartial)
+    }
+
     // MARK: - FindDuplicatesResult
 
     @Test

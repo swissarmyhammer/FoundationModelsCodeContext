@@ -585,10 +585,11 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
                 CodeContextTracing.MetadataKey.lspServer: .string(server),
                 CodeContextTracing.MetadataKey.lspMethod: .string(method),
                 CodeContextTracing.MetadataKey.lspRequestId: .stringConvertible(id),
-            ]
-        ) { span in
-            try await timedRequest(id: id, method: method, params: params, span: span, decode: decode)
-        }
+            ],
+            { span in
+                try await timedRequest(id: id, method: method, params: params, span: span, decode: decode)
+            }
+        )
     }
 
     /// Sends one request, waits for its response and decodes it, and records the duration of the

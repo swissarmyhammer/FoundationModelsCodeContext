@@ -69,7 +69,7 @@ again.
 | `list symbol` | Give each symbol of one file, in the order of the file. |
 | `get callgraph` | Walk the call graph from one symbol. |
 | `get blastradius` | Find the symbols and the files that a change to one file, or to one symbol, can affect. |
-| `grep code` | Find the indexed code chunks whose text matches a regular expression. For each match, the answer is the innermost indexed symbol that holds the start of the match, for example the method and not its class. |
+| `grep code` | Find the indexed code chunks whose text matches a regular expression. Each match is answered with the innermost indexed symbol that holds its start, for example the method and not its class. You can limit the search by language or by file glob. The search does not wait for the index. When `unindexedFiles` is more than zero, the index is partial and the answer can miss matches. |
 | `search code` | Find the code chunks that are near a free-text query. |
 | `find duplicates` | Find the code chunks that are near-duplicates of each other. |
 | `query ast` | Run a tree-sitter S-expression query on the files of one language. |
@@ -90,7 +90,7 @@ again.
 | `get blastradius` | `file` | `path`, `filePath`, `filename` | yes | The file that changes. |
 | `get blastradius` | `symbol` | `name` | no (all the symbols) | The symbol inside the file that changes. |
 | `get blastradius` | `maxHops` | `hops`, `depth` | no (default 3) | The maximum number of call-edge hops to walk. |
-| `grep code` | `pattern` | `regex`, `query` | yes | The regular expression to search for. |
+| `grep code` | `pattern` | `regex`, `query` | yes | The regular expression to search for, in ICU syntax. |
 | `grep code` | `languages` | `extensions`, `langs` | no (all the languages) | The file extensions to search, with no dot. |
 | `grep code` | `filePattern` | `glob`, `include` | no (all the files) | A POSIX glob that the path of a file must match. |
 | `grep code` | `maxResults` | `limit`, `max` | no (default 50) | The maximum number of results. |

@@ -47,6 +47,10 @@ let package = Package(
         // under test from an explicit `InMemoryTracer`. Use the same version
         // floor as `../Package.swift`.
         .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.4.1"),
+        // The grepCode scale benchmark writes the chunk rows of its synthetic
+        // tree directly into the store. Use the same version floor as
+        // `../Package.swift`.
+        .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
     ],
     targets: [
         // The live language server suites, and the tests that start a real
@@ -62,6 +66,7 @@ let package = Package(
                 .product(name: "MetricsTestKit", package: "swift-metrics"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
+                .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Tests/FoundationModelsCodeContextIntegrationTests"
         )

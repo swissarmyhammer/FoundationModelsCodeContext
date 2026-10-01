@@ -86,6 +86,18 @@ public struct GrepCodeResult: Codable, Sendable, Equatable {
     /// `true` if the full match set was larger than `maxResults`.
     public let truncated: Bool
 
+    /// The number of tracked files that the tree-sitter layer did not index
+    /// yet when the search read the index. These files have no chunks, thus a
+    /// match in them is not in `matches`. The value is zero when the index is
+    /// complete, and more than zero while an index pass runs.
+    public let unindexedFiles: Int
+
+    /// `true` when the index is partial: `unindexedFiles` is more than zero,
+    /// and the result can miss matches.
+    public var isIndexPartial: Bool {
+        unindexedFiles > 0
+    }
+
     /// Creates a grep-code result.
     ///
     /// - Parameters:
@@ -94,11 +106,14 @@ public struct GrepCodeResult: Codable, Sendable, Equatable {
     ///   - totalChunksSearched: The total number of chunks examined.
     ///   - truncated: `true` if the full match set was larger than
     ///     `maxResults`.
-    public init(pattern: String, matches: [GrepCodeMatch], totalChunksSearched: Int, truncated: Bool) {
+    ///   - unindexedFiles: The number of tracked files that the tree-sitter
+    ///     layer did not index yet. Defaults to zero (a complete index).
+    public init(pattern: String, matches: [GrepCodeMatch], totalChunksSearched: Int, truncated: Bool, unindexedFiles: Int = 0) {
         self.pattern = pattern
         self.matches = matches
         self.totalChunksSearched = totalChunksSearched
         self.truncated = truncated
+        self.unindexedFiles = unindexedFiles
     }
 }
 
@@ -108,16 +123,30 @@ public struct GrepCodeResult: Codable, Sendable, Equatable {
 /// Port of the Rust `swissarmyhammer-code-context::ops::grep_code` module
 /// (`crates/swissarmyhammer-code-context/src/ops/grep_code.rs`). The Rust
 /// reference parallelizes matching with `rayon::par_iter` and filters by an
-/// exact `files: Vec<String>` list; this port parallelizes with a
-/// `TaskGroup` (Swift's structured-concurrency equivalent) and filters by a
-/// single glob `filePattern` (via POSIX `fnmatch`) instead, since a glob is
-/// what the task's `grepCode(pattern:languages:filePattern:maxResults:)`
-/// signature calls for.
+/// exact `files: Vec<String>` list. This port filters by a single glob
+/// `filePattern` (via POSIX `fnmatch`) instead, since a glob is what the
+/// task's `grepCode(pattern:languages:filePattern:maxResults:)` signature
+/// calls for.
+///
+/// This port matches in one sequential pass, with one `NSRegularExpression`
+/// (ICU syntax) that it compiles one time for each call. A Django-size index
+/// holds about 90000 chunks. An earlier version made one task for each chunk,
+/// and each task compiled a Swift `Regex` again. One call then used about 46
+/// seconds of CPU time on such an index, and a call took more than 90 seconds
+/// when other work used the same CPUs. The sequential ICU pass uses less than
+/// one second of CPU time on the same index.
 public enum GrepCode {
     /// Searches every `ts_chunks` chunk's text for `pattern`, optionally
     /// restricted to certain languages or a file-path glob.
     ///
-    /// Matching itself runs concurrently across chunks via a `TaskGroup`.
+    /// The search compiles `pattern` one time, as an `NSRegularExpression`
+    /// (ICU syntax). It then reads the chunks one row at a time in one read
+    /// transaction of `store`, and matches each chunk that the filters keep.
+    /// The read runs on a reader connection of the store, not on the threads
+    /// of the Swift concurrency pool, and it does not wait for an index pass:
+    /// it reads the index as it is. The result tells how many files the
+    /// tree-sitter layer did not index yet (`GrepCodeResult.unindexedFiles`).
+    ///
     /// The chunker writes nested chunks, so a match in a method also matches
     /// the class that holds the method. Thus each match position goes to the
     /// innermost chunk that found a match at that position. The position is
@@ -133,15 +162,15 @@ public enum GrepCode {
     /// position is not in the result, and a chunk keeps only the match
     /// positions that it gets.
     ///
-    /// The task group gives the hits in a random order. Thus the hits are
-    /// sorted by file path, start line, start byte, end byte and symbol path
-    /// before the owners are chosen. The result is in that order, and it does
-    /// not change between calls. The `maxResults` cap applies after this
-    /// step.
+    /// SQLite gives the rows in no fixed order. Thus the hits are sorted by
+    /// file path, start line, start byte, end byte and symbol path before the
+    /// owners are chosen. The result is in that order, and it does not change
+    /// between calls. The `maxResults` cap applies after this step.
     ///
     /// - Parameters:
     ///   - store: The workspace's index store to search.
-    ///   - pattern: The regular expression to search chunk text for.
+    ///   - pattern: The regular expression to search chunk text for, in the
+    ///     ICU syntax of `NSRegularExpression`.
     ///   - languages: When non-empty, only chunks from files with one of
     ///     these extensions (no leading dot, e.g. `["swift", "rs"]`) are
     ///     searched. Defaults to empty (no language filter).
@@ -151,7 +180,8 @@ public enum GrepCode {
     ///   - maxResults: The maximum number of matching chunks to return.
     ///     Defaults to 50.
     /// - Returns: Matching chunks (capped at `maxResults`), how many chunks
-    ///     were searched, and whether the result was truncated.
+    ///     were searched, whether the result was truncated, and how many
+    ///     files the tree-sitter layer did not index yet.
     /// - Throws: `CodeContextError.pattern` if `pattern` fails to compile.
     ///     Rethrows `Store`'s storage errors.
     public static func run(
@@ -161,95 +191,141 @@ public enum GrepCode {
         filePattern: String? = nil,
         maxResults: Int = CodeContextDefaults.maxQueryResults
     ) async throws -> GrepCodeResult {
-        // Validated once upfront so an invalid pattern throws before any
-        // work starts; each concurrent task below recompiles its own
-        // `Regex` from the (Sendable) pattern string rather than sharing
-        // one compiled `Regex` value across tasks, since `Regex`'s
-        // internal representation isn't safe to send across task
-        // boundaries under strict concurrency checking.
-        _ = try compile(pattern: pattern)
-        let chunks = try await loadChunks(store: store, languages: languages, filePattern: filePattern)
-
-        let allHits = await withTaskGroup(of: ChunkHit?.self) { group in
-            for chunk in chunks {
-                group.addTask {
-                    matchChunk(chunk: chunk, pattern: pattern)
-                }
-            }
-            var results: [ChunkHit] = []
-            for await hit in group {
-                if let hit {
-                    results.append(hit)
-                }
-            }
-            return results
+        let regex = try compile(pattern: pattern)
+        let filter = ChunkFilter(languages: languages, filePattern: filePattern)
+        let scan = try await store.read { db in
+            try scanChunks(db: db, regex: regex, filter: filter)
         }
 
-        let sortedMatches = innermostMatches(of: allHits.sorted { orderKey(of: $0) < orderKey(of: $1) })
+        let sortedMatches = innermostMatches(of: scan.hits.sorted { orderKey(of: $0) < orderKey(of: $1) })
         let truncated = sortedMatches.count > maxResults
 
         return GrepCodeResult(
             pattern: pattern,
             matches: Array(sortedMatches.prefix(maxResults)),
-            totalChunksSearched: chunks.count,
-            truncated: truncated
+            totalChunksSearched: scan.chunksSearched,
+            truncated: truncated,
+            unindexedFiles: scan.unindexedFiles
         )
     }
 
-    /// Compiles `pattern` with Swift's native `Regex`, translating a
-    /// compile failure into `CodeContextError.pattern`.
-    private static func compile(pattern: String) throws -> Regex<AnyRegexOutput> {
+    /// Compiles `pattern` as an `NSRegularExpression`, translating a compile
+    /// failure into `CodeContextError.pattern`.
+    ///
+    /// - Parameter pattern: The regular expression, in ICU syntax.
+    /// - Returns: The compiled expression.
+    /// - Throws: `CodeContextError.pattern` if `pattern` fails to compile.
+    private static func compile(pattern: String) throws -> NSRegularExpression {
         do {
-            return try Regex(pattern)
+            return try NSRegularExpression(pattern: pattern)
         } catch {
             throw CodeContextError.pattern("invalid grep pattern '\(pattern)': \(error.localizedDescription)")
         }
     }
 
-    /// Compiles `pattern` and runs it against `chunk.text`, or returns
-    /// `nil` if it doesn't match at all. The returned hit also holds the
-    /// byte range of the chunk in its file.
+    /// Reads every `ts_chunks` row one at a time, keeps the rows that
+    /// `filter` accepts, and matches each kept chunk against `regex`.
     ///
-    /// Recompiles `pattern` locally (rather than accepting an
-    /// already-compiled `Regex`) so this can run as the body of a
-    /// `TaskGroup` child task without sharing a `Regex` value across task
-    /// boundaries — see the call site's comment. `pattern` was already
-    /// validated to compile by `run`'s upfront `compile(pattern:)` call, so
-    /// a `nil` here (rather than a thrown error) never actually occurs in
-    /// practice; a truly re-failing compile is treated as no match, not a
-    /// crash.
-    private static func matchChunk(chunk: ChunkRow, pattern: String) -> ChunkHit? {
-        guard let regex = try? Regex(pattern) else {
-            return nil
+    /// The count of files that the tree-sitter layer did not index yet comes
+    /// from the same read transaction. Thus it agrees with the chunks that the
+    /// scan reads.
+    ///
+    /// - Parameters:
+    ///   - db: The database connection of one read transaction.
+    ///   - regex: The compiled pattern.
+    ///   - filter: The language and file-path filters.
+    /// - Returns: The hits, the count of searched chunks and the count of
+    ///   files that the tree-sitter layer did not index yet.
+    /// - Throws: Rethrows any error the queries throw.
+    private static func scanChunks(db: Database, regex: NSRegularExpression, filter: ChunkFilter) throws -> ChunkScan {
+        let rows = try Row.fetchCursor(
+            db,
+            sql: """
+                SELECT \(Schema.TsChunks.filePath), \(Schema.TsChunks.startByte), \(Schema.TsChunks.endByte), \
+                       \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
+                       \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.text) \
+                FROM \(Schema.TsChunks.table)
+                """
+        )
+        let initial = ChunkScan(hits: [], chunksSearched: 0, unindexedFiles: try countUnindexedFiles(db: db))
+        return try rows.reduce(into: initial) { scan, row in
+            let filePath: String = row[Schema.TsChunks.filePath]
+            guard filter.accepts(filePath: filePath) else {
+                return
+            }
+            scan.chunksSearched += 1
+            if let hit = matchChunk(row: row, filePath: filePath, regex: regex) {
+                scan.hits.append(hit)
+            }
         }
-        let occurrences = chunk.text.matches(of: regex)
-        guard !occurrences.isEmpty else {
+    }
+
+    /// Counts the tracked files that the tree-sitter layer did not index yet.
+    ///
+    /// - Parameter db: The database connection to query.
+    /// - Returns: The number of files with `ts_indexed = 0`.
+    /// - Throws: Rethrows any error the query throws.
+    private static func countUnindexedFiles(db: Database) throws -> Int {
+        try Int.fetchOne(
+            db,
+            sql: "SELECT COUNT(*) FROM \(Schema.IndexedFiles.table) WHERE \(IndexLayer.treeSitter.column) = 0"
+        ) ?? 0
+    }
+
+    /// Runs `regex` against the text of the chunk in `row`, or returns `nil`
+    /// if it doesn't match at all. The returned hit also holds the byte range
+    /// of the chunk in its file.
+    ///
+    /// - Parameters:
+    ///   - row: One `ts_chunks` row of the scan.
+    ///   - filePath: The file path of `row`, which the caller already read.
+    ///   - regex: The compiled pattern.
+    /// - Returns: The hit, or `nil` when the chunk text has no match.
+    private static func matchChunk(row: Row, filePath: String, regex: NSRegularExpression) -> ChunkHit? {
+        let text: String = row[Schema.TsChunks.text]
+        let positions = matchPositions(of: regex, in: text)
+        guard !positions.isEmpty else {
             return nil
-        }
-        let utf8 = chunk.text.utf8
-        let positions = occurrences.map { occurrence in
-            GrepMatchPosition(
-                start: utf8.distance(from: utf8.startIndex, to: occurrence.range.lowerBound),
-                end: utf8.distance(from: utf8.startIndex, to: occurrence.range.upperBound)
-            )
         }
         let match = GrepCodeMatch(
-            filePath: chunk.filePath,
-            startLine: chunk.startLine,
-            endLine: chunk.endLine,
-            symbolPath: chunk.symbolPath,
-            text: chunk.text,
+            filePath: filePath,
+            startLine: row[Schema.TsChunks.startLine],
+            endLine: row[Schema.TsChunks.endLine],
+            symbolPath: row[Schema.TsChunks.symbolPath],
+            text: text,
             matches: positions
         )
-        return ChunkHit(match: match, startByte: chunk.startByte, endByte: chunk.endByte)
+        return ChunkHit(match: match, startByte: row[Schema.TsChunks.startByte], endByte: row[Schema.TsChunks.endByte])
+    }
+
+    /// Every match of `regex` in `text`, as UTF-8 byte offsets in `text`.
+    ///
+    /// `NSRegularExpression` gives UTF-16 ranges. ICU matches on code points,
+    /// thus each range starts and ends on a code point boundary, and its
+    /// conversion to a `String` range always succeeds.
+    ///
+    /// - Parameters:
+    ///   - regex: The compiled pattern.
+    ///   - text: The text to search.
+    /// - Returns: The match positions, in the order that the engine found them.
+    private static func matchPositions(of regex: NSRegularExpression, in text: String) -> [GrepMatchPosition] {
+        let utf8 = text.utf8
+        return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { result in
+            Range(result.range, in: text).map { range in
+                GrepMatchPosition(
+                    start: utf8.distance(from: utf8.startIndex, to: range.lowerBound),
+                    end: utf8.distance(from: utf8.startIndex, to: range.upperBound)
+                )
+            }
+        }
     }
 
     /// The key that sets the order of the hits before `innermostMatches(of:)`
     /// chooses the owners, and thus the order of the result.
     ///
     /// The order is the file path, the start line, the start byte, the end
-    /// byte and then the symbol path. The task group gives the hits in a
-    /// random order. This sort makes the order fixed, so a full tie in
+    /// byte and then the symbol path. SQLite gives the rows in no fixed
+    /// order. This sort makes the order fixed, so a full tie in
     /// `nestingKey(of:)` has the same result in each call.
     ///
     /// - Parameter hit: The chunk that matched.
@@ -384,66 +460,70 @@ public enum GrepCode {
         }
     }
 
-    /// One `ts_chunks` row loaded for grepping, before pattern matching.
-    private struct ChunkRow: Sendable {
-        let filePath: String
-        let startByte: Int
-        let endByte: Int
-        let startLine: Int
-        let endLine: Int
-        let symbolPath: String
-        let text: String
+    /// What one scan of the `ts_chunks` rows found.
+    private struct ChunkScan: Sendable {
+        /// Every chunk whose text matched, in the order of the scan.
+        var hits: [ChunkHit]
+
+        /// The number of chunks that the filters kept and the scan matched.
+        var chunksSearched: Int
+
+        /// The number of tracked files that the tree-sitter layer did not
+        /// index yet, read in the same transaction as the chunks.
+        let unindexedFiles: Int
     }
 
-    /// Loads every `ts_chunks` row, filtered by `languages` and
-    /// `filePattern`.
+    /// The language and file-path filters of one search.
     ///
-    /// Filtering happens in Swift after a full fetch, rather than by
-    /// building a dynamic SQL `WHERE` clause, since the candidate set is
-    /// index-sized (not disk-sized) and this avoids interpolating
+    /// Filtering happens in Swift on each row of the scan, rather than by
+    /// building a dynamic SQL `WHERE` clause. This avoids interpolating
     /// caller-supplied extension/glob strings into SQL text.
-    private static func loadChunks(store: Store, languages: [String], filePattern: String?) async throws -> [ChunkRow] {
-        try await store.read { db in
-            try Row.fetchAll(
-                db,
-                sql: """
-                    SELECT \(Schema.TsChunks.filePath), \(Schema.TsChunks.startByte), \(Schema.TsChunks.endByte), \
-                           \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \
-                           \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.text) \
-                    FROM \(Schema.TsChunks.table)
-                    """
-            )
-            .map { row in
-                ChunkRow(
-                    filePath: row[Schema.TsChunks.filePath],
-                    startByte: row[Schema.TsChunks.startByte],
-                    endByte: row[Schema.TsChunks.endByte],
-                    startLine: row[Schema.TsChunks.startLine],
-                    endLine: row[Schema.TsChunks.endLine],
-                    symbolPath: row[Schema.TsChunks.symbolPath],
-                    text: row[Schema.TsChunks.text]
-                )
+    private struct ChunkFilter: Sendable {
+        /// The lowercased file extensions to keep, or an empty set to keep
+        /// all the languages.
+        let extensions: Set<String>
+
+        /// The POSIX `fnmatch` glob that a file path must match, or `nil` to
+        /// keep all the files.
+        let filePattern: String?
+
+        /// Creates the filters of one search.
+        ///
+        /// - Parameters:
+        ///   - languages: The file extensions to keep, with no leading dot,
+        ///     in any case. An empty list keeps all the languages.
+        ///   - filePattern: The glob that a file path must match, or `nil`.
+        init(languages: [String], filePattern: String?) {
+            extensions = Set(languages.map { $0.lowercased() })
+            self.filePattern = filePattern
+        }
+
+        /// Whether the chunks of `filePath` are searched.
+        ///
+        /// - Parameter filePath: The path of a file, relative to the root.
+        /// - Returns: `true` when the extension of `filePath` is one of
+        ///   `extensions` (case-insensitive) or `extensions` is empty, and
+        ///   `filePath` matches `filePattern` or `filePattern` is `nil`.
+        func accepts(filePath: String) -> Bool {
+            matchesLanguage(filePath: filePath) && matchesFilePattern(filePath: filePath)
+        }
+
+        /// Whether the extension of `filePath` is one of `extensions`
+        /// (case-insensitive), or `extensions` is empty.
+        private func matchesLanguage(filePath: String) -> Bool {
+            guard !extensions.isEmpty else {
+                return true
             }
-            .filter { matchesLanguageFilter(filePath: $0.filePath, languages: languages) }
-            .filter { matchesFilePatternFilter(filePath: $0.filePath, filePattern: filePattern) }
+            return extensions.contains(URL(fileURLWithPath: filePath).pathExtension.lowercased())
         }
-    }
 
-    /// Whether `filePath`'s extension is one of `languages` (case-insensitive), or `languages` is empty.
-    private static func matchesLanguageFilter(filePath: String, languages: [String]) -> Bool {
-        guard !languages.isEmpty else {
-            return true
+        /// Whether `filePath` matches `filePattern` via POSIX `fnmatch`, or
+        /// `filePattern` is `nil`.
+        private func matchesFilePattern(filePath: String) -> Bool {
+            guard let filePattern else {
+                return true
+            }
+            return fnmatch(filePattern, filePath, 0) == 0
         }
-        let extensions = Set(languages.map { $0.lowercased() })
-        return extensions.contains(URL(fileURLWithPath: filePath).pathExtension.lowercased())
-    }
-
-    /// Whether `filePath` matches `filePattern` via POSIX `fnmatch`, or
-    /// `filePattern` is `nil`.
-    private static func matchesFilePatternFilter(filePath: String, filePattern: String?) -> Bool {
-        guard let filePattern else {
-            return true
-        }
-        return fnmatch(filePattern, filePath, 0) == 0
     }
 }

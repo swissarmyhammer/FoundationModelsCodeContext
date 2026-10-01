@@ -892,22 +892,23 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             CodeContextTracing.SpanName.indexPass,
             tracer: tracer,
             logger: Log.index,
-            attributes: { $0[CodeContextTracing.AttributeKey.indexLayer] = CodeContextMetrics.dimensionValue(of: .treeSitter) }
-        ) { span in
-            let started = ContinuousClock.now
-            let filesIndexed = try await TreeSitterWorker.run(
-                store: store,
-                rootDirectory: rootDirectory,
-                measuredEmbedder: measuredEmbedder,
-                embeddingBatchSize: TreeSitterWorker.defaultEmbeddingBatchSize,
-                tracer: tracer
-            )
-            span.attributes[CodeContextTracing.AttributeKey.indexFilesIndexed] = filesIndexed
-            try await markUncoveredLspFilesDone()
-            await publishIndexingStatus()
-            metrics.recordIndexPass(duration: started.duration(to: .now))
-            metrics.addFilesIndexed(filesIndexed, layer: .treeSitter)
-        }
+            attributes: { $0[CodeContextTracing.AttributeKey.indexLayer] = CodeContextMetrics.dimensionValue(of: .treeSitter) },
+            { span in
+                let started = ContinuousClock.now
+                let filesIndexed = try await TreeSitterWorker.run(
+                    store: store,
+                    rootDirectory: rootDirectory,
+                    measuredEmbedder: measuredEmbedder,
+                    embeddingBatchSize: TreeSitterWorker.defaultEmbeddingBatchSize,
+                    tracer: tracer
+                )
+                span.attributes[CodeContextTracing.AttributeKey.indexFilesIndexed] = filesIndexed
+                try await markUncoveredLspFilesDone()
+                await publishIndexingStatus()
+                metrics.recordIndexPass(duration: started.duration(to: .now))
+                metrics.addFilesIndexed(filesIndexed, layer: .treeSitter)
+            }
+        )
     }
 
     /// Marks every dirty file whose extension isn't covered by any currently detected LSP server

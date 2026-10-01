@@ -6,16 +6,18 @@ import Operations
 /// It finds the indexed code chunks whose text matches a regular expression.
 /// For each match, the answer is the innermost indexed symbol that holds the
 /// start of the match, for example the method and not its class. Two symbols
-/// on one line each give their own answer.
+/// on one line each give their own answer. The search does not wait for an
+/// index pass. The `unindexedFiles` field of the answer tells when the index is
+/// partial.
 @Generable
 @Operation(
     verb: "grep",
     noun: "code",
-    description: "Find the indexed code chunks whose text matches a regular expression. For each match, the answer is the innermost indexed symbol that holds the start of the match, for example the method and not its class. You can search only some languages, or only the files that match a glob."
+    description: "Find the indexed code chunks whose text matches a regular expression. Each match is answered with the innermost indexed symbol that holds its start, for example the method and not its class. You can limit the search by language or by file glob. The search does not wait for the index. When unindexedFiles is more than zero, the index is partial and the answer can miss matches."
 )
 internal struct GrepCodeOperation {
-    /// The regular expression to search for.
-    @Guide(description: "The regular expression to search for in the text of the indexed code chunks.")
+    /// The regular expression to search for, in ICU syntax.
+    @Guide(description: "The regular expression, in ICU syntax, to search for in the text of the indexed code chunks.")
     @OperationParam(aliases: ["regex", "query"])
     var pattern: String
 
