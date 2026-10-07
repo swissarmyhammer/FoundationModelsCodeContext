@@ -121,7 +121,7 @@ let package = Package(
         // so an open `from:` range could silently pull in a breaking update.
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", exact: "0.25.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
-        .package(url: "https://github.com/alex-pinkus/\(treeSitterSwiftPackage)", exact: "0.7.3-with-generated-files"),
+        .package(url: "https://github.com/alex-pinkus/\(treeSitterSwiftPackage)", exact: "0.7.4-with-generated-files"),
         .package(url: "\(treeSitterOrgURL)\(treeSitterRustPackage)", from: "0.24.0"),
         // Pinned exact: v0.24.0+ manifests gate `src/scanner.c` on
         // `FileManager.default.fileExists(atPath:)`, which resolves against
