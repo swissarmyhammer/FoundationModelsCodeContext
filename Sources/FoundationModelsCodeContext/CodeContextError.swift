@@ -27,7 +27,11 @@ public enum CodeContextError: Error, Sendable {
     case notRunning
 
     /// A storage-layer (SQLite/GRDB) operation failed.
-    case storage(String)
+    ///
+    /// `sqliteResultCode` is the SQLite extended result code when SQLite
+    /// gave the failure, for example `5` (`SQLITE_BUSY`). It is `nil` for a
+    /// failure that SQLite did not give.
+    case storage(String, sqliteResultCode: Int32? = nil)
 
     /// An embedding-layer operation failed.
     case embedding(String)
@@ -81,7 +85,7 @@ extension CodeContextError: LocalizedError {
             "operation timed out after \(duration)"
         case .notRunning:
             "server not running"
-        case .storage(let reason):
+        case .storage(let reason, _):
             "storage error: \(reason)"
         case .embedding(let reason):
             "embedding error: \(reason)"
@@ -95,6 +99,27 @@ extension CodeContextError: LocalizedError {
             "not found: \(reason)"
         case .overlappingRoot(let reason):
             "overlapping root: \(reason)"
+        }
+    }
+}
+
+extension CodeContextError {
+    /// The name of the case, for example `storage`. It holds no associated
+    /// text, thus a log record can hold it.
+    var caseName: String {
+        switch self {
+        case .binaryNotFound: "binaryNotFound"
+        case .spawnFailed: "spawnFailed"
+        case .handshakeFailed: "handshakeFailed"
+        case .timeout: "timeout"
+        case .notRunning: "notRunning"
+        case .storage: "storage"
+        case .embedding: "embedding"
+        case .embeddingDisabled: "embeddingDisabled"
+        case .query: "query"
+        case .pattern: "pattern"
+        case .notFound: "notFound"
+        case .overlappingRoot: "overlappingRoot"
         }
     }
 }

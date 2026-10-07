@@ -198,6 +198,17 @@ public enum CodeContextTracing {
         /// description of the error, because a description can hold content.
         public static let errorType = "error.type"
 
+        /// The case name of a `CodeContextError`, for example `storage`. It is
+        /// never the associated text of the case, because that text can hold
+        /// content.
+        public static let errorCase = "error.case"
+
+        /// The SQLite extended result code of a failed database operation, for
+        /// example `5` (`SQLITE_BUSY`) or `1811` (`SQLITE_CONSTRAINT_TRIGGER`).
+        /// The key is the OpenTelemetry semantic convention for a database
+        /// status code.
+        public static let databaseStatusCode = "db.response.status_code"
+
         /// The name of the language module.
         public static let language = AttributeKey.language
 

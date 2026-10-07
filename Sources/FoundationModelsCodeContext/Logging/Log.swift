@@ -64,6 +64,29 @@ public enum Log {
         .string(String(reflecting: type(of: error)))
     }
 
+    /// Gives the metadata values that name an error without its description.
+    ///
+    /// The metadata always holds the type name under
+    /// `CodeContextTracing.MetadataKey.errorType`. For a `CodeContextError` it
+    /// also holds the case name under `CodeContextTracing.MetadataKey.errorCase`,
+    /// and for a SQLite failure the SQLite extended result code under
+    /// `CodeContextTracing.MetadataKey.databaseStatusCode`.
+    ///
+    /// - Parameter error: The error to name.
+    /// - Returns: The type name, and the case name and the SQLite result code
+    ///   when the error has them.
+    internal static func errorDetail(of error: any Error) -> Logger.Metadata {
+        var metadata: Logger.Metadata = [CodeContextTracing.MetadataKey.errorType: errorType(of: error)]
+        guard let error = error as? CodeContextError else {
+            return metadata
+        }
+        metadata[CodeContextTracing.MetadataKey.errorCase] = .string(error.caseName)
+        if case .storage(_, let sqliteResultCode?) = error {
+            metadata[CodeContextTracing.MetadataKey.databaseStatusCode] = .stringConvertible(sqliteResultCode)
+        }
+        return metadata
+    }
+
     /// Gives the metadata of a record about a failure of a language server.
     ///
     /// - Parameters:

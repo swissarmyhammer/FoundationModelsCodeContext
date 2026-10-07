@@ -208,6 +208,8 @@ public final class Store: Sendable {
             return try await dbPoolMethod(block)
         } catch let error as CodeContextError {
             throw error
+        } catch let error as DatabaseError {
+            throw CodeContextError.storage(error.localizedDescription, sqliteResultCode: error.extendedResultCode.rawValue)
         } catch {
             throw CodeContextError.storage(error.localizedDescription)
         }

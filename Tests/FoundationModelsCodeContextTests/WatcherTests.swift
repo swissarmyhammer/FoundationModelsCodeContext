@@ -1,4 +1,6 @@
 import Foundation
+import InMemoryLogging
+import Logging
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -389,6 +391,166 @@ struct WatcherTests {
             #expect(Set(try await store.drainTsDirty()) == ["a.rs", "b.swift"])
             let nudgeCount = await nudges.count
             #expect(nudgeCount == 1)
+        }
+    }
+
+    // MARK: - Bursts and failed writes
+
+    /// The number of files in the burst test. A checkout or a venv build
+    /// changes thousands of files, thus the flush of the burst is long
+    /// enough to get new events while it runs.
+    private static let burstFileCount = 2000
+
+    /// The watcher warnings about the files under `directory`.
+    ///
+    /// The log records of all the tests of the process go into one store.
+    /// Each test that calls this function uses a directory name that no other
+    /// test uses.
+    private static func watcherWarnings(under directory: String) -> [InMemoryLogHandler.Entry] {
+        CapturedLogRecords.entries.filter { entry in
+            entry.level == .warning
+                && entry.metadata[CodeContextTracing.MetadataKey.filePath]?.description.hasPrefix(directory + "/") == true
+        }
+    }
+
+    /// Advances `clock` past one debounce window and waits until the flush
+    /// that it starts is complete.
+    private static func flushOneWindow(watcher: Watcher, clock: ManualClock) async {
+        await clock.waitForWaiter()
+        clock.advance(by: .seconds(1))
+        await watcher.waitForQuiescence()
+    }
+
+    /// Makes each write of the `indexed_files` table fail with
+    /// `SQLITE_CONSTRAINT_TRIGGER` (1811), until `allowIndexedFileWrites(in:)`.
+    private static func failIndexedFileWrites(in store: Store) async throws {
+        try await store.write { db in
+            try db.execute(sql: "CREATE TRIGGER fail_insert BEFORE INSERT ON indexed_files BEGIN SELECT RAISE(ABORT, 'test'); END")
+            try db.execute(sql: "CREATE TRIGGER fail_update BEFORE UPDATE ON indexed_files BEGIN SELECT RAISE(ABORT, 'test'); END")
+            try db.execute(sql: "CREATE TRIGGER fail_delete BEFORE DELETE ON indexed_files BEGIN SELECT RAISE(ABORT, 'test'); END")
+        }
+    }
+
+    /// Removes the triggers of `failIndexedFileWrites(in:)`.
+    private static func allowIndexedFileWrites(in store: Store) async throws {
+        try await store.write { db in
+            try db.execute(sql: "DROP TRIGGER fail_insert")
+            try db.execute(sql: "DROP TRIGGER fail_update")
+            try db.execute(sql: "DROP TRIGGER fail_delete")
+        }
+    }
+
+    @Test
+    func newEventsDuringTheFlushOfABurstLoseNoDirtyMarkAndLogNoWarning() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let directory = "burst-\(UUID().uuidString)"
+            let paths = (0..<Self.burstFileCount).map { "\(directory)/file\($0).py" }
+            for path in paths {
+                try write("x = 1\n", to: path, in: root)
+            }
+            let latePath = "\(directory)/late.py"
+            try write("y = 2\n", to: latePath, in: root)
+
+            let clock = ManualClock()
+            let (watcher, eventSource) = await Self.makeStartedWatcher(store: store, rootDirectory: root, clock: clock)
+            for path in paths {
+                await eventSource.emit(RawFileEvent(url: root.appendingPathComponent(path), kind: .created))
+            }
+            await clock.waitForWaiter()
+            clock.advance(by: .seconds(1))
+
+            // Wait until the flush of the burst writes, then give a new event
+            // while that flush runs.
+            while try await store.drainTsDirty().isEmpty {
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            await eventSource.emit(RawFileEvent(url: root.appendingPathComponent(latePath), kind: .created))
+            await Self.flushOneWindow(watcher: watcher, clock: clock)
+
+            #expect(Set(try await store.drainTsDirty()) == Set(paths + [latePath]))
+            #expect(Self.watcherWarnings(under: directory).isEmpty)
+        }
+    }
+
+    @Test
+    func aFailedDirtyMarkLogsTheErrorCaseAndTheSQLiteCodeAndTheNextFlushWritesIt() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let directory = "failed-mark-\(UUID().uuidString)"
+            let path = "\(directory)/a.py"
+            try write("x = 1\n", to: path, in: root)
+            try await Self.failIndexedFileWrites(in: store)
+
+            let clock = ManualClock()
+            let (watcher, eventSource) = await Self.makeStartedWatcher(store: store, rootDirectory: root, clock: clock)
+            await eventSource.emit(RawFileEvent(url: root.appendingPathComponent(path), kind: .modified))
+            await Self.flushOneWindow(watcher: watcher, clock: clock)
+
+            let warnings = Self.watcherWarnings(under: directory)
+            #expect(warnings.count == 1)
+            #expect(warnings.first?.message.description == "the watcher could not mark a changed file dirty")
+            #expect(warnings.first?.metadata[CodeContextTracing.MetadataKey.errorCase]?.description == "storage")
+            #expect(warnings.first?.metadata[CodeContextTracing.MetadataKey.databaseStatusCode]?.description == "1811")
+            #expect(try await store.drainTsDirty().isEmpty)
+
+            try await Self.allowIndexedFileWrites(in: store)
+            await Self.flushOneWindow(watcher: watcher, clock: clock)
+
+            #expect(try await store.drainTsDirty() == [path])
+        }
+    }
+
+    @Test
+    func aFailedDeleteLogsTheErrorCaseAndTheSQLiteCodeAndTheNextFlushDeletesTheFile() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let directory = "failed-delete-\(UUID().uuidString)"
+            let path = "\(directory)/a.py"
+            try await store.markDirty(filePath: path, contentHash: Data([1]), fileSize: 1)
+            try await Self.failIndexedFileWrites(in: store)
+
+            let clock = ManualClock()
+            let (watcher, eventSource) = await Self.makeStartedWatcher(store: store, rootDirectory: root, clock: clock)
+            await eventSource.emit(RawFileEvent(url: root.appendingPathComponent(path), kind: .removed))
+            await Self.flushOneWindow(watcher: watcher, clock: clock)
+
+            let warnings = Self.watcherWarnings(under: directory)
+            #expect(warnings.count == 1)
+            #expect(warnings.first?.message.description == "the watcher could not delete a removed file from the index")
+            #expect(warnings.first?.metadata[CodeContextTracing.MetadataKey.errorCase]?.description == "storage")
+            #expect(warnings.first?.metadata[CodeContextTracing.MetadataKey.databaseStatusCode]?.description == "1811")
+            #expect(try await store.drainTsDirty() == [path])
+
+            try await Self.allowIndexedFileWrites(in: store)
+            await Self.flushOneWindow(watcher: watcher, clock: clock)
+
+            #expect(try await store.drainTsDirty().isEmpty)
+        }
+    }
+
+    @Test
+    func aWriteThatFailsEachAttemptStopsAfterTheLastAttempt() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let directory = "failed-always-\(UUID().uuidString)"
+            let path = "\(directory)/a.py"
+            try write("x = 1\n", to: path, in: root)
+            try await Self.failIndexedFileWrites(in: store)
+
+            let clock = ManualClock()
+            let (watcher, eventSource) = await Self.makeStartedWatcher(store: store, rootDirectory: root, clock: clock)
+            await eventSource.emit(RawFileEvent(url: root.appendingPathComponent(path), kind: .modified))
+            for _ in 0..<Watcher.maximumWriteAttempts {
+                await Self.flushOneWindow(watcher: watcher, clock: clock)
+            }
+
+            #expect(Self.watcherWarnings(under: directory).count == Watcher.maximumWriteAttempts)
+            #expect(await watcher.pendingEventCount == 0)
         }
     }
 }

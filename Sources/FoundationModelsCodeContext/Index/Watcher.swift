@@ -102,6 +102,17 @@ public protocol FileEventSource: Sendable {
 /// is indexed for it yet, which is a harmless no-op `DELETE`. The flush
 /// ends with exactly one call to `nudgeWorkers`, regardless of how many
 /// distinct paths were in the batch.
+///
+/// Each flush runs in its own task, not in the debounce timer task. A new
+/// event cancels the timer task, and GRDB stops each write of a cancelled
+/// task. Thus a new event during a long flush (for example the flush of a
+/// checkout) does not stop that flush. The flushes run one after the other.
+///
+/// When a write of a path fails, the watcher logs a warning and puts the
+/// change back in the pending batch for the next flush, if no newer event
+/// for that path is pending. After `maximumWriteAttempts` failed writes the
+/// watcher drops the change. The next reconcile finds that change, because
+/// the index still holds the old content hash of the file.
 public actor Watcher {
     /// The label of the dispatch queue that calls `FileEventSource.start(rootDirectory:handler:)`.
     /// It starts with the label of the watcher logger, thus it starts with the module prefix.
@@ -156,8 +167,21 @@ public actor Watcher {
     /// `stop()` ran during the start.
     private var startCallCount = 0
 
+    /// The maximum number of writes of one change. After this number of
+    /// failed writes, the watcher drops the change.
+    static let maximumWriteAttempts = 3
+
     private var pendingEvents: [String: FileChangeKind] = [:]
+
+    /// The number of failed writes of each pending change that a failed
+    /// write put back in `pendingEvents`. A new event for a path removes its
+    /// count.
+    private var failedWriteCounts: [String: Int] = [:]
+
     private var debounceTask: Task<Void, Never>?
+
+    /// The task of the last flush. A new event does not cancel it.
+    private var flushTask: Task<Void, Never>?
 
     /// Creates a watcher for `rootDirectory`, not yet started.
     ///
@@ -239,6 +263,9 @@ public actor Watcher {
 
     /// Stops watching and discards any not-yet-flushed pending batch.
     ///
+    /// A flush that runs continues to the end of its batch, but it puts no
+    /// failed change back.
+    ///
     /// Safe to call more than once, and safe to call without a prior
     /// `start()`. A call while `start()` waits for the source makes that
     /// `start()` stop the subscription that the source returns.
@@ -248,6 +275,7 @@ public actor Watcher {
         debounceTask?.cancel()
         debounceTask = nil
         pendingEvents.removeAll()
+        failedWriteCounts.removeAll()
     }
 
     deinit {
@@ -262,6 +290,7 @@ public actor Watcher {
             return
         }
         pendingEvents[relativePath] = event.kind
+        failedWriteCounts[relativePath] = nil
         restartDebounceTimer()
     }
 
@@ -280,6 +309,21 @@ public actor Watcher {
                 // `stop()` — either way, this cycle never flushes.
                 return
             }
+            await self?.startFlush()
+        }
+    }
+
+    /// Starts a flush of the pending batch in a new task, which runs after
+    /// the flush before it is complete.
+    ///
+    /// The flush does not run in `debounceTask`: a new event cancels
+    /// `debounceTask`, and GRDB stops each write of a cancelled task. A new
+    /// unstructured task does not get the cancellation of the task that
+    /// makes it.
+    private func startFlush() {
+        let previousFlush = flushTask
+        flushTask = Task { [weak self] in
+            await previousFlush?.value
             await self?.flushPendingEvents()
         }
     }
@@ -290,6 +334,10 @@ public actor Watcher {
     /// The flush runs in one `CodeContextTracing.SpanName.watcherBatch`
     /// span, which holds the count of paths in the batch. It never holds a
     /// path. The flush is short, thus it writes no "enter" log record.
+    ///
+    /// A change whose write fails goes back in the pending batch (see
+    /// `retryLater(relativePath:kind:)`), and the flush then starts the
+    /// debounce timer one time.
     private func flushPendingEvents() async {
         guard !pendingEvents.isEmpty else {
             return
@@ -299,27 +347,64 @@ public actor Watcher {
 
         await CodeContextTracing.tracer(explicit: tracer).withSpan(CodeContextTracing.SpanName.watcherBatch) { span in
             span.attributes[CodeContextTracing.AttributeKey.watcherBatchSize] = batch.count
+            var putBackCount = 0
             for (relativePath, kind) in batch {
-                await applyChange(relativePath: relativePath, kind: kind)
+                if await applyChange(relativePath: relativePath, kind: kind) {
+                    failedWriteCounts[relativePath] = nil
+                } else if retryLater(relativePath: relativePath, kind: kind) {
+                    putBackCount += 1
+                }
+            }
+            if putBackCount > 0 {
+                restartDebounceTimer()
             }
             await nudgeWorkers()
         }
     }
 
+    /// Puts a change whose write failed back in the pending batch, for the
+    /// next flush.
+    ///
+    /// The method does not put the change back when the watcher is stopped,
+    /// when a newer event for the path is pending, or when the change has
+    /// had `maximumWriteAttempts` failed writes.
+    ///
+    /// - Parameters:
+    ///   - relativePath: The path of the file, relative to the root directory.
+    ///   - kind: The change whose write failed.
+    /// - Returns: `true` when the change is back in the pending batch.
+    private func retryLater(relativePath: String, kind: FileChangeKind) -> Bool {
+        guard subscriptionState.runningSubscription != nil, pendingEvents[relativePath] == nil else {
+            return false
+        }
+        let failedWrites = (failedWriteCounts[relativePath] ?? 0) + 1
+        guard failedWrites < Self.maximumWriteAttempts else {
+            failedWriteCounts[relativePath] = nil
+            return false
+        }
+        failedWriteCounts[relativePath] = failedWrites
+        pendingEvents[relativePath] = kind
+        return true
+    }
+
     /// Applies one path's coalesced change, per its last-recorded `kind` in
     /// the batch: `.removed` deletes its `indexed_files` row; `.created`/
     /// `.modified` marks it dirty across all layers.
-    private func applyChange(relativePath: String, kind: FileChangeKind) async {
+    ///
+    /// - Returns: `false` when the write to the store failed, else `true`. A
+    ///   file that the watcher cannot read is not a failed write.
+    private func applyChange(relativePath: String, kind: FileChangeKind) async -> Bool {
         guard kind != .removed else {
             do {
                 try await store.deleteFile(filePath: relativePath)
+                return true
             } catch {
                 Log.watcher.warning(
                     "the watcher could not delete a removed file from the index",
                     metadata: Self.failureMetadata(relativePath: relativePath, error: error)
                 )
+                return false
             }
-            return
         }
 
         let fileURL = rootDirectory.appendingPathComponent(relativePath)
@@ -332,28 +417,31 @@ public actor Watcher {
                 "the watcher cannot read a changed file and skips it in this flush",
                 metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
             )
-            return
+            return true
         }
         do {
             try await store.markDirty(filePath: hashed.relativePath, contentHash: hashed.contentHash, fileSize: hashed.fileSize)
+            return true
         } catch {
             Log.watcher.warning(
                 "the watcher could not mark a changed file dirty",
                 metadata: Self.failureMetadata(relativePath: relativePath, error: error)
             )
+            return false
         }
     }
 
     /// Gives the log metadata of a watcher record about a failure for one file.
     /// - Parameters:
     ///   - relativePath: The path of the file, relative to the root directory.
-    ///   - error: The error of the failure. The metadata holds only its type name.
-    /// - Returns: The file path and the error type name.
+    ///   - error: The error of the failure. The metadata holds only the names
+    ///     and the code of `Log.errorDetail(of:)`, never the description.
+    /// - Returns: The file path, the error type name, and the error case name
+    ///   and the SQLite result code when the error has them.
     private static func failureMetadata(relativePath: String, error: any Error) -> Logger.Metadata {
-        [
-            CodeContextTracing.MetadataKey.filePath: .string(relativePath),
-            CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
-        ]
+        var metadata = Log.errorDetail(of: error)
+        metadata[CodeContextTracing.MetadataKey.filePath] = .string(relativePath)
+        return metadata
     }
 
     // MARK: - Filtering
@@ -437,13 +525,20 @@ public actor Watcher {
     // MARK: - Testing
 
     /// Test-only synchronization hook: awaits completion of the currently
-    /// in-flight debounce timer/flush cycle, if any.
+    /// in-flight debounce timer, and then of the flush that it started, if
+    /// any.
     ///
     /// A `ManualClock`-driven test calls this right after
     /// `clock.advance(by:)` so it observes the flush's fully-applied state
     /// instead of racing its async work.
     func waitForQuiescence() async {
         await debounceTask?.value
+        await flushTask?.value
+    }
+
+    /// Test-only: the number of paths in the pending batch.
+    var pendingEventCount: Int {
+        pendingEvents.count
     }
 }
 
