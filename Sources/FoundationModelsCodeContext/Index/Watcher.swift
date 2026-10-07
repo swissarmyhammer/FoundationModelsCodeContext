@@ -103,6 +103,10 @@ public protocol FileEventSource: Sendable {
 /// ends with exactly one call to `nudgeWorkers`, regardless of how many
 /// distinct paths were in the batch.
 public actor Watcher {
+    /// The label of the dispatch queue that calls `FileEventSource.start(rootDirectory:handler:)`.
+    /// It starts with the label of the watcher logger, thus it starts with the module prefix.
+    static let eventSourceStartQueueLabel = CodeContextTracing.LoggerLabel.watcher + ".start"
+
     private let store: Store
     private let rootDirectory: URL
     private let eventSource: any FileEventSource
@@ -115,7 +119,43 @@ public actor Watcher {
     /// each flush.
     private let tracer: (any Tracer)?
 
-    private var subscription: (any FileEventSubscription)?
+    /// The serial queue that calls `FileEventSource.start(rootDirectory:handler:)`.
+    ///
+    /// The call can block. `FSEventsFileEventSource` calls `FSEventStreamStart`, which is a
+    /// synchronous request to fseventsd, and fseventsd registers the streams of the whole machine
+    /// one at a time. On this queue a slow start blocks a dispatch thread, not a thread of the
+    /// Swift cooperative pool.
+    private let eventSourceStartQueue = DispatchQueue(label: Watcher.eventSourceStartQueueLabel)
+
+    /// The state of the subscription to `eventSource`.
+    private enum SubscriptionState {
+        /// No subscription: before `start()`, and after `stop()`.
+        case idle
+
+        /// A `start()` call waits for `eventSource` to start. The payload is the number of that
+        /// call, from `startCallCount`.
+        case starting(call: Int)
+
+        /// The subscription delivers events.
+        case running(any FileEventSubscription)
+
+        /// The subscription of the `.running` state, or `nil` in each other state.
+        var runningSubscription: (any FileEventSubscription)? {
+            guard case .running(let subscription) = self else {
+                return nil
+            }
+            return subscription
+        }
+    }
+
+    /// The state of the subscription to `eventSource`.
+    private var subscriptionState = SubscriptionState.idle
+
+    /// The number of `start()` calls that started `eventSource` up to now. A `start()` call
+    /// compares its number with `subscriptionState` when the source returns, thus it knows if
+    /// `stop()` ran during the start.
+    private var startCallCount = 0
+
     private var pendingEvents: [String: FileChangeKind] = [:]
     private var debounceTask: Task<Void, Never>?
 
@@ -156,31 +196,62 @@ public actor Watcher {
 
     /// Starts watching, if not already started.
     ///
-    /// Safe to call more than once; a second call while already watching is
-    /// a no-op.
-    public func start() {
-        guard subscription == nil else {
+    /// The method calls `FileEventSource.start(rootDirectory:handler:)` on
+    /// `eventSourceStartQueue` and waits for it. Thus a slow start does not
+    /// block a thread of the Swift cooperative pool.
+    ///
+    /// Safe to call more than once; a call while the watcher starts or
+    /// watches is a no-op. When `stop()` runs before the source returns, this
+    /// method stops the subscription that the source returns.
+    public func start() async {
+        guard case .idle = subscriptionState else {
             return
         }
-        subscription = eventSource.start(rootDirectory: rootDirectory) { [weak self] event in
+        startCallCount += 1
+        let call = startCallCount
+        subscriptionState = .starting(call: call)
+
+        let subscription = await startEventSource()
+
+        guard case .starting(call: call) = subscriptionState else {
+            subscription.stop()
+            return
+        }
+        subscriptionState = .running(subscription)
+    }
+
+    /// Calls `FileEventSource.start(rootDirectory:handler:)` on
+    /// `eventSourceStartQueue`, and waits for the subscription.
+    ///
+    /// - Returns: The subscription that the source returns.
+    private func startEventSource() async -> any FileEventSubscription {
+        let source = eventSource
+        let directory = rootDirectory
+        let handler: @Sendable (RawFileEvent) async -> Void = { [weak self] event in
             await self?.handleRawEvent(event)
+        }
+        return await withCheckedContinuation { continuation in
+            eventSourceStartQueue.async {
+                continuation.resume(returning: source.start(rootDirectory: directory, handler: handler))
+            }
         }
     }
 
     /// Stops watching and discards any not-yet-flushed pending batch.
     ///
     /// Safe to call more than once, and safe to call without a prior
-    /// `start()`.
+    /// `start()`. A call while `start()` waits for the source makes that
+    /// `start()` stop the subscription that the source returns.
     public func stop() {
-        subscription?.stop()
-        subscription = nil
+        subscriptionState.runningSubscription?.stop()
+        subscriptionState = .idle
         debounceTask?.cancel()
         debounceTask = nil
         pendingEvents.removeAll()
     }
 
     deinit {
-        subscription?.stop()
+        subscriptionState.runningSubscription?.stop()
         debounceTask?.cancel()
     }
 

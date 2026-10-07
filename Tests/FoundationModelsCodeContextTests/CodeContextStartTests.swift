@@ -4,8 +4,9 @@ import Testing
 @testable import FoundationModelsCodeContext
 
 /// Tests for the bounded `start()` of `CodeContext`, for `stop()` during the
-/// first index pass, for the rule that one index pass runs at a time, and for
-/// the embedding layer that a host turns off.
+/// first index pass, for the rule that one index pass runs at a time, for the
+/// embedding layer that a host turns off, and for the watcher that a host turns
+/// off.
 ///
 /// The fixtures have no project marker, thus no LSP daemon starts.
 struct CodeContextStartTests {
@@ -312,6 +313,38 @@ struct CodeContextStartTests {
             #expect(await log.probeCallCount == 1)
             #expect(await log.batchSizes.reduce(0, +) == Self.fixtureFileCount * passCount)
             await context.stop()
+        }
+    }
+
+    /// A host that gives no event source turns the watcher off. Then `start()`
+    /// makes no watcher, thus no FSEvents stream starts.
+    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    func noEventSourceTurnsTheWatcherOff() async throws {
+        try await withTemporaryWorkspace { root in
+            let context = try await CodeContext(
+                rootDirectory: root,
+                embedder: nil,
+                autoInstall: LspAutoInstall(isEnabled: false),
+                eventSource: nil
+            )
+            try await context.start()
+            let isWatching = await context.isWatching
+            await context.stop()
+
+            #expect(!isWatching)
+        }
+    }
+
+    /// A host that gives an event source gets a watcher on that source.
+    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    func anEventSourceTurnsTheWatcherOn() async throws {
+        try await withTemporaryWorkspace { root in
+            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: nil)
+            try await context.start()
+            let isWatching = await context.isWatching
+            await context.stop()
+
+            #expect(isWatching)
         }
     }
 }

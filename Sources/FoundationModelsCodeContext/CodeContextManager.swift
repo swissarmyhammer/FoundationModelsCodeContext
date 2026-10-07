@@ -48,8 +48,9 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     private let clock: any Clock<Duration>
 
     /// The filesystem-change event source handed to every `CodeContext` this manager creates.
-    /// Defaults to `FSEventsFileEventSource()`; tests inject `FakeFileEventSource`.
-    private let eventSource: any FileEventSource
+    /// Defaults to `FSEventsFileEventSource()`; tests inject `FakeFileEventSource`. `nil` turns
+    /// the watcher off for each `CodeContext` that this manager creates.
+    private let eventSource: (any FileEventSource)?
 
     /// The opt-out policy handed to every `CodeContext` this manager creates, gating whether that
     /// context's supervisor may auto-install a `.notFound` server's binary via its
@@ -87,8 +88,8 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     ///   - clock: The clock handed to every `CodeContext` this manager creates. Defaults to
     ///     `ContinuousClock()`; tests inject a faster or manually-driven clock.
     ///   - eventSource: The filesystem-change event source handed to every `CodeContext` this
-    ///     manager creates. Defaults to `FSEventsFileEventSource()`; tests inject
-    ///     `FakeFileEventSource`.
+    ///     manager creates, or `nil` to turn the watcher of each context off. Defaults to
+    ///     `FSEventsFileEventSource()`; tests inject `FakeFileEventSource`.
     ///   - autoInstall: The opt-out policy handed to every `CodeContext` this manager creates.
     ///     Defaults to `LspAutoInstall()` (enabled, 300-second timeout); existing callers compile
     ///     unchanged.
@@ -101,7 +102,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     init(
         embedder: TextEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
-        eventSource: any FileEventSource = FSEventsFileEventSource(),
+        eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
         installRunner: any InstallRunner = ProcessInstallRunner(),
         connectionFactory: @escaping ConnectionFactory<Connection>
@@ -384,9 +385,17 @@ extension CodeContextManager where Connection == ProcessLanguageServerConnection
     ///   - autoInstall: The opt-out policy handed to every `CodeContext` this manager creates.
     ///     Defaults to `LspAutoInstall()` (enabled, 300-second timeout); existing callers compile
     ///     unchanged.
-    public init(embedder: TextEmbedding?, autoInstall: LspAutoInstall = LspAutoInstall()) async {
+    ///   - eventSource: The raw filesystem-change event source of the watcher of each
+    ///     `CodeContext` that this manager creates. Defaults to `FSEventsFileEventSource()`. Give
+    ///     `nil` to turn the watchers off: then no FSEvents stream starts.
+    public init(
+        embedder: TextEmbedding?,
+        autoInstall: LspAutoInstall = LspAutoInstall(),
+        eventSource: (any FileEventSource)? = FSEventsFileEventSource()
+    ) async {
         await self.init(
             embedder: embedder,
+            eventSource: eventSource,
             autoInstall: autoInstall,
             connectionFactory: LSPDaemon<ProcessLanguageServerConnection>.processConnectionFactory()
         )

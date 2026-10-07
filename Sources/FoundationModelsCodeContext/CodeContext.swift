@@ -66,7 +66,11 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// The raw filesystem-change event source the watcher subscribes to. Defaults to
     /// `FSEventsFileEventSource()`; tests inject `FakeFileEventSource` so no real FSEvents stream
     /// (and its detached-queue teardown) is ever involved.
-    private let eventSource: any FileEventSource
+    ///
+    /// `nil` means that the host turned the watcher off: `start()` makes no watcher, thus no
+    /// filesystem event marks a file dirty. A later `rebuildIndex(layer:)` or a later `start()`
+    /// finds the changes.
+    private let eventSource: (any FileEventSource)?
 
     /// Records the duration and the file count of each index pass, and goes to the LSP
     /// supervisor and the LSP index workers.
@@ -185,8 +189,9 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///     `searchCode(...)`, or `nil` to turn the embedding layer off.
     ///   - clock: The clock the index loop and watcher debounce timer sleep against. Defaults to
     ///     `ContinuousClock()`; tests inject a faster or manually-driven clock.
-    ///   - eventSource: The raw filesystem-change event source the watcher subscribes to. Defaults
-    ///     to `FSEventsFileEventSource()`; tests inject `FakeFileEventSource`.
+    ///   - eventSource: The raw filesystem-change event source the watcher subscribes to, or `nil`
+    ///     to turn the watcher off. Defaults to `FSEventsFileEventSource()`; tests inject
+    ///     `FakeFileEventSource`.
     ///   - autoInstall: The opt-out policy gating whether the supervisor may auto-install a
     ///     `.notFound` server's binary via its `ServerSpec.installer`. Defaults to
     ///     `LspAutoInstall()` (enabled, 300-second timeout); existing callers compile unchanged.
@@ -208,7 +213,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         rootDirectory: URL,
         embedder: TextEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
-        eventSource: any FileEventSource = FSEventsFileEventSource(),
+        eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
         installRunner: any InstallRunner = ProcessInstallRunner(),
         metrics: CodeContextMetrics = CodeContextMetrics(),
@@ -290,18 +295,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             // that `state.isReady` is `false` until the first pass of the index loop is complete.
             await publishIndexingStatus()
 
-            let watcher = Watcher(
-                store: store,
-                rootDirectory: rootDirectory,
-                eventSource: eventSource,
-                clock: clock,
-                tracer: tracer,
-                nudgeWorkers: { [weak self] in
-                    await self?.nudgeIndexPass()
-                }
-            )
-            await watcher.start()
-            self.watcher = watcher
+            watcher = await startWatcher()
 
             firstIndexPass = .running(waiters: [])
             indexLoopTask = Task { [weak self] in
@@ -336,6 +330,36 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             isStarted = false
             throw error
         }
+    }
+
+    /// Makes the filesystem watcher of this context and starts it.
+    ///
+    /// `Watcher.start()` starts the event source off the Swift cooperative pool, thus a slow
+    /// FSEvents start does not block a cooperative thread.
+    /// - Returns: The started watcher, or `nil` when the host turned the watcher off with a `nil`
+    ///   event source.
+    private func startWatcher() async -> Watcher? {
+        guard let eventSource else {
+            return nil
+        }
+        let watcher = Watcher(
+            store: store,
+            rootDirectory: rootDirectory,
+            eventSource: eventSource,
+            clock: clock,
+            tracer: tracer,
+            nudgeWorkers: { [weak self] in
+                await self?.nudgeIndexPass()
+            }
+        )
+        await watcher.start()
+        return watcher
+    }
+
+    /// `true` while this context has a filesystem watcher: after `start()` and before `stop()`,
+    /// when the host gave an event source.
+    var isWatching: Bool {
+        watcher != nil
     }
 
     /// Tears down everything `start()` spawned: cancels and awaits the index loop and every
@@ -1024,11 +1048,22 @@ extension CodeContext where Connection == ProcessLanguageServerConnection {
     ///   - autoInstall: The opt-out policy gating whether the supervisor may auto-install a
     ///     `.notFound` server's binary via its `ServerSpec.installer`. Defaults to
     ///     `LspAutoInstall()` (enabled, 300-second timeout); existing callers compile unchanged.
+    ///   - eventSource: The raw filesystem-change event source of the watcher. Defaults to
+    ///     `FSEventsFileEventSource()`. Give another `FileEventSource` to drive the watcher from
+    ///     your own events. Give `nil` to turn the watcher off: then no FSEvents stream starts, and
+    ///     a filesystem change gets into the index only at a later `rebuildIndex(layer:)` or a
+    ///     later `start()`.
     /// - Throws: `CodeContextError.storage` if the index store can't be opened or migrated.
-    public init(rootDirectory: URL, embedder: TextEmbedding?, autoInstall: LspAutoInstall = LspAutoInstall()) async throws {
+    public init(
+        rootDirectory: URL,
+        embedder: TextEmbedding?,
+        autoInstall: LspAutoInstall = LspAutoInstall(),
+        eventSource: (any FileEventSource)? = FSEventsFileEventSource()
+    ) async throws {
         try await self.init(
             rootDirectory: rootDirectory,
             embedder: embedder,
+            eventSource: eventSource,
             autoInstall: autoInstall,
             connectionFactory: LSPDaemon<ProcessLanguageServerConnection>.processConnectionFactory()
         )

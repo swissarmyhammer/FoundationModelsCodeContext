@@ -205,6 +205,13 @@ all layers dirty, new → INSERT dirty.
 **File watching**: FSEvents (recursive on root) debounced ~1s, filtered to
 source extensions → mark dirty / delete rows → nudge workers. This replaces
 Rust's `notify`/`async-watcher`; `FanoutWatcher` collapses to direct calls.
+`FSEventStreamStart` is a synchronous request to fseventsd, and fseventsd
+registers the streams of the whole machine one at a time. Thus
+`Watcher.start()` calls `FileEventSource.start` on a dispatch queue of the
+watcher, not on a thread of the Swift cooperative pool. The public
+`CodeContext` and `CodeContextManager` initializers take an `eventSource`.
+A host can give its own `FileEventSource`, or give `nil` to turn the watcher
+off. Then no FSEvents stream starts.
 
 ### Language modules (strategy pattern)
 

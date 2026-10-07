@@ -41,6 +41,71 @@ struct WatcherTests {
         return (watcher, eventSource)
     }
 
+    /// The time that a second `start()` call gets to run while the first call
+    /// waits at the gate of the source. The result of a correct watcher does
+    /// not depend on this time. A watcher that starts the source again needs
+    /// the time to show the second start.
+    private static let secondStartRunTime = Duration.milliseconds(100)
+
+    /// Builds a `Watcher` wired to `eventSource` and a fresh `ManualClock`,
+    /// not yet started.
+    private static func makeWatcher(store: Store, rootDirectory: URL, eventSource: any FileEventSource) -> Watcher {
+        Watcher(store: store, rootDirectory: rootDirectory, eventSource: eventSource, clock: ManualClock(), nudgeWorkers: {})
+    }
+
+    @Test
+    func startCallsTheEventSourceOnTheStartQueueAndNotOnTheCooperativePool() async throws {
+        try await withTemporaryWorkspace { root in
+            let source = RecordingFileEventSource()
+            let watcher = Self.makeWatcher(store: try Store(rootDirectory: root), rootDirectory: root, eventSource: source)
+
+            await watcher.start()
+
+            let expected = FileEventSourceStartRecord(isMainThread: false, queueLabel: Watcher.eventSourceStartQueueLabel)
+            #expect(source.startRecords == [expected])
+        }
+    }
+
+    @Test
+    func stopWhileTheSourceStartsStopsTheSubscriptionThatTheSourceReturns() async throws {
+        try await withTemporaryWorkspace { root in
+            let source = RecordingFileEventSource(isGated: true)
+            let watcher = Self.makeWatcher(store: try Store(rootDirectory: root), rootDirectory: root, eventSource: source)
+            var startCalls = source.startCalls.makeAsyncIterator()
+
+            let startTask = Task { await watcher.start() }
+            await startCalls.next()
+            await watcher.stop()
+            source.openGate()
+            await startTask.value
+
+            #expect(source.stoppedSubscriptionCount == 1)
+        }
+    }
+
+    @Test
+    func startWhileTheSourceStartsDoesNotStartTheSourceAgain() async throws {
+        try await withTemporaryWorkspace { root in
+            let source = RecordingFileEventSource(isGated: true)
+            let watcher = Self.makeWatcher(store: try Store(rootDirectory: root), rootDirectory: root, eventSource: source)
+            var startCalls = source.startCalls.makeAsyncIterator()
+
+            let firstStartTask = Task { await watcher.start() }
+            await startCalls.next()
+            let secondStartTask = Task { await watcher.start() }
+            // The second call runs while the first call waits at the gate. Then the gate opens
+            // for two calls, thus a second start of the source cannot wait for ever.
+            try await Task.sleep(for: Self.secondStartRunTime)
+            source.openGate()
+            source.openGate()
+            await firstStartTask.value
+            await secondStartTask.value
+
+            #expect(source.startRecords.count == 1)
+            #expect(source.stoppedSubscriptionCount == 0)
+        }
+    }
+
     @Test
     func burstOfEventsOnOneFileWithinDebounceWindowProducesOneDirtyMarkAndOneNudge() async throws {
         try await withTemporaryWorkspace { root in
