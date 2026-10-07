@@ -22,6 +22,10 @@ enum PackagePaths {
     /// The directory of the library source files.
     static let librarySources = packageRoot.appending(path: "Sources/FoundationModelsCodeContext")
 
+    /// The directory of the JSON fixtures of the tests. `Package.swift`
+    /// excludes it from the test target, thus the tests read it from the disk.
+    static let testGoldens = packageRoot.appending(path: "Tests/FoundationModelsCodeContextTests/Goldens")
+
     /// The absolute path of the scripted language server,
     /// `Support/scripted-lsp-server.swift`. See the header comment of that
     /// file for its script language.

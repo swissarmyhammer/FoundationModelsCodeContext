@@ -1,0 +1,5244 @@
+{
+  "bash/function-added/after" : [
+    {
+      "content" : "area() {\n  echo $(( $1 * $2 ))\n}",
+      "contentHash" : "2d08386a3c35e953",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "9302b04e9baf76cf"
+    },
+    {
+      "content" : "perimeter() {\n  echo $(( 2 * ($1 + $2) ))\n}",
+      "contentHash" : "d6c67cfb2b9f0808",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "a5a04ea420bd62bd"
+    }
+  ],
+  "bash/function-added/before" : [
+    {
+      "content" : "area() {\n  echo $(( $1 * $2 ))\n}",
+      "contentHash" : "2d08386a3c35e953",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "9302b04e9baf76cf"
+    }
+  ],
+  "bash/function-deleted/after" : [
+    {
+      "content" : "area() {\n  echo $(( $1 * $2 ))\n}",
+      "contentHash" : "2d08386a3c35e953",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "9302b04e9baf76cf"
+    }
+  ],
+  "bash/function-deleted/before" : [
+    {
+      "content" : "area() {\n  echo $(( $1 * $2 ))\n}",
+      "contentHash" : "2d08386a3c35e953",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "9302b04e9baf76cf"
+    },
+    {
+      "content" : "perimeter() {\n  echo $(( 2 * ($1 + $2) ))\n}",
+      "contentHash" : "d6c67cfb2b9f0808",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "a5a04ea420bd62bd"
+    }
+  ],
+  "bash/function-modified/after" : [
+    {
+      "content" : "area() {\n  echo $(( $1 * $2 / 2 ))\n}",
+      "contentHash" : "e19a9a1e33e09160",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "823ad4bc359ac829"
+    },
+    {
+      "content" : "perimeter() {\n  echo $(( 2 * ($1 + $2) ))\n}",
+      "contentHash" : "d6c67cfb2b9f0808",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "a5a04ea420bd62bd"
+    }
+  ],
+  "bash/function-modified/before" : [
+    {
+      "content" : "area() {\n  echo $(( $1 * $2 ))\n}",
+      "contentHash" : "2d08386a3c35e953",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "9302b04e9baf76cf"
+    },
+    {
+      "content" : "perimeter() {\n  echo $(( 2 * ($1 + $2) ))\n}",
+      "contentHash" : "d6c67cfb2b9f0808",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "a5a04ea420bd62bd"
+    }
+  ],
+  "bash/function-moved/after" : [
+    {
+      "content" : "perimeter() {\n  echo $(( 2 * ($1 + $2) ))\n}",
+      "contentHash" : "d6c67cfb2b9f0808",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 3,
+      "structuralHash" : "a5a04ea420bd62bd"
+    }
+  ],
+  "bash/function-moved/before" : [
+    {
+      "content" : "area() {\n  echo $(( $1 * $2 ))\n}",
+      "contentHash" : "2d08386a3c35e953",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "9302b04e9baf76cf"
+    },
+    {
+      "content" : "perimeter() {\n  echo $(( 2 * ($1 + $2) ))\n}",
+      "contentHash" : "d6c67cfb2b9f0808",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "a5a04ea420bd62bd"
+    }
+  ],
+  "bash/function-renamed/after" : [
+    {
+      "content" : "order_total() {\n  local subtotal=0\n  for price in \"$@\"; do\n    subtotal=$(( subtotal + price ))\n  done\n  echo \"$subtotal\"\n}",
+      "contentHash" : "743c64db901543a4",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::order_total",
+      "name" : "order_total",
+      "startLine" : 3,
+      "structuralHash" : "9d8314b38013796d"
+    }
+  ],
+  "bash/function-renamed/before" : [
+    {
+      "content" : "total_price() {\n  local subtotal=0\n  for price in \"$@\"; do\n    subtotal=$(( subtotal + price ))\n  done\n  echo \"$subtotal\"\n}",
+      "contentHash" : "07431f58e4ee527e",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::total_price",
+      "name" : "total_price",
+      "startLine" : 3,
+      "structuralHash" : "da2d6efea3e94fa4"
+    }
+  ],
+  "bash/whitespace-and-comments/after" : [
+    {
+      "content" : "area() {\n  # The area of the rectangle.\n  echo   $(( $1 * $2 ))\n}",
+      "contentHash" : "10c676780ad89e9e",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "9302b04e9baf76cf"
+    }
+  ],
+  "bash/whitespace-and-comments/before" : [
+    {
+      "content" : "area() {\n  echo $(( $1 * $2 ))\n}",
+      "contentHash" : "2d08386a3c35e953",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.sh",
+      "id" : "inline.sh::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "9302b04e9baf76cf"
+    }
+  ],
+  "c/function-added/after" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "c/function-added/before" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    }
+  ],
+  "c/function-deleted/after" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    }
+  ],
+  "c/function-deleted/before" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "c/function-modified/after" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height / 2;\n}",
+      "contentHash" : "46e1d8c3eca6296d",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "b4aec0febfd310c3"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "c/function-modified/before" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "c/function-moved/after" : [
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 1,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "c/function-moved/before" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "c/function-renamed/after" : [
+    {
+      "content" : "double order_total(const double *prices, int count, double tax_rate) {\n    double subtotal = 0.0;\n    for (int i = 0; i < count; i++) {\n        subtotal += prices[i];\n    }\n    return subtotal + subtotal * tax_rate;\n}",
+      "contentHash" : "30ace42a174bab18",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::order_total",
+      "name" : "order_total",
+      "startLine" : 1,
+      "structuralHash" : "0c3593bbb787da9d"
+    }
+  ],
+  "c/function-renamed/before" : [
+    {
+      "content" : "double total_price(const double *prices, int count, double tax_rate) {\n    double subtotal = 0.0;\n    for (int i = 0; i < count; i++) {\n        subtotal += prices[i];\n    }\n    return subtotal + subtotal * tax_rate;\n}",
+      "contentHash" : "c0a1ec53c582ee58",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::total_price",
+      "name" : "total_price",
+      "startLine" : 1,
+      "structuralHash" : "1e55f5850f92b760"
+    }
+  ],
+  "c/type-with-methods/after" : [
+    {
+      "content" : "struct counter {\n    int count;\n    int limit;\n}",
+      "contentHash" : "044fc9c85c2c0678",
+      "endLine" : 4,
+      "entityType" : "struct",
+      "filePath" : "inline.c",
+      "id" : "inline.c::struct::counter",
+      "name" : "counter",
+      "startLine" : 1,
+      "structuralHash" : "0488397d10da2ff7"
+    },
+    {
+      "content" : "void counter_increment(struct counter *c) {\n    c->count++;\n}",
+      "contentHash" : "e6e3ad7272f5da86",
+      "endLine" : 8,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::counter_increment",
+      "name" : "counter_increment",
+      "startLine" : 6,
+      "structuralHash" : "26b8ba16104ec461"
+    },
+    {
+      "content" : "int counter_value(const struct counter *c) {\n    return c->count;\n}",
+      "contentHash" : "a730832a64ae5e55",
+      "endLine" : 12,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::counter_value",
+      "name" : "counter_value",
+      "startLine" : 10,
+      "structuralHash" : "7928bb0edfe74323"
+    }
+  ],
+  "c/type-with-methods/before" : [
+    {
+      "content" : "struct counter {\n    int count;\n}",
+      "contentHash" : "ed3e41d8fe4a25b8",
+      "endLine" : 3,
+      "entityType" : "struct",
+      "filePath" : "inline.c",
+      "id" : "inline.c::struct::counter",
+      "name" : "counter",
+      "startLine" : 1,
+      "structuralHash" : "23cd0cc6d4186b31"
+    },
+    {
+      "content" : "void counter_increment(struct counter *c) {\n    c->count++;\n}",
+      "contentHash" : "e6e3ad7272f5da86",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::counter_increment",
+      "name" : "counter_increment",
+      "startLine" : 5,
+      "structuralHash" : "26b8ba16104ec461"
+    }
+  ],
+  "c/whitespace-and-comments/after" : [
+    {
+      "content" : "double area(double width,   double height) {\n    // The area of the rectangle.\n    return width   *   height;\n}",
+      "contentHash" : "0f1897387c9a9e4e",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    }
+  ],
+  "c/whitespace-and-comments/before" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.c",
+      "id" : "inline.c::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    }
+  ],
+  "cpp/function-added/after" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "cpp/function-added/before" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    }
+  ],
+  "cpp/function-deleted/after" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    }
+  ],
+  "cpp/function-deleted/before" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "cpp/function-modified/after" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height / 2;\n}",
+      "contentHash" : "46e1d8c3eca6296d",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "b4aec0febfd310c3"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "cpp/function-modified/before" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "cpp/function-moved/after" : [
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 1,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "cpp/function-moved/before" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "cpp/function-renamed/after" : [
+    {
+      "content" : "double orderTotal(const std::vector<double>& prices, double taxRate) {\n    double subtotal = 0.0;\n    for (double price : prices) {\n        subtotal += price;\n    }\n    return subtotal + subtotal * taxRate;\n}",
+      "contentHash" : "ea38b51bdccd91b5",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::orderTotal",
+      "name" : "orderTotal",
+      "startLine" : 1,
+      "structuralHash" : "bb1f85563a601b3b"
+    }
+  ],
+  "cpp/function-renamed/before" : [
+    {
+      "content" : "double totalPrice(const std::vector<double>& prices, double taxRate) {\n    double subtotal = 0.0;\n    for (double price : prices) {\n        subtotal += price;\n    }\n    return subtotal + subtotal * taxRate;\n}",
+      "contentHash" : "a4cd59b62b6aaa9a",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::totalPrice",
+      "name" : "totalPrice",
+      "startLine" : 1,
+      "structuralHash" : "ab085f9742d3ef7e"
+    }
+  ],
+  "cpp/namespace/after" : [
+    {
+      "content" : "namespace geometry {\n\ndouble area(double width, double height) {\n    return width * height;\n}\n\ndouble perimeter(double width, double height) {\n    return 2 * (width + height);\n}\n\n}",
+      "contentHash" : "293cf6c9d6be6ed3",
+      "endLine" : 11,
+      "entityType" : "module",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::module::geometry",
+      "name" : "geometry",
+      "startLine" : 1,
+      "structuralHash" : "c156d4639dc8ee53"
+    },
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::inline.cpp::module::geometry::area",
+      "name" : "area",
+      "parentID" : "inline.cpp::module::geometry",
+      "startLine" : 3,
+      "structuralHash" : "c88928331a5352d5"
+    },
+    {
+      "content" : "double perimeter(double width, double height) {\n    return 2 * (width + height);\n}",
+      "contentHash" : "838813a2eab626de",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::inline.cpp::module::geometry::perimeter",
+      "name" : "perimeter",
+      "parentID" : "inline.cpp::module::geometry",
+      "startLine" : 7,
+      "structuralHash" : "c818d2ff13c26014"
+    }
+  ],
+  "cpp/namespace/before" : [
+    {
+      "content" : "namespace geometry {\n\ndouble area(double width, double height) {\n    return width * height;\n}\n\n}",
+      "contentHash" : "cbf31482797643b0",
+      "endLine" : 7,
+      "entityType" : "module",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::module::geometry",
+      "name" : "geometry",
+      "startLine" : 1,
+      "structuralHash" : "2cf70beaed5232d1"
+    },
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::inline.cpp::module::geometry::area",
+      "name" : "area",
+      "parentID" : "inline.cpp::module::geometry",
+      "startLine" : 3,
+      "structuralHash" : "c88928331a5352d5"
+    }
+  ],
+  "cpp/type-with-methods/after" : [
+    {
+      "content" : "class Counter {\npublic:\n    void increment() {\n        ++count;\n    }\n\n    int value() const {\n        return count;\n    }\n\nprivate:\n    int count = 0;\n}",
+      "contentHash" : "8c04b7f196f7b42e",
+      "endLine" : 13,
+      "entityType" : "class",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "1437a2a866b7d010"
+    },
+    {
+      "content" : "void increment() {\n        ++count;\n    }",
+      "contentHash" : "3bc7d3b81fae342f",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::inline.cpp::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.cpp::class::Counter",
+      "startLine" : 3,
+      "structuralHash" : "1400cd826c07ef03"
+    },
+    {
+      "content" : "int value() const {\n        return count;\n    }",
+      "contentHash" : "c459c1f9256e8068",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::inline.cpp::class::Counter::value",
+      "name" : "value",
+      "parentID" : "inline.cpp::class::Counter",
+      "startLine" : 7,
+      "structuralHash" : "f80ce8644f260fee"
+    }
+  ],
+  "cpp/type-with-methods/before" : [
+    {
+      "content" : "class Counter {\npublic:\n    void increment() {\n        ++count;\n    }\n\nprivate:\n    int count = 0;\n}",
+      "contentHash" : "82d484b8caf66ac8",
+      "endLine" : 9,
+      "entityType" : "class",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "6deb099e595cf77a"
+    },
+    {
+      "content" : "void increment() {\n        ++count;\n    }",
+      "contentHash" : "3bc7d3b81fae342f",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::inline.cpp::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.cpp::class::Counter",
+      "startLine" : 3,
+      "structuralHash" : "1400cd826c07ef03"
+    }
+  ],
+  "cpp/whitespace-and-comments/after" : [
+    {
+      "content" : "double area(double width,   double height) {\n    // The area of the rectangle.\n    return width   *   height;\n}",
+      "contentHash" : "0f1897387c9a9e4e",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    }
+  ],
+  "cpp/whitespace-and-comments/before" : [
+    {
+      "content" : "double area(double width, double height) {\n    return width * height;\n}",
+      "contentHash" : "c6b9481bec2b08a1",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.cpp",
+      "id" : "inline.cpp::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c88928331a5352d5"
+    }
+  ],
+  "csharp/function-added/after" : [
+    {
+      "content" : "public class Shapes\n{\n    public static double Area(double width, double height)\n    {\n        return width * height;\n    }\n\n    public static double Perimeter(double width, double height)\n    {\n        return 2 * (width + height);\n    }\n}",
+      "contentHash" : "fe66b4f2a3a6e595",
+      "endLine" : 12,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "fed97a662f77f96c"
+    },
+    {
+      "content" : "public static double Area(double width, double height)\n    {\n        return width * height;\n    }",
+      "contentHash" : "2e152227c68e958c",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Shapes::Area",
+      "name" : "Area",
+      "parentID" : "inline.cs::class::Shapes",
+      "startLine" : 3,
+      "structuralHash" : "270b89ed58e97c8e"
+    },
+    {
+      "content" : "public static double Perimeter(double width, double height)\n    {\n        return 2 * (width + height);\n    }",
+      "contentHash" : "a5bc8b8f3993b3ab",
+      "endLine" : 11,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Shapes::Perimeter",
+      "name" : "Perimeter",
+      "parentID" : "inline.cs::class::Shapes",
+      "startLine" : 8,
+      "structuralHash" : "00fdac6d89ba47f4"
+    }
+  ],
+  "csharp/function-added/before" : [
+    {
+      "content" : "public class Shapes\n{\n    public static double Area(double width, double height)\n    {\n        return width * height;\n    }\n}",
+      "contentHash" : "ca885204588f773a",
+      "endLine" : 7,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "2db517c73cc4fb62"
+    },
+    {
+      "content" : "public static double Area(double width, double height)\n    {\n        return width * height;\n    }",
+      "contentHash" : "2e152227c68e958c",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Shapes::Area",
+      "name" : "Area",
+      "parentID" : "inline.cs::class::Shapes",
+      "startLine" : 3,
+      "structuralHash" : "270b89ed58e97c8e"
+    }
+  ],
+  "csharp/function-deleted/after" : [
+    {
+      "content" : "public class Shapes\n{\n    public static double Area(double width, double height)\n    {\n        return width * height;\n    }\n}",
+      "contentHash" : "ca885204588f773a",
+      "endLine" : 7,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "2db517c73cc4fb62"
+    },
+    {
+      "content" : "public static double Area(double width, double height)\n    {\n        return width * height;\n    }",
+      "contentHash" : "2e152227c68e958c",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Shapes::Area",
+      "name" : "Area",
+      "parentID" : "inline.cs::class::Shapes",
+      "startLine" : 3,
+      "structuralHash" : "270b89ed58e97c8e"
+    }
+  ],
+  "csharp/function-deleted/before" : [
+    {
+      "content" : "public class Shapes\n{\n    public static double Area(double width, double height)\n    {\n        return width * height;\n    }\n\n    public static double Perimeter(double width, double height)\n    {\n        return 2 * (width + height);\n    }\n}",
+      "contentHash" : "fe66b4f2a3a6e595",
+      "endLine" : 12,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "fed97a662f77f96c"
+    },
+    {
+      "content" : "public static double Area(double width, double height)\n    {\n        return width * height;\n    }",
+      "contentHash" : "2e152227c68e958c",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Shapes::Area",
+      "name" : "Area",
+      "parentID" : "inline.cs::class::Shapes",
+      "startLine" : 3,
+      "structuralHash" : "270b89ed58e97c8e"
+    },
+    {
+      "content" : "public static double Perimeter(double width, double height)\n    {\n        return 2 * (width + height);\n    }",
+      "contentHash" : "a5bc8b8f3993b3ab",
+      "endLine" : 11,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Shapes::Perimeter",
+      "name" : "Perimeter",
+      "parentID" : "inline.cs::class::Shapes",
+      "startLine" : 8,
+      "structuralHash" : "00fdac6d89ba47f4"
+    }
+  ],
+  "csharp/function-modified/after" : [
+    {
+      "content" : "public double Area()\n    {\n        return Width * Height / 2;\n    }",
+      "contentHash" : "e5508bea1b3d81e0",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::method::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "4d5dd11ac2dcf560"
+    },
+    {
+      "content" : "public double Perimeter()\n    {\n        return 2 * (Width + Height);\n    }",
+      "contentHash" : "dba420da804fdd51",
+      "endLine" : 11,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::method::Perimeter",
+      "name" : "Perimeter",
+      "startLine" : 8,
+      "structuralHash" : "47aa4d11b83cd53c"
+    }
+  ],
+  "csharp/function-modified/before" : [
+    {
+      "content" : "public double Area()\n    {\n        return Width * Height;\n    }",
+      "contentHash" : "13b06b4267315d6d",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::method::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "1980489eb9bc319a"
+    },
+    {
+      "content" : "public double Perimeter()\n    {\n        return 2 * (Width + Height);\n    }",
+      "contentHash" : "dba420da804fdd51",
+      "endLine" : 11,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::method::Perimeter",
+      "name" : "Perimeter",
+      "startLine" : 8,
+      "structuralHash" : "47aa4d11b83cd53c"
+    }
+  ],
+  "csharp/function-moved/after" : [
+    {
+      "content" : "class Shapes\n{\n    public static double Perimeter(double width, double height)\n    {\n        return 2 * (width + height);\n    }\n}",
+      "contentHash" : "b348b08ea3ed7c78",
+      "endLine" : 7,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "c9daaf30fa36513a"
+    },
+    {
+      "content" : "public static double Perimeter(double width, double height)\n    {\n        return 2 * (width + height);\n    }",
+      "contentHash" : "a5bc8b8f3993b3ab",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Shapes::Perimeter",
+      "name" : "Perimeter",
+      "parentID" : "inline.cs::class::Shapes",
+      "startLine" : 3,
+      "structuralHash" : "00fdac6d89ba47f4"
+    }
+  ],
+  "csharp/function-moved/before" : [
+    {
+      "content" : "class Geometry\n{\n    public static double Area(double width, double height)\n    {\n        return width * height;\n    }\n}",
+      "contentHash" : "55d8d0145f3882e9",
+      "endLine" : 7,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Geometry",
+      "name" : "Geometry",
+      "startLine" : 1,
+      "structuralHash" : "fb24e2a27267e954"
+    },
+    {
+      "content" : "public static double Area(double width, double height)\n    {\n        return width * height;\n    }",
+      "contentHash" : "2e152227c68e958c",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Geometry::Area",
+      "name" : "Area",
+      "parentID" : "inline.cs::class::Geometry",
+      "startLine" : 3,
+      "structuralHash" : "270b89ed58e97c8e"
+    },
+    {
+      "content" : "class Shapes\n{\n    public static double Perimeter(double width, double height)\n    {\n        return 2 * (width + height);\n    }\n}",
+      "contentHash" : "b348b08ea3ed7c78",
+      "endLine" : 15,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 9,
+      "structuralHash" : "c9daaf30fa36513a"
+    },
+    {
+      "content" : "public static double Perimeter(double width, double height)\n    {\n        return 2 * (width + height);\n    }",
+      "contentHash" : "a5bc8b8f3993b3ab",
+      "endLine" : 14,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Shapes::Perimeter",
+      "name" : "Perimeter",
+      "parentID" : "inline.cs::class::Shapes",
+      "startLine" : 11,
+      "structuralHash" : "00fdac6d89ba47f4"
+    }
+  ],
+  "csharp/function-renamed/after" : [
+    {
+      "content" : "public class Orders\n{\n    public static double OrderTotal(double[] prices, double taxRate)\n    {\n        double subtotal = 0.0;\n        foreach (double price in prices)\n        {\n            subtotal += price;\n        }\n        return subtotal + subtotal * taxRate;\n    }\n}",
+      "contentHash" : "a2e226fef075e833",
+      "endLine" : 12,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Orders",
+      "name" : "Orders",
+      "startLine" : 1,
+      "structuralHash" : "43716bf7d15c2ab0"
+    },
+    {
+      "content" : "public static double OrderTotal(double[] prices, double taxRate)\n    {\n        double subtotal = 0.0;\n        foreach (double price in prices)\n        {\n            subtotal += price;\n        }\n        return subtotal + subtotal * taxRate;\n    }",
+      "contentHash" : "6a6704809081fd31",
+      "endLine" : 11,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Orders::OrderTotal",
+      "name" : "OrderTotal",
+      "parentID" : "inline.cs::class::Orders",
+      "startLine" : 3,
+      "structuralHash" : "1418f41e34b51f94"
+    }
+  ],
+  "csharp/function-renamed/before" : [
+    {
+      "content" : "public class Orders\n{\n    public static double TotalPrice(double[] prices, double taxRate)\n    {\n        double subtotal = 0.0;\n        foreach (double price in prices)\n        {\n            subtotal += price;\n        }\n        return subtotal + subtotal * taxRate;\n    }\n}",
+      "contentHash" : "6a18dc58f8698157",
+      "endLine" : 12,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Orders",
+      "name" : "Orders",
+      "startLine" : 1,
+      "structuralHash" : "4b4cc5e0d4efd581"
+    },
+    {
+      "content" : "public static double TotalPrice(double[] prices, double taxRate)\n    {\n        double subtotal = 0.0;\n        foreach (double price in prices)\n        {\n            subtotal += price;\n        }\n        return subtotal + subtotal * taxRate;\n    }",
+      "contentHash" : "4e94fd0ab6e59b74",
+      "endLine" : 11,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Orders::TotalPrice",
+      "name" : "TotalPrice",
+      "parentID" : "inline.cs::class::Orders",
+      "startLine" : 3,
+      "structuralHash" : "bb80ba3df567b2cc"
+    }
+  ],
+  "csharp/property/after" : [
+    {
+      "content" : "public class Account\n{\n    public string Owner { get; set; }\n\n    public decimal Balance { get; private set; }\n}",
+      "contentHash" : "0b3ce70e725634a7",
+      "endLine" : 6,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Account",
+      "name" : "Account",
+      "startLine" : 1,
+      "structuralHash" : "1661cca56014c598"
+    },
+    {
+      "content" : "public string Owner { get; set; }",
+      "contentHash" : "81e7cbf2a5d550e5",
+      "endLine" : 3,
+      "entityType" : "property",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Account::Owner",
+      "name" : "Owner",
+      "parentID" : "inline.cs::class::Account",
+      "startLine" : 3,
+      "structuralHash" : "279b5fcff2745626"
+    },
+    {
+      "content" : "public decimal Balance { get; private set; }",
+      "contentHash" : "b2c9736f7b9455c7",
+      "endLine" : 5,
+      "entityType" : "property",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Account::Balance",
+      "name" : "Balance",
+      "parentID" : "inline.cs::class::Account",
+      "startLine" : 5,
+      "structuralHash" : "c7b767c876e9d628"
+    }
+  ],
+  "csharp/property/before" : [
+    {
+      "content" : "public class Account\n{\n    public string Owner { get; set; }\n}",
+      "contentHash" : "286a7d84571866a3",
+      "endLine" : 4,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Account",
+      "name" : "Account",
+      "startLine" : 1,
+      "structuralHash" : "13871d7e70e53d61"
+    },
+    {
+      "content" : "public string Owner { get; set; }",
+      "contentHash" : "81e7cbf2a5d550e5",
+      "endLine" : 3,
+      "entityType" : "property",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Account::Owner",
+      "name" : "Owner",
+      "parentID" : "inline.cs::class::Account",
+      "startLine" : 3,
+      "structuralHash" : "279b5fcff2745626"
+    }
+  ],
+  "csharp/type-with-methods/after" : [
+    {
+      "content" : "public class Counter\n{\n    private int count;\n\n    public Counter()\n    {\n        count = 0;\n    }\n\n    public void Increment()\n    {\n        count++;\n    }\n\n    public int Value()\n    {\n        return count;\n    }\n}",
+      "contentHash" : "b4ccbb8be7473668",
+      "endLine" : 19,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "dffdea0d4b879936"
+    },
+    {
+      "content" : "public Counter()\n    {\n        count = 0;\n    }",
+      "contentHash" : "66cb5b3f97491aaf",
+      "endLine" : 8,
+      "entityType" : "constructor",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Counter::Counter",
+      "name" : "Counter",
+      "parentID" : "inline.cs::class::Counter",
+      "startLine" : 5,
+      "structuralHash" : "628340c0ead961f6"
+    },
+    {
+      "content" : "public void Increment()\n    {\n        count++;\n    }",
+      "contentHash" : "b3498a522363a450",
+      "endLine" : 13,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Counter::Increment",
+      "name" : "Increment",
+      "parentID" : "inline.cs::class::Counter",
+      "startLine" : 10,
+      "structuralHash" : "33278bb102f56e8d"
+    },
+    {
+      "content" : "public int Value()\n    {\n        return count;\n    }",
+      "contentHash" : "656b09c4e5e4eb3b",
+      "endLine" : 18,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Counter::Value",
+      "name" : "Value",
+      "parentID" : "inline.cs::class::Counter",
+      "startLine" : 15,
+      "structuralHash" : "c717a7f8d3c2df25"
+    }
+  ],
+  "csharp/type-with-methods/before" : [
+    {
+      "content" : "public class Counter\n{\n    private int count;\n\n    public Counter()\n    {\n        count = 0;\n    }\n\n    public void Increment()\n    {\n        count++;\n    }\n}",
+      "contentHash" : "b32e540062f5bdec",
+      "endLine" : 14,
+      "entityType" : "class",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "82764a7e2b4ac77f"
+    },
+    {
+      "content" : "public Counter()\n    {\n        count = 0;\n    }",
+      "contentHash" : "66cb5b3f97491aaf",
+      "endLine" : 8,
+      "entityType" : "constructor",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Counter::Counter",
+      "name" : "Counter",
+      "parentID" : "inline.cs::class::Counter",
+      "startLine" : 5,
+      "structuralHash" : "628340c0ead961f6"
+    },
+    {
+      "content" : "public void Increment()\n    {\n        count++;\n    }",
+      "contentHash" : "b3498a522363a450",
+      "endLine" : 13,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::inline.cs::class::Counter::Increment",
+      "name" : "Increment",
+      "parentID" : "inline.cs::class::Counter",
+      "startLine" : 10,
+      "structuralHash" : "33278bb102f56e8d"
+    }
+  ],
+  "csharp/whitespace-and-comments/after" : [
+    {
+      "content" : "public double Area()\n    {\n        // The area of the rectangle.\n        return Width   *   Height;\n    }",
+      "contentHash" : "3b9c57017455ac96",
+      "endLine" : 7,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::method::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "1980489eb9bc319a"
+    }
+  ],
+  "csharp/whitespace-and-comments/before" : [
+    {
+      "content" : "public double Area()\n    {\n        return Width * Height;\n    }",
+      "contentHash" : "13b06b4267315d6d",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.cs",
+      "id" : "inline.cs::method::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "1980489eb9bc319a"
+    }
+  ],
+  "elixir/function-added/after" : [
+    {
+      "content" : "defmodule Shapes do\n  def area(width, height) do\n    width * height\n  end\n\n  def perimeter(width, height) do\n    2 * (width + height)\n  end\nend",
+      "contentHash" : "12495805b6333dce",
+      "endLine" : 9,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "bccfe11bea5bf122"
+    },
+    {
+      "content" : "def area(width, height) do\n    width * height\n  end",
+      "contentHash" : "1211b421ac1968bb",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Shapes::area",
+      "name" : "area",
+      "parentID" : "inline.ex::module::Shapes",
+      "startLine" : 2,
+      "structuralHash" : "52bc461a52d4da2e"
+    },
+    {
+      "content" : "def perimeter(width, height) do\n    2 * (width + height)\n  end",
+      "contentHash" : "cabf253ab3dcae95",
+      "endLine" : 8,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Shapes::perimeter",
+      "name" : "perimeter",
+      "parentID" : "inline.ex::module::Shapes",
+      "startLine" : 6,
+      "structuralHash" : "375c52cf8c86c5a3"
+    }
+  ],
+  "elixir/function-added/before" : [
+    {
+      "content" : "defmodule Shapes do\n  def area(width, height) do\n    width * height\n  end\nend",
+      "contentHash" : "cfc4b106b26de2d6",
+      "endLine" : 5,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "34031cdbaaba6929"
+    },
+    {
+      "content" : "def area(width, height) do\n    width * height\n  end",
+      "contentHash" : "1211b421ac1968bb",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Shapes::area",
+      "name" : "area",
+      "parentID" : "inline.ex::module::Shapes",
+      "startLine" : 2,
+      "structuralHash" : "52bc461a52d4da2e"
+    }
+  ],
+  "elixir/function-deleted/after" : [
+    {
+      "content" : "defmodule Shapes do\n  def area(width, height) do\n    width * height\n  end\nend",
+      "contentHash" : "cfc4b106b26de2d6",
+      "endLine" : 5,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "34031cdbaaba6929"
+    },
+    {
+      "content" : "def area(width, height) do\n    width * height\n  end",
+      "contentHash" : "1211b421ac1968bb",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Shapes::area",
+      "name" : "area",
+      "parentID" : "inline.ex::module::Shapes",
+      "startLine" : 2,
+      "structuralHash" : "52bc461a52d4da2e"
+    }
+  ],
+  "elixir/function-deleted/before" : [
+    {
+      "content" : "defmodule Shapes do\n  def area(width, height) do\n    width * height\n  end\n\n  def perimeter(width, height) do\n    2 * (width + height)\n  end\nend",
+      "contentHash" : "12495805b6333dce",
+      "endLine" : 9,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "bccfe11bea5bf122"
+    },
+    {
+      "content" : "def area(width, height) do\n    width * height\n  end",
+      "contentHash" : "1211b421ac1968bb",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Shapes::area",
+      "name" : "area",
+      "parentID" : "inline.ex::module::Shapes",
+      "startLine" : 2,
+      "structuralHash" : "52bc461a52d4da2e"
+    },
+    {
+      "content" : "def perimeter(width, height) do\n    2 * (width + height)\n  end",
+      "contentHash" : "cabf253ab3dcae95",
+      "endLine" : 8,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Shapes::perimeter",
+      "name" : "perimeter",
+      "parentID" : "inline.ex::module::Shapes",
+      "startLine" : 6,
+      "structuralHash" : "375c52cf8c86c5a3"
+    }
+  ],
+  "elixir/function-modified/after" : [
+    {
+      "content" : "def area(width, height) do\n      width * height / 2\n    end",
+      "contentHash" : "8e8751deb7b25a2e",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "b71b69f0d419aa9b"
+    },
+    {
+      "content" : "def perimeter(width, height) do\n      2 * (width + height)\n    end",
+      "contentHash" : "c2d1d9c6bd9456b2",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "375c52cf8c86c5a3"
+    }
+  ],
+  "elixir/function-modified/before" : [
+    {
+      "content" : "def area(width, height) do\n      width * height\n    end",
+      "contentHash" : "83d8423ebef1d390",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "52bc461a52d4da2e"
+    },
+    {
+      "content" : "def perimeter(width, height) do\n      2 * (width + height)\n    end",
+      "contentHash" : "c2d1d9c6bd9456b2",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "375c52cf8c86c5a3"
+    }
+  ],
+  "elixir/function-moved/after" : [
+    {
+      "content" : "defmodule Shapes do\n  def perimeter(width, height) do\n    2 * (width + height)\n  end\nend",
+      "contentHash" : "e7023e5aa271d0df",
+      "endLine" : 5,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "fd72862215ad5520"
+    },
+    {
+      "content" : "def perimeter(width, height) do\n    2 * (width + height)\n  end",
+      "contentHash" : "cabf253ab3dcae95",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Shapes::perimeter",
+      "name" : "perimeter",
+      "parentID" : "inline.ex::module::Shapes",
+      "startLine" : 2,
+      "structuralHash" : "375c52cf8c86c5a3"
+    }
+  ],
+  "elixir/function-moved/before" : [
+    {
+      "content" : "defmodule Geometry do\n  def area(width, height) do\n    width * height\n  end\nend",
+      "contentHash" : "531cf6a3965050e4",
+      "endLine" : 5,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Geometry",
+      "name" : "Geometry",
+      "startLine" : 1,
+      "structuralHash" : "c8ca68766c398840"
+    },
+    {
+      "content" : "def area(width, height) do\n    width * height\n  end",
+      "contentHash" : "1211b421ac1968bb",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Geometry::area",
+      "name" : "area",
+      "parentID" : "inline.ex::module::Geometry",
+      "startLine" : 2,
+      "structuralHash" : "52bc461a52d4da2e"
+    },
+    {
+      "content" : "defmodule Shapes do\n  def perimeter(width, height) do\n    2 * (width + height)\n  end\nend",
+      "contentHash" : "e7023e5aa271d0df",
+      "endLine" : 11,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Shapes",
+      "name" : "Shapes",
+      "startLine" : 7,
+      "structuralHash" : "fd72862215ad5520"
+    },
+    {
+      "content" : "def perimeter(width, height) do\n    2 * (width + height)\n  end",
+      "contentHash" : "cabf253ab3dcae95",
+      "endLine" : 10,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Shapes::perimeter",
+      "name" : "perimeter",
+      "parentID" : "inline.ex::module::Shapes",
+      "startLine" : 8,
+      "structuralHash" : "375c52cf8c86c5a3"
+    }
+  ],
+  "elixir/function-renamed/after" : [
+    {
+      "content" : "defmodule Orders do\n  def order_total(prices, tax_rate) do\n    subtotal = Enum.sum(prices)\n    subtotal + subtotal * tax_rate\n  end\nend",
+      "contentHash" : "f35cac7cdc9b6a13",
+      "endLine" : 6,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Orders",
+      "name" : "Orders",
+      "startLine" : 1,
+      "structuralHash" : "5f1a93c5f9e0962f"
+    },
+    {
+      "content" : "def order_total(prices, tax_rate) do\n    subtotal = Enum.sum(prices)\n    subtotal + subtotal * tax_rate\n  end",
+      "contentHash" : "5afb28acec698949",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Orders::order_total",
+      "name" : "order_total",
+      "parentID" : "inline.ex::module::Orders",
+      "startLine" : 2,
+      "structuralHash" : "3f87af32c8858e89"
+    }
+  ],
+  "elixir/function-renamed/before" : [
+    {
+      "content" : "defmodule Orders do\n  def total_price(prices, tax_rate) do\n    subtotal = Enum.sum(prices)\n    subtotal + subtotal * tax_rate\n  end\nend",
+      "contentHash" : "8491513879826ddd",
+      "endLine" : 6,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Orders",
+      "name" : "Orders",
+      "startLine" : 1,
+      "structuralHash" : "3dfb2e44a17ca059"
+    },
+    {
+      "content" : "def total_price(prices, tax_rate) do\n    subtotal = Enum.sum(prices)\n    subtotal + subtotal * tax_rate\n  end",
+      "contentHash" : "f4a7de084e5ab018",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Orders::total_price",
+      "name" : "total_price",
+      "parentID" : "inline.ex::module::Orders",
+      "startLine" : 2,
+      "structuralHash" : "f4cdf1e1dda6147c"
+    }
+  ],
+  "elixir/private-function/after" : [
+    {
+      "content" : "defmodule Greeter do\n  def greet(name) do\n    salutation() <> \", \" <> name\n  end\n\n  defp salutation do\n    \"Hello\"\n  end\n\n  defp farewell do\n    \"Goodbye\"\n  end\nend",
+      "contentHash" : "4b250b37b0df372b",
+      "endLine" : 13,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Greeter",
+      "name" : "Greeter",
+      "startLine" : 1,
+      "structuralHash" : "027c27e13b8e0885"
+    },
+    {
+      "content" : "def greet(name) do\n    salutation() <> \", \" <> name\n  end",
+      "contentHash" : "ce1170a894a19d9c",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Greeter::greet",
+      "name" : "greet",
+      "parentID" : "inline.ex::module::Greeter",
+      "startLine" : 2,
+      "structuralHash" : "b0d9bccef748ac46"
+    },
+    {
+      "content" : "defp salutation do\n    \"Hello\"\n  end",
+      "contentHash" : "11b66a3a8f03e8c2",
+      "endLine" : 8,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Greeter::salutation",
+      "name" : "salutation",
+      "parentID" : "inline.ex::module::Greeter",
+      "startLine" : 6,
+      "structuralHash" : "032d6b7c5765e388"
+    },
+    {
+      "content" : "defp farewell do\n    \"Goodbye\"\n  end",
+      "contentHash" : "d020ebc6df73fedb",
+      "endLine" : 12,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Greeter::farewell",
+      "name" : "farewell",
+      "parentID" : "inline.ex::module::Greeter",
+      "startLine" : 10,
+      "structuralHash" : "8ff93b1720bfd4df"
+    }
+  ],
+  "elixir/private-function/before" : [
+    {
+      "content" : "defmodule Greeter do\n  def greet(name) do\n    salutation() <> \", \" <> name\n  end\n\n  defp salutation do\n    \"Hello\"\n  end\nend",
+      "contentHash" : "749bede522ec2315",
+      "endLine" : 9,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Greeter",
+      "name" : "Greeter",
+      "startLine" : 1,
+      "structuralHash" : "d4facf3092c19d1a"
+    },
+    {
+      "content" : "def greet(name) do\n    salutation() <> \", \" <> name\n  end",
+      "contentHash" : "ce1170a894a19d9c",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Greeter::greet",
+      "name" : "greet",
+      "parentID" : "inline.ex::module::Greeter",
+      "startLine" : 2,
+      "structuralHash" : "b0d9bccef748ac46"
+    },
+    {
+      "content" : "defp salutation do\n    \"Hello\"\n  end",
+      "contentHash" : "11b66a3a8f03e8c2",
+      "endLine" : 8,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Greeter::salutation",
+      "name" : "salutation",
+      "parentID" : "inline.ex::module::Greeter",
+      "startLine" : 6,
+      "structuralHash" : "032d6b7c5765e388"
+    }
+  ],
+  "elixir/type-with-methods/after" : [
+    {
+      "content" : "defmodule Counter do\n  defstruct count: 0\n\n  def increment(%Counter{count: count} = counter) do\n    %Counter{counter | count: count + 1}\n  end\n\n  def value(%Counter{count: count}), do: count\nend",
+      "contentHash" : "c39b3421c98b91b2",
+      "endLine" : 9,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "4337f99b2f5713b9"
+    },
+    {
+      "content" : "defstruct count: 0",
+      "contentHash" : "51cff153a5396f65",
+      "endLine" : 2,
+      "entityType" : "struct",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Counter::__struct__",
+      "name" : "__struct__",
+      "parentID" : "inline.ex::module::Counter",
+      "startLine" : 2,
+      "structuralHash" : "607e6438f3561d15"
+    },
+    {
+      "content" : "def increment(%Counter{count: count} = counter) do\n    %Counter{counter | count: count + 1}\n  end",
+      "contentHash" : "93c9133b8fe2ddea",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.ex::module::Counter",
+      "startLine" : 4,
+      "structuralHash" : "bf65d92b4a176402"
+    },
+    {
+      "content" : "def value(%Counter{count: count}), do: count",
+      "contentHash" : "c4045889ede32da7",
+      "endLine" : 8,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Counter::value",
+      "name" : "value",
+      "parentID" : "inline.ex::module::Counter",
+      "startLine" : 8,
+      "structuralHash" : "dfe07ef2a4b737e3"
+    }
+  ],
+  "elixir/type-with-methods/before" : [
+    {
+      "content" : "defmodule Counter do\n  defstruct count: 0\n\n  def increment(%Counter{count: count} = counter) do\n    %Counter{counter | count: count + 1}\n  end\nend",
+      "contentHash" : "680cf039a20de14a",
+      "endLine" : 7,
+      "entityType" : "module",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::module::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "00b8a71ebb91c93f"
+    },
+    {
+      "content" : "defstruct count: 0",
+      "contentHash" : "51cff153a5396f65",
+      "endLine" : 2,
+      "entityType" : "struct",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Counter::__struct__",
+      "name" : "__struct__",
+      "parentID" : "inline.ex::module::Counter",
+      "startLine" : 2,
+      "structuralHash" : "607e6438f3561d15"
+    },
+    {
+      "content" : "def increment(%Counter{count: count} = counter) do\n    %Counter{counter | count: count + 1}\n  end",
+      "contentHash" : "93c9133b8fe2ddea",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::inline.ex::module::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.ex::module::Counter",
+      "startLine" : 4,
+      "structuralHash" : "bf65d92b4a176402"
+    }
+  ],
+  "elixir/whitespace-and-comments/after" : [
+    {
+      "content" : "def area(width,   height) do\n      # The area of the rectangle.\n      width   *   height\n    end",
+      "contentHash" : "e6e76e89ede947d4",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "52bc461a52d4da2e"
+    }
+  ],
+  "elixir/whitespace-and-comments/before" : [
+    {
+      "content" : "def area(width, height) do\n      width * height\n    end",
+      "contentHash" : "83d8423ebef1d390",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.ex",
+      "id" : "inline.ex::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "52bc461a52d4da2e"
+    }
+  ],
+  "go/function-added/after" : [
+    {
+      "content" : "func Area(width, height float64) float64 {\n\treturn width * height\n}",
+      "contentHash" : "06aecc7a1cae0b19",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "f29293be090ccc0a"
+    },
+    {
+      "content" : "func Perimeter(width, height float64) float64 {\n\treturn 2 * (width + height)\n}",
+      "contentHash" : "b81f8c08528e1430",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Perimeter",
+      "name" : "Perimeter",
+      "startLine" : 7,
+      "structuralHash" : "6786705ac6cc24d5"
+    }
+  ],
+  "go/function-added/before" : [
+    {
+      "content" : "func Area(width, height float64) float64 {\n\treturn width * height\n}",
+      "contentHash" : "06aecc7a1cae0b19",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "f29293be090ccc0a"
+    }
+  ],
+  "go/function-deleted/after" : [
+    {
+      "content" : "func Area(width, height float64) float64 {\n\treturn width * height\n}",
+      "contentHash" : "06aecc7a1cae0b19",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "f29293be090ccc0a"
+    }
+  ],
+  "go/function-deleted/before" : [
+    {
+      "content" : "func Area(width, height float64) float64 {\n\treturn width * height\n}",
+      "contentHash" : "06aecc7a1cae0b19",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "f29293be090ccc0a"
+    },
+    {
+      "content" : "func Perimeter(width, height float64) float64 {\n\treturn 2 * (width + height)\n}",
+      "contentHash" : "b81f8c08528e1430",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Perimeter",
+      "name" : "Perimeter",
+      "startLine" : 7,
+      "structuralHash" : "6786705ac6cc24d5"
+    }
+  ],
+  "go/function-modified/after" : [
+    {
+      "content" : "func Area(width, height float64) float64 {\n\treturn width * height / 2\n}",
+      "contentHash" : "cafbc5844e9b8345",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "edc43032a976351a"
+    },
+    {
+      "content" : "func Perimeter(width, height float64) float64 {\n\treturn 2 * (width + height)\n}",
+      "contentHash" : "b81f8c08528e1430",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Perimeter",
+      "name" : "Perimeter",
+      "startLine" : 7,
+      "structuralHash" : "6786705ac6cc24d5"
+    }
+  ],
+  "go/function-modified/before" : [
+    {
+      "content" : "func Area(width, height float64) float64 {\n\treturn width * height\n}",
+      "contentHash" : "06aecc7a1cae0b19",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "f29293be090ccc0a"
+    },
+    {
+      "content" : "func Perimeter(width, height float64) float64 {\n\treturn 2 * (width + height)\n}",
+      "contentHash" : "b81f8c08528e1430",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Perimeter",
+      "name" : "Perimeter",
+      "startLine" : 7,
+      "structuralHash" : "6786705ac6cc24d5"
+    }
+  ],
+  "go/function-moved/after" : [
+    {
+      "content" : "func Perimeter(width, height float64) float64 {\n\treturn 2 * (width + height)\n}",
+      "contentHash" : "b81f8c08528e1430",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Perimeter",
+      "name" : "Perimeter",
+      "startLine" : 3,
+      "structuralHash" : "6786705ac6cc24d5"
+    }
+  ],
+  "go/function-moved/before" : [
+    {
+      "content" : "func Area(width, height float64) float64 {\n\treturn width * height\n}",
+      "contentHash" : "06aecc7a1cae0b19",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "f29293be090ccc0a"
+    },
+    {
+      "content" : "func Perimeter(width, height float64) float64 {\n\treturn 2 * (width + height)\n}",
+      "contentHash" : "b81f8c08528e1430",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Perimeter",
+      "name" : "Perimeter",
+      "startLine" : 7,
+      "structuralHash" : "6786705ac6cc24d5"
+    }
+  ],
+  "go/function-renamed/after" : [
+    {
+      "content" : "func OrderTotal(items []Item, taxRate float64) float64 {\n\tsubtotal := 0.0\n\tfor _, item := range items {\n\t\tsubtotal += item.Price\n\t}\n\treturn subtotal + subtotal*taxRate\n}",
+      "contentHash" : "2288f693767a815d",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::OrderTotal",
+      "name" : "OrderTotal",
+      "startLine" : 3,
+      "structuralHash" : "f7b11076ff8fd958"
+    }
+  ],
+  "go/function-renamed/before" : [
+    {
+      "content" : "func TotalPrice(items []Item, taxRate float64) float64 {\n\tsubtotal := 0.0\n\tfor _, item := range items {\n\t\tsubtotal += item.Price\n\t}\n\treturn subtotal + subtotal*taxRate\n}",
+      "contentHash" : "090e639161cbb91e",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::TotalPrice",
+      "name" : "TotalPrice",
+      "startLine" : 3,
+      "structuralHash" : "02dff3e5ebb08f77"
+    }
+  ],
+  "go/type-with-methods/after" : [
+    {
+      "content" : "func NewCounter() *Counter {\n\treturn &Counter{}\n}",
+      "contentHash" : "d9ff48756fe55f5a",
+      "endLine" : 10,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::NewCounter",
+      "name" : "NewCounter",
+      "startLine" : 8,
+      "structuralHash" : "1144f7c69d12b2b3"
+    },
+    {
+      "content" : "func (c *Counter) Increment() {\n\tc.count++\n}",
+      "contentHash" : "a3dc1f14f9f9a224",
+      "endLine" : 14,
+      "entityType" : "method",
+      "filePath" : "inline.go",
+      "id" : "inline.go::method::Increment",
+      "name" : "Increment",
+      "startLine" : 12,
+      "structuralHash" : "4b90dec91892f5b7"
+    },
+    {
+      "content" : "func (c *Counter) Value() int {\n\treturn c.count\n}",
+      "contentHash" : "cea8ff2bced2364d",
+      "endLine" : 18,
+      "entityType" : "method",
+      "filePath" : "inline.go",
+      "id" : "inline.go::method::Value",
+      "name" : "Value",
+      "startLine" : 16,
+      "structuralHash" : "306ba1a51200ed24"
+    }
+  ],
+  "go/type-with-methods/before" : [
+    {
+      "content" : "func NewCounter() *Counter {\n\treturn &Counter{}\n}",
+      "contentHash" : "d9ff48756fe55f5a",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::NewCounter",
+      "name" : "NewCounter",
+      "startLine" : 7,
+      "structuralHash" : "1144f7c69d12b2b3"
+    },
+    {
+      "content" : "func (c *Counter) Increment() {\n\tc.count++\n}",
+      "contentHash" : "a3dc1f14f9f9a224",
+      "endLine" : 13,
+      "entityType" : "method",
+      "filePath" : "inline.go",
+      "id" : "inline.go::method::Increment",
+      "name" : "Increment",
+      "startLine" : 11,
+      "structuralHash" : "4b90dec91892f5b7"
+    }
+  ],
+  "go/whitespace-and-comments/after" : [
+    {
+      "content" : "func Area(width,   height float64) float64 {\n\t// The area of the rectangle.\n\treturn width   *   height\n}",
+      "contentHash" : "a24cb38f4e84ac08",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "f29293be090ccc0a"
+    }
+  ],
+  "go/whitespace-and-comments/before" : [
+    {
+      "content" : "func Area(width, height float64) float64 {\n\treturn width * height\n}",
+      "contentHash" : "06aecc7a1cae0b19",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.go",
+      "id" : "inline.go::function::Area",
+      "name" : "Area",
+      "startLine" : 3,
+      "structuralHash" : "f29293be090ccc0a"
+    }
+  ],
+  "java/function-added/after" : [
+    {
+      "content" : "public class Shapes {\n    public static double area(double width, double height) {\n        return width * height;\n    }\n\n    public static double perimeter(double width, double height) {\n        return 2 * (width + height);\n    }\n}",
+      "contentHash" : "06e3a08165b3cd1c",
+      "endLine" : 9,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "16d7a27644a77b4c"
+    },
+    {
+      "content" : "public static double area(double width, double height) {\n        return width * height;\n    }",
+      "contentHash" : "6c3f121a59cc3340",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Shapes::area",
+      "name" : "area",
+      "parentID" : "inline.java::class::Shapes",
+      "startLine" : 2,
+      "structuralHash" : "face0e7ff3e3627e"
+    },
+    {
+      "content" : "public static double perimeter(double width, double height) {\n        return 2 * (width + height);\n    }",
+      "contentHash" : "3715dc2db6ac3d19",
+      "endLine" : 8,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Shapes::perimeter",
+      "name" : "perimeter",
+      "parentID" : "inline.java::class::Shapes",
+      "startLine" : 6,
+      "structuralHash" : "8c7437a392f44dcf"
+    }
+  ],
+  "java/function-added/before" : [
+    {
+      "content" : "public class Shapes {\n    public static double area(double width, double height) {\n        return width * height;\n    }\n}",
+      "contentHash" : "5f65c36cf93657c0",
+      "endLine" : 5,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "4106c7de8f945fbc"
+    },
+    {
+      "content" : "public static double area(double width, double height) {\n        return width * height;\n    }",
+      "contentHash" : "6c3f121a59cc3340",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Shapes::area",
+      "name" : "area",
+      "parentID" : "inline.java::class::Shapes",
+      "startLine" : 2,
+      "structuralHash" : "face0e7ff3e3627e"
+    }
+  ],
+  "java/function-deleted/after" : [
+    {
+      "content" : "public class Shapes {\n    public static double area(double width, double height) {\n        return width * height;\n    }\n}",
+      "contentHash" : "5f65c36cf93657c0",
+      "endLine" : 5,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "4106c7de8f945fbc"
+    },
+    {
+      "content" : "public static double area(double width, double height) {\n        return width * height;\n    }",
+      "contentHash" : "6c3f121a59cc3340",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Shapes::area",
+      "name" : "area",
+      "parentID" : "inline.java::class::Shapes",
+      "startLine" : 2,
+      "structuralHash" : "face0e7ff3e3627e"
+    }
+  ],
+  "java/function-deleted/before" : [
+    {
+      "content" : "public class Shapes {\n    public static double area(double width, double height) {\n        return width * height;\n    }\n\n    public static double perimeter(double width, double height) {\n        return 2 * (width + height);\n    }\n}",
+      "contentHash" : "06e3a08165b3cd1c",
+      "endLine" : 9,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "16d7a27644a77b4c"
+    },
+    {
+      "content" : "public static double area(double width, double height) {\n        return width * height;\n    }",
+      "contentHash" : "6c3f121a59cc3340",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Shapes::area",
+      "name" : "area",
+      "parentID" : "inline.java::class::Shapes",
+      "startLine" : 2,
+      "structuralHash" : "face0e7ff3e3627e"
+    },
+    {
+      "content" : "public static double perimeter(double width, double height) {\n        return 2 * (width + height);\n    }",
+      "contentHash" : "3715dc2db6ac3d19",
+      "endLine" : 8,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Shapes::perimeter",
+      "name" : "perimeter",
+      "parentID" : "inline.java::class::Shapes",
+      "startLine" : 6,
+      "structuralHash" : "8c7437a392f44dcf"
+    }
+  ],
+  "java/function-modified/after" : [
+    {
+      "content" : "public double area() {\n        return width * height / 2;\n    }",
+      "contentHash" : "ee01beb793fa6c4d",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::method::area",
+      "name" : "area",
+      "startLine" : 2,
+      "structuralHash" : "010b4618bacfcb67"
+    },
+    {
+      "content" : "public double perimeter() {\n        return 2 * (width + height);\n    }",
+      "contentHash" : "b87d213d8bd7e305",
+      "endLine" : 8,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::method::perimeter",
+      "name" : "perimeter",
+      "startLine" : 6,
+      "structuralHash" : "0ede4e05a28337a3"
+    }
+  ],
+  "java/function-modified/before" : [
+    {
+      "content" : "public double area() {\n        return width * height;\n    }",
+      "contentHash" : "0b86522b972cda1e",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::method::area",
+      "name" : "area",
+      "startLine" : 2,
+      "structuralHash" : "ce4d63b2106ba3fc"
+    },
+    {
+      "content" : "public double perimeter() {\n        return 2 * (width + height);\n    }",
+      "contentHash" : "b87d213d8bd7e305",
+      "endLine" : 8,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::method::perimeter",
+      "name" : "perimeter",
+      "startLine" : 6,
+      "structuralHash" : "0ede4e05a28337a3"
+    }
+  ],
+  "java/function-moved/after" : [
+    {
+      "content" : "class Shapes {\n    public static double perimeter(double width, double height) {\n        return 2 * (width + height);\n    }\n}",
+      "contentHash" : "b1ae1c34d3cd679d",
+      "endLine" : 5,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 1,
+      "structuralHash" : "79ec3dcf8bc2a73a"
+    },
+    {
+      "content" : "public static double perimeter(double width, double height) {\n        return 2 * (width + height);\n    }",
+      "contentHash" : "3715dc2db6ac3d19",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Shapes::perimeter",
+      "name" : "perimeter",
+      "parentID" : "inline.java::class::Shapes",
+      "startLine" : 2,
+      "structuralHash" : "8c7437a392f44dcf"
+    }
+  ],
+  "java/function-moved/before" : [
+    {
+      "content" : "class Geometry {\n    public static double area(double width, double height) {\n        return width * height;\n    }\n}",
+      "contentHash" : "069c31e27b6154da",
+      "endLine" : 5,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Geometry",
+      "name" : "Geometry",
+      "startLine" : 1,
+      "structuralHash" : "5034909874409c3d"
+    },
+    {
+      "content" : "public static double area(double width, double height) {\n        return width * height;\n    }",
+      "contentHash" : "6c3f121a59cc3340",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Geometry::area",
+      "name" : "area",
+      "parentID" : "inline.java::class::Geometry",
+      "startLine" : 2,
+      "structuralHash" : "face0e7ff3e3627e"
+    },
+    {
+      "content" : "class Shapes {\n    public static double perimeter(double width, double height) {\n        return 2 * (width + height);\n    }\n}",
+      "contentHash" : "b1ae1c34d3cd679d",
+      "endLine" : 11,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Shapes",
+      "name" : "Shapes",
+      "startLine" : 7,
+      "structuralHash" : "79ec3dcf8bc2a73a"
+    },
+    {
+      "content" : "public static double perimeter(double width, double height) {\n        return 2 * (width + height);\n    }",
+      "contentHash" : "3715dc2db6ac3d19",
+      "endLine" : 10,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Shapes::perimeter",
+      "name" : "perimeter",
+      "parentID" : "inline.java::class::Shapes",
+      "startLine" : 8,
+      "structuralHash" : "8c7437a392f44dcf"
+    }
+  ],
+  "java/function-renamed/after" : [
+    {
+      "content" : "public class Orders {\n    public static double orderTotal(double[] prices, double taxRate) {\n        double subtotal = 0.0;\n        for (double price : prices) {\n            subtotal += price;\n        }\n        return subtotal + subtotal * taxRate;\n    }\n}",
+      "contentHash" : "761fcdcfaa6a2791",
+      "endLine" : 9,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Orders",
+      "name" : "Orders",
+      "startLine" : 1,
+      "structuralHash" : "fbd18c89870570c0"
+    },
+    {
+      "content" : "public static double orderTotal(double[] prices, double taxRate) {\n        double subtotal = 0.0;\n        for (double price : prices) {\n            subtotal += price;\n        }\n        return subtotal + subtotal * taxRate;\n    }",
+      "contentHash" : "b1b09470b90bb9e4",
+      "endLine" : 8,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Orders::orderTotal",
+      "name" : "orderTotal",
+      "parentID" : "inline.java::class::Orders",
+      "startLine" : 2,
+      "structuralHash" : "d7da77e148470489"
+    }
+  ],
+  "java/function-renamed/before" : [
+    {
+      "content" : "public class Orders {\n    public static double totalPrice(double[] prices, double taxRate) {\n        double subtotal = 0.0;\n        for (double price : prices) {\n            subtotal += price;\n        }\n        return subtotal + subtotal * taxRate;\n    }\n}",
+      "contentHash" : "41acbb474f19d2c1",
+      "endLine" : 9,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Orders",
+      "name" : "Orders",
+      "startLine" : 1,
+      "structuralHash" : "a1d8a32ebef47d39"
+    },
+    {
+      "content" : "public static double totalPrice(double[] prices, double taxRate) {\n        double subtotal = 0.0;\n        for (double price : prices) {\n            subtotal += price;\n        }\n        return subtotal + subtotal * taxRate;\n    }",
+      "contentHash" : "d8a47b4662f15637",
+      "endLine" : 8,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Orders::totalPrice",
+      "name" : "totalPrice",
+      "parentID" : "inline.java::class::Orders",
+      "startLine" : 2,
+      "structuralHash" : "26fb98b36a61ce29"
+    }
+  ],
+  "java/type-with-methods/after" : [
+    {
+      "content" : "public class Counter {\n    private int count;\n\n    public Counter() {\n        this.count = 0;\n    }\n\n    public void increment() {\n        count++;\n    }\n\n    public int value() {\n        return count;\n    }\n}",
+      "contentHash" : "4b4a68da9fd45894",
+      "endLine" : 15,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "6aedca27035c6e5d"
+    },
+    {
+      "content" : "public Counter() {\n        this.count = 0;\n    }",
+      "contentHash" : "a81ec3b265cff2f4",
+      "endLine" : 6,
+      "entityType" : "constructor",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Counter::Counter",
+      "name" : "Counter",
+      "parentID" : "inline.java::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "954e7bbd1b046bcb"
+    },
+    {
+      "content" : "public void increment() {\n        count++;\n    }",
+      "contentHash" : "8c71694e5a754813",
+      "endLine" : 10,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.java::class::Counter",
+      "startLine" : 8,
+      "structuralHash" : "d0775028e6b6c4e7"
+    },
+    {
+      "content" : "public int value() {\n        return count;\n    }",
+      "contentHash" : "78f4331706d37be9",
+      "endLine" : 14,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Counter::value",
+      "name" : "value",
+      "parentID" : "inline.java::class::Counter",
+      "startLine" : 12,
+      "structuralHash" : "a3856daca40b9d51"
+    }
+  ],
+  "java/type-with-methods/before" : [
+    {
+      "content" : "public class Counter {\n    private int count;\n\n    public Counter() {\n        this.count = 0;\n    }\n\n    public void increment() {\n        count++;\n    }\n}",
+      "contentHash" : "2c77209c9eb5ee5f",
+      "endLine" : 11,
+      "entityType" : "class",
+      "filePath" : "inline.java",
+      "id" : "inline.java::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "3de4c616117ae91d"
+    },
+    {
+      "content" : "public Counter() {\n        this.count = 0;\n    }",
+      "contentHash" : "a81ec3b265cff2f4",
+      "endLine" : 6,
+      "entityType" : "constructor",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Counter::Counter",
+      "name" : "Counter",
+      "parentID" : "inline.java::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "954e7bbd1b046bcb"
+    },
+    {
+      "content" : "public void increment() {\n        count++;\n    }",
+      "contentHash" : "8c71694e5a754813",
+      "endLine" : 10,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::inline.java::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.java::class::Counter",
+      "startLine" : 8,
+      "structuralHash" : "d0775028e6b6c4e7"
+    }
+  ],
+  "java/whitespace-and-comments/after" : [
+    {
+      "content" : "public double area() {\n        // The area of the rectangle.\n        return width   *   height;\n    }",
+      "contentHash" : "91636b199f39186e",
+      "endLine" : 5,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::method::area",
+      "name" : "area",
+      "startLine" : 2,
+      "structuralHash" : "ce4d63b2106ba3fc"
+    }
+  ],
+  "java/whitespace-and-comments/before" : [
+    {
+      "content" : "public double area() {\n        return width * height;\n    }",
+      "contentHash" : "0b86522b972cda1e",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.java",
+      "id" : "inline.java::method::area",
+      "name" : "area",
+      "startLine" : 2,
+      "structuralHash" : "ce4d63b2106ba3fc"
+    }
+  ],
+  "javascript/function-added/after" : [
+    {
+      "content" : "function area(width, height) {\n  return width * height;\n}",
+      "contentHash" : "c3f860ac63da924c",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "5404821955a187cb"
+    },
+    {
+      "content" : "function perimeter(width, height) {\n  return 2 * (width + height);\n}",
+      "contentHash" : "d244bcc7fb3ca3f5",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "01fb43969a2d0048"
+    }
+  ],
+  "javascript/function-added/before" : [
+    {
+      "content" : "function area(width, height) {\n  return width * height;\n}",
+      "contentHash" : "c3f860ac63da924c",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "5404821955a187cb"
+    }
+  ],
+  "javascript/function-deleted/after" : [
+    {
+      "content" : "function area(width, height) {\n  return width * height;\n}",
+      "contentHash" : "c3f860ac63da924c",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "5404821955a187cb"
+    }
+  ],
+  "javascript/function-deleted/before" : [
+    {
+      "content" : "function area(width, height) {\n  return width * height;\n}",
+      "contentHash" : "c3f860ac63da924c",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "5404821955a187cb"
+    },
+    {
+      "content" : "function perimeter(width, height) {\n  return 2 * (width + height);\n}",
+      "contentHash" : "d244bcc7fb3ca3f5",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "01fb43969a2d0048"
+    }
+  ],
+  "javascript/function-modified/after" : [
+    {
+      "content" : "function area(width, height) {\n  return width * height / 2;\n}",
+      "contentHash" : "6123dac0a229f2c6",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "dd622b2362f24ba1"
+    },
+    {
+      "content" : "function perimeter(width, height) {\n  return 2 * (width + height);\n}",
+      "contentHash" : "d244bcc7fb3ca3f5",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "01fb43969a2d0048"
+    }
+  ],
+  "javascript/function-modified/before" : [
+    {
+      "content" : "function area(width, height) {\n  return width * height;\n}",
+      "contentHash" : "c3f860ac63da924c",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "5404821955a187cb"
+    },
+    {
+      "content" : "function perimeter(width, height) {\n  return 2 * (width + height);\n}",
+      "contentHash" : "d244bcc7fb3ca3f5",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "01fb43969a2d0048"
+    }
+  ],
+  "javascript/function-moved/after" : [
+    {
+      "content" : "function perimeter(width, height) {\n  return 2 * (width + height);\n}",
+      "contentHash" : "d244bcc7fb3ca3f5",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 1,
+      "structuralHash" : "01fb43969a2d0048"
+    }
+  ],
+  "javascript/function-moved/before" : [
+    {
+      "content" : "function area(width, height) {\n  return width * height;\n}",
+      "contentHash" : "c3f860ac63da924c",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "5404821955a187cb"
+    },
+    {
+      "content" : "function perimeter(width, height) {\n  return 2 * (width + height);\n}",
+      "contentHash" : "d244bcc7fb3ca3f5",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "01fb43969a2d0048"
+    }
+  ],
+  "javascript/function-renamed/after" : [
+    {
+      "content" : "function orderTotal(items, taxRate) {\n  const subtotal = items.reduce((sum, item) => sum + item.price, 0);\n  const tax = subtotal * taxRate;\n  return subtotal + tax;\n}",
+      "contentHash" : "ad2ee20eb3700589",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::orderTotal",
+      "name" : "orderTotal",
+      "startLine" : 1,
+      "structuralHash" : "8a3fb47bc1620b3b"
+    }
+  ],
+  "javascript/function-renamed/before" : [
+    {
+      "content" : "function totalPrice(items, taxRate) {\n  const subtotal = items.reduce((sum, item) => sum + item.price, 0);\n  const tax = subtotal * taxRate;\n  return subtotal + tax;\n}",
+      "contentHash" : "e4cb75c13cfa272f",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::totalPrice",
+      "name" : "totalPrice",
+      "startLine" : 1,
+      "structuralHash" : "0b500fba80329a3d"
+    }
+  ],
+  "javascript/type-with-methods/after" : [
+    {
+      "content" : "class Counter {\n  count = 0;\n\n  increment() {\n    this.count += 1;\n  }\n\n  value() {\n    return this.count;\n  }\n}",
+      "contentHash" : "37fdfe5738ba9922",
+      "endLine" : 11,
+      "entityType" : "class",
+      "filePath" : "inline.js",
+      "id" : "inline.js::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "0b2738dc1ade4958"
+    },
+    {
+      "content" : "increment() {\n    this.count += 1;\n  }",
+      "contentHash" : "804f8581b3216968",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.js",
+      "id" : "inline.js::inline.js::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.js::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "c38d59a8c5f335c6"
+    },
+    {
+      "content" : "value() {\n    return this.count;\n  }",
+      "contentHash" : "4d1c2ae9468ba5c1",
+      "endLine" : 10,
+      "entityType" : "method",
+      "filePath" : "inline.js",
+      "id" : "inline.js::inline.js::class::Counter::value",
+      "name" : "value",
+      "parentID" : "inline.js::class::Counter",
+      "startLine" : 8,
+      "structuralHash" : "c8f1c095f3bbfc9c"
+    }
+  ],
+  "javascript/type-with-methods/before" : [
+    {
+      "content" : "class Counter {\n  count = 0;\n\n  increment() {\n    this.count += 1;\n  }\n}",
+      "contentHash" : "e98a6ccdaadf15ba",
+      "endLine" : 7,
+      "entityType" : "class",
+      "filePath" : "inline.js",
+      "id" : "inline.js::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "d80a6c815dc963b9"
+    },
+    {
+      "content" : "increment() {\n    this.count += 1;\n  }",
+      "contentHash" : "804f8581b3216968",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.js",
+      "id" : "inline.js::inline.js::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.js::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "c38d59a8c5f335c6"
+    }
+  ],
+  "javascript/whitespace-and-comments/after" : [
+    {
+      "content" : "function area(width,   height) {\n  // The area of the rectangle.\n  return width   *   height;\n}",
+      "contentHash" : "2b95ea0cd3f68cf1",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "5404821955a187cb"
+    }
+  ],
+  "javascript/whitespace-and-comments/before" : [
+    {
+      "content" : "function area(width, height) {\n  return width * height;\n}",
+      "contentHash" : "c3f860ac63da924c",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.js",
+      "id" : "inline.js::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "5404821955a187cb"
+    }
+  ],
+  "jsx/function-added/after" : [
+    {
+      "content" : "function Greeting(props) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "6072af88fae9aca7",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "62ec8863e2383e22"
+    },
+    {
+      "content" : "function Farewell(props) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "7a41cfddfbed2b26",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 5,
+      "structuralHash" : "22485d9ff7d7ecba"
+    }
+  ],
+  "jsx/function-added/before" : [
+    {
+      "content" : "function Greeting(props) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "6072af88fae9aca7",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "62ec8863e2383e22"
+    }
+  ],
+  "jsx/function-deleted/after" : [
+    {
+      "content" : "function Greeting(props) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "6072af88fae9aca7",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "62ec8863e2383e22"
+    }
+  ],
+  "jsx/function-deleted/before" : [
+    {
+      "content" : "function Greeting(props) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "6072af88fae9aca7",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "62ec8863e2383e22"
+    },
+    {
+      "content" : "function Farewell(props) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "7a41cfddfbed2b26",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 5,
+      "structuralHash" : "22485d9ff7d7ecba"
+    }
+  ],
+  "jsx/function-modified/after" : [
+    {
+      "content" : "function Greeting(props) {\n  return <h1 className=\"title\">Hello, {props.name}!</h1>;\n}",
+      "contentHash" : "5d9993b4d6a8c0fb",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "7589b7508aa254af"
+    },
+    {
+      "content" : "function Farewell(props) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "7a41cfddfbed2b26",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 5,
+      "structuralHash" : "22485d9ff7d7ecba"
+    }
+  ],
+  "jsx/function-modified/before" : [
+    {
+      "content" : "function Greeting(props) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "6072af88fae9aca7",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "62ec8863e2383e22"
+    },
+    {
+      "content" : "function Farewell(props) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "7a41cfddfbed2b26",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 5,
+      "structuralHash" : "22485d9ff7d7ecba"
+    }
+  ],
+  "jsx/function-moved/after" : [
+    {
+      "content" : "function Farewell(props) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "7a41cfddfbed2b26",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 1,
+      "structuralHash" : "22485d9ff7d7ecba"
+    }
+  ],
+  "jsx/function-moved/before" : [
+    {
+      "content" : "function Greeting(props) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "6072af88fae9aca7",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "62ec8863e2383e22"
+    },
+    {
+      "content" : "function Farewell(props) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "7a41cfddfbed2b26",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 5,
+      "structuralHash" : "22485d9ff7d7ecba"
+    }
+  ],
+  "jsx/function-renamed/after" : [
+    {
+      "content" : "function ProfileCard(props) {\n  const fullName = `${props.user.first} ${props.user.last}`;\n  return <div className=\"card\">{fullName}</div>;\n}",
+      "contentHash" : "fb35f95db49da0bb",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::ProfileCard",
+      "name" : "ProfileCard",
+      "startLine" : 1,
+      "structuralHash" : "3c9ba1b8ee9869d7"
+    }
+  ],
+  "jsx/function-renamed/before" : [
+    {
+      "content" : "function UserCard(props) {\n  const fullName = `${props.user.first} ${props.user.last}`;\n  return <div className=\"card\">{fullName}</div>;\n}",
+      "contentHash" : "0fea7089a19e8706",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::UserCard",
+      "name" : "UserCard",
+      "startLine" : 1,
+      "structuralHash" : "eab3b8f34b6901b9"
+    }
+  ],
+  "jsx/type-with-methods/after" : [
+    {
+      "content" : "class Counter extends React.Component {\n  state = { count: 0 };\n\n  increment() {\n    this.setState({ count: this.state.count + 1 });\n  }\n\n  render() {\n    return <button onClick={() => this.increment()}>{this.state.count}</button>;\n  }\n}",
+      "contentHash" : "97ac30871ad08afd",
+      "endLine" : 11,
+      "entityType" : "class",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "636c02d78d2add7a"
+    },
+    {
+      "content" : "increment() {\n    this.setState({ count: this.state.count + 1 });\n  }",
+      "contentHash" : "da243a2324fbb4c7",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::inline.jsx::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.jsx::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "adc5bd1efc52a9f5"
+    },
+    {
+      "content" : "render() {\n    return <button onClick={() => this.increment()}>{this.state.count}</button>;\n  }",
+      "contentHash" : "e9caaca3642bb1b4",
+      "endLine" : 10,
+      "entityType" : "method",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::inline.jsx::class::Counter::render",
+      "name" : "render",
+      "parentID" : "inline.jsx::class::Counter",
+      "startLine" : 8,
+      "structuralHash" : "179bdb650379ee9b"
+    }
+  ],
+  "jsx/type-with-methods/before" : [
+    {
+      "content" : "class Counter extends React.Component {\n  state = { count: 0 };\n\n  increment() {\n    this.setState({ count: this.state.count + 1 });\n  }\n}",
+      "contentHash" : "080b7e2913cf2564",
+      "endLine" : 7,
+      "entityType" : "class",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "0b508bb5ba704bc9"
+    },
+    {
+      "content" : "increment() {\n    this.setState({ count: this.state.count + 1 });\n  }",
+      "contentHash" : "da243a2324fbb4c7",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::inline.jsx::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.jsx::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "adc5bd1efc52a9f5"
+    }
+  ],
+  "jsx/whitespace-and-comments/after" : [
+    {
+      "content" : "function Greeting(  props) {\n  // The heading of the page.\n  return   <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "6928ecb05c9b0890",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "62ec8863e2383e22"
+    }
+  ],
+  "jsx/whitespace-and-comments/before" : [
+    {
+      "content" : "function Greeting(props) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "6072af88fae9aca7",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.jsx",
+      "id" : "inline.jsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "62ec8863e2383e22"
+    }
+  ],
+  "php/function-added/after" : [
+    {
+      "content" : "function area($width, $height) {\n    return $width * $height;\n}",
+      "contentHash" : "6d31f4bcd10c5de7",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "3aec53d6c48f4369"
+    },
+    {
+      "content" : "function perimeter($width, $height) {\n    return 2 * ($width + $height);\n}",
+      "contentHash" : "cc26b4833eeaf577",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "ac97759c5718c32c"
+    }
+  ],
+  "php/function-added/before" : [
+    {
+      "content" : "function area($width, $height) {\n    return $width * $height;\n}",
+      "contentHash" : "6d31f4bcd10c5de7",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "3aec53d6c48f4369"
+    }
+  ],
+  "php/function-deleted/after" : [
+    {
+      "content" : "function area($width, $height) {\n    return $width * $height;\n}",
+      "contentHash" : "6d31f4bcd10c5de7",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "3aec53d6c48f4369"
+    }
+  ],
+  "php/function-deleted/before" : [
+    {
+      "content" : "function area($width, $height) {\n    return $width * $height;\n}",
+      "contentHash" : "6d31f4bcd10c5de7",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "3aec53d6c48f4369"
+    },
+    {
+      "content" : "function perimeter($width, $height) {\n    return 2 * ($width + $height);\n}",
+      "contentHash" : "cc26b4833eeaf577",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "ac97759c5718c32c"
+    }
+  ],
+  "php/function-modified/after" : [
+    {
+      "content" : "function area($width, $height) {\n    return $width * $height / 2;\n}",
+      "contentHash" : "2de1c1c8eda871f0",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "235d335728ffe8a9"
+    },
+    {
+      "content" : "function perimeter($width, $height) {\n    return 2 * ($width + $height);\n}",
+      "contentHash" : "cc26b4833eeaf577",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "ac97759c5718c32c"
+    }
+  ],
+  "php/function-modified/before" : [
+    {
+      "content" : "function area($width, $height) {\n    return $width * $height;\n}",
+      "contentHash" : "6d31f4bcd10c5de7",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "3aec53d6c48f4369"
+    },
+    {
+      "content" : "function perimeter($width, $height) {\n    return 2 * ($width + $height);\n}",
+      "contentHash" : "cc26b4833eeaf577",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "ac97759c5718c32c"
+    }
+  ],
+  "php/function-moved/after" : [
+    {
+      "content" : "function perimeter($width, $height) {\n    return 2 * ($width + $height);\n}",
+      "contentHash" : "cc26b4833eeaf577",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 3,
+      "structuralHash" : "ac97759c5718c32c"
+    }
+  ],
+  "php/function-moved/before" : [
+    {
+      "content" : "function area($width, $height) {\n    return $width * $height;\n}",
+      "contentHash" : "6d31f4bcd10c5de7",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "3aec53d6c48f4369"
+    },
+    {
+      "content" : "function perimeter($width, $height) {\n    return 2 * ($width + $height);\n}",
+      "contentHash" : "cc26b4833eeaf577",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 7,
+      "structuralHash" : "ac97759c5718c32c"
+    }
+  ],
+  "php/function-renamed/after" : [
+    {
+      "content" : "function orderTotal(array $prices, float $taxRate): float {\n    $subtotal = 0.0;\n    foreach ($prices as $price) {\n        $subtotal += $price;\n    }\n    return $subtotal + $subtotal * $taxRate;\n}",
+      "contentHash" : "1ac9820404466685",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::orderTotal",
+      "name" : "orderTotal",
+      "startLine" : 3,
+      "structuralHash" : "3f9e6596868297aa"
+    }
+  ],
+  "php/function-renamed/before" : [
+    {
+      "content" : "function totalPrice(array $prices, float $taxRate): float {\n    $subtotal = 0.0;\n    foreach ($prices as $price) {\n        $subtotal += $price;\n    }\n    return $subtotal + $subtotal * $taxRate;\n}",
+      "contentHash" : "afa3934341ca5c95",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::totalPrice",
+      "name" : "totalPrice",
+      "startLine" : 3,
+      "structuralHash" : "efe6b5021adf6a26"
+    }
+  ],
+  "php/type-with-methods/after" : [
+    {
+      "content" : "class Counter {\n    private int $count = 0;\n\n    public function increment(): void {\n        $this->count++;\n    }\n\n    public function value(): int {\n        return $this->count;\n    }\n}",
+      "contentHash" : "ed0a7a88305f8814",
+      "endLine" : 13,
+      "entityType" : "class",
+      "filePath" : "inline.php",
+      "id" : "inline.php::class::Counter",
+      "name" : "Counter",
+      "startLine" : 3,
+      "structuralHash" : "bccee2f7135fd9c6"
+    },
+    {
+      "content" : "public function increment(): void {\n        $this->count++;\n    }",
+      "contentHash" : "a42453e244dca2d0",
+      "endLine" : 8,
+      "entityType" : "method",
+      "filePath" : "inline.php",
+      "id" : "inline.php::inline.php::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.php::class::Counter",
+      "startLine" : 6,
+      "structuralHash" : "44e8a855172ad213"
+    },
+    {
+      "content" : "public function value(): int {\n        return $this->count;\n    }",
+      "contentHash" : "ce6ad9002e6d1f85",
+      "endLine" : 12,
+      "entityType" : "method",
+      "filePath" : "inline.php",
+      "id" : "inline.php::inline.php::class::Counter::value",
+      "name" : "value",
+      "parentID" : "inline.php::class::Counter",
+      "startLine" : 10,
+      "structuralHash" : "31acd40b599ea4ed"
+    }
+  ],
+  "php/type-with-methods/before" : [
+    {
+      "content" : "class Counter {\n    private int $count = 0;\n\n    public function increment(): void {\n        $this->count++;\n    }\n}",
+      "contentHash" : "e9feeae3892d57e7",
+      "endLine" : 9,
+      "entityType" : "class",
+      "filePath" : "inline.php",
+      "id" : "inline.php::class::Counter",
+      "name" : "Counter",
+      "startLine" : 3,
+      "structuralHash" : "ab081caecad242df"
+    },
+    {
+      "content" : "public function increment(): void {\n        $this->count++;\n    }",
+      "contentHash" : "a42453e244dca2d0",
+      "endLine" : 8,
+      "entityType" : "method",
+      "filePath" : "inline.php",
+      "id" : "inline.php::inline.php::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.php::class::Counter",
+      "startLine" : 6,
+      "structuralHash" : "44e8a855172ad213"
+    }
+  ],
+  "php/whitespace-and-comments/after" : [
+    {
+      "content" : "function area($width,   $height) {\n    // The area of the rectangle.\n    return $width   *   $height;\n}",
+      "contentHash" : "e287a6ec2f4f1c2f",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "3aec53d6c48f4369"
+    }
+  ],
+  "php/whitespace-and-comments/before" : [
+    {
+      "content" : "function area($width, $height) {\n    return $width * $height;\n}",
+      "contentHash" : "6d31f4bcd10c5de7",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.php",
+      "id" : "inline.php::function::area",
+      "name" : "area",
+      "startLine" : 3,
+      "structuralHash" : "3aec53d6c48f4369"
+    }
+  ],
+  "python/decorated-function/after" : [
+    {
+      "content" : "@lru_cache(maxsize=128)\ndef area(width, height):\n    return width * height",
+      "contentHash" : "5c265d190bf6259a",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 4,
+      "structuralHash" : "761906c644c426f8"
+    }
+  ],
+  "python/decorated-function/before" : [
+    {
+      "content" : "@cache\ndef area(width, height):\n    return width * height",
+      "contentHash" : "3858e1db542e4491",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 4,
+      "structuralHash" : "adfb07252b0b4f2d"
+    }
+  ],
+  "python/function-added/after" : [
+    {
+      "content" : "def area(width, height):\n    return width * height",
+      "contentHash" : "b822f1c3428db13b",
+      "endLine" : 2,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "3eaa2ff220fd4105"
+    },
+    {
+      "content" : "def perimeter(width, height):\n    return 2 * (width + height)",
+      "contentHash" : "7067a4d98b248e49",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "d2c2c14d2e73f2f8"
+    }
+  ],
+  "python/function-added/before" : [
+    {
+      "content" : "def area(width, height):\n    return width * height",
+      "contentHash" : "b822f1c3428db13b",
+      "endLine" : 2,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "3eaa2ff220fd4105"
+    }
+  ],
+  "python/function-deleted/after" : [
+    {
+      "content" : "def area(width, height):\n    return width * height",
+      "contentHash" : "b822f1c3428db13b",
+      "endLine" : 2,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "3eaa2ff220fd4105"
+    }
+  ],
+  "python/function-deleted/before" : [
+    {
+      "content" : "def area(width, height):\n    return width * height",
+      "contentHash" : "b822f1c3428db13b",
+      "endLine" : 2,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "3eaa2ff220fd4105"
+    },
+    {
+      "content" : "def perimeter(width, height):\n    return 2 * (width + height)",
+      "contentHash" : "7067a4d98b248e49",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "d2c2c14d2e73f2f8"
+    }
+  ],
+  "python/function-modified/after" : [
+    {
+      "content" : "def area(width, height):\n    return width * height / 2",
+      "contentHash" : "0f17292a74cf646b",
+      "endLine" : 2,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "4df91009cef62f0d"
+    },
+    {
+      "content" : "def perimeter(width, height):\n    return 2 * (width + height)",
+      "contentHash" : "7067a4d98b248e49",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "d2c2c14d2e73f2f8"
+    }
+  ],
+  "python/function-modified/before" : [
+    {
+      "content" : "def area(width, height):\n    return width * height",
+      "contentHash" : "b822f1c3428db13b",
+      "endLine" : 2,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "3eaa2ff220fd4105"
+    },
+    {
+      "content" : "def perimeter(width, height):\n    return 2 * (width + height)",
+      "contentHash" : "7067a4d98b248e49",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "d2c2c14d2e73f2f8"
+    }
+  ],
+  "python/function-moved/after" : [
+    {
+      "content" : "def perimeter(width, height):\n    return 2 * (width + height)",
+      "contentHash" : "7067a4d98b248e49",
+      "endLine" : 2,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 1,
+      "structuralHash" : "d2c2c14d2e73f2f8"
+    }
+  ],
+  "python/function-moved/before" : [
+    {
+      "content" : "def area(width, height):\n    return width * height",
+      "contentHash" : "b822f1c3428db13b",
+      "endLine" : 2,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "3eaa2ff220fd4105"
+    },
+    {
+      "content" : "def perimeter(width, height):\n    return 2 * (width + height)",
+      "contentHash" : "7067a4d98b248e49",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "d2c2c14d2e73f2f8"
+    }
+  ],
+  "python/function-renamed/after" : [
+    {
+      "content" : "def order_total(items, tax_rate):\n    subtotal = sum(item.price for item in items)\n    tax = subtotal * tax_rate\n    return subtotal + tax",
+      "contentHash" : "8689c0c5452ff860",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::order_total",
+      "name" : "order_total",
+      "startLine" : 1,
+      "structuralHash" : "0a0ae643fa121634"
+    }
+  ],
+  "python/function-renamed/before" : [
+    {
+      "content" : "def total_price(items, tax_rate):\n    subtotal = sum(item.price for item in items)\n    tax = subtotal * tax_rate\n    return subtotal + tax",
+      "contentHash" : "9c3bd51b0c17c3e7",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::total_price",
+      "name" : "total_price",
+      "startLine" : 1,
+      "structuralHash" : "8c05a28efcc493c8"
+    }
+  ],
+  "python/nested-function/after" : [
+    {
+      "content" : "def make_counter():\n    count = 0\n\n    def increment():\n        nonlocal count\n        count += 1\n        return count\n\n    def reset():\n        nonlocal count\n        count = 0\n\n    return increment, reset",
+      "contentHash" : "ff4d9ca471f80c44",
+      "endLine" : 13,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::make_counter",
+      "name" : "make_counter",
+      "startLine" : 1,
+      "structuralHash" : "fe241c25d8ea3c34"
+    },
+    {
+      "content" : "def increment():\n        nonlocal count\n        count += 1\n        return count",
+      "contentHash" : "d4e283d925151d95",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::inline.py::function::make_counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.py::function::make_counter",
+      "startLine" : 4,
+      "structuralHash" : "3e6fb08dcc33817d"
+    },
+    {
+      "content" : "def reset():\n        nonlocal count\n        count = 0",
+      "contentHash" : "0d0514f43f25c787",
+      "endLine" : 11,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::inline.py::function::make_counter::reset",
+      "name" : "reset",
+      "parentID" : "inline.py::function::make_counter",
+      "startLine" : 9,
+      "structuralHash" : "cd61ddb7e7644ae7"
+    }
+  ],
+  "python/nested-function/before" : [
+    {
+      "content" : "def make_counter():\n    count = 0\n\n    def increment():\n        nonlocal count\n        count += 1\n        return count\n\n    return increment",
+      "contentHash" : "bccf19592a2047fa",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::make_counter",
+      "name" : "make_counter",
+      "startLine" : 1,
+      "structuralHash" : "0f89820c1591ba80"
+    },
+    {
+      "content" : "def increment():\n        nonlocal count\n        count += 1\n        return count",
+      "contentHash" : "d4e283d925151d95",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::inline.py::function::make_counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.py::function::make_counter",
+      "startLine" : 4,
+      "structuralHash" : "3e6fb08dcc33817d"
+    }
+  ],
+  "python/type-with-methods/after" : [
+    {
+      "content" : "class Counter:\n    def __init__(self):\n        self.count = 0\n\n    def increment(self):\n        self.count += 1\n\n    def value(self):\n        return self.count",
+      "contentHash" : "4ae16a541759e925",
+      "endLine" : 9,
+      "entityType" : "class",
+      "filePath" : "inline.py",
+      "id" : "inline.py::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "a55d790ad4aa5457"
+    },
+    {
+      "content" : "def __init__(self):\n        self.count = 0",
+      "contentHash" : "404afdb0d162770c",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::inline.py::class::Counter::__init__",
+      "name" : "__init__",
+      "parentID" : "inline.py::class::Counter",
+      "startLine" : 2,
+      "structuralHash" : "6ef802ccdb7e9cd9"
+    },
+    {
+      "content" : "def increment(self):\n        self.count += 1",
+      "contentHash" : "fe9b5ca12ed1676f",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::inline.py::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.py::class::Counter",
+      "startLine" : 5,
+      "structuralHash" : "1df70625ab1befad"
+    },
+    {
+      "content" : "def value(self):\n        return self.count",
+      "contentHash" : "4dbb3c20f9797f0c",
+      "endLine" : 9,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::inline.py::class::Counter::value",
+      "name" : "value",
+      "parentID" : "inline.py::class::Counter",
+      "startLine" : 8,
+      "structuralHash" : "cac4e4a7f2881c05"
+    }
+  ],
+  "python/type-with-methods/before" : [
+    {
+      "content" : "class Counter:\n    def __init__(self):\n        self.count = 0\n\n    def increment(self):\n        self.count += 1",
+      "contentHash" : "daafbc9818065f00",
+      "endLine" : 6,
+      "entityType" : "class",
+      "filePath" : "inline.py",
+      "id" : "inline.py::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "04d85691405eaa39"
+    },
+    {
+      "content" : "def __init__(self):\n        self.count = 0",
+      "contentHash" : "404afdb0d162770c",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::inline.py::class::Counter::__init__",
+      "name" : "__init__",
+      "parentID" : "inline.py::class::Counter",
+      "startLine" : 2,
+      "structuralHash" : "6ef802ccdb7e9cd9"
+    },
+    {
+      "content" : "def increment(self):\n        self.count += 1",
+      "contentHash" : "fe9b5ca12ed1676f",
+      "endLine" : 6,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::inline.py::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.py::class::Counter",
+      "startLine" : 5,
+      "structuralHash" : "1df70625ab1befad"
+    }
+  ],
+  "python/whitespace-and-comments/after" : [
+    {
+      "content" : "def area(width,   height):\n    # The area of the rectangle.\n    return width   *   height",
+      "contentHash" : "9cf8d10aeb5baf32",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "3eaa2ff220fd4105"
+    }
+  ],
+  "python/whitespace-and-comments/before" : [
+    {
+      "content" : "def area(width, height):\n    return width * height",
+      "contentHash" : "b822f1c3428db13b",
+      "endLine" : 2,
+      "entityType" : "function",
+      "filePath" : "inline.py",
+      "id" : "inline.py::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "3eaa2ff220fd4105"
+    }
+  ],
+  "ruby/function-added/after" : [
+    {
+      "content" : "def area(width, height)\n  width * height\nend",
+      "contentHash" : "09760007774fda9b",
+      "endLine" : 3,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "505739915d28793c"
+    },
+    {
+      "content" : "def perimeter(width, height)\n  2 * (width + height)\nend",
+      "contentHash" : "99910fea4630cbd5",
+      "endLine" : 7,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "d65c33086b1af0b6"
+    }
+  ],
+  "ruby/function-added/before" : [
+    {
+      "content" : "def area(width, height)\n  width * height\nend",
+      "contentHash" : "09760007774fda9b",
+      "endLine" : 3,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "505739915d28793c"
+    }
+  ],
+  "ruby/function-deleted/after" : [
+    {
+      "content" : "def area(width, height)\n  width * height\nend",
+      "contentHash" : "09760007774fda9b",
+      "endLine" : 3,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "505739915d28793c"
+    }
+  ],
+  "ruby/function-deleted/before" : [
+    {
+      "content" : "def area(width, height)\n  width * height\nend",
+      "contentHash" : "09760007774fda9b",
+      "endLine" : 3,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "505739915d28793c"
+    },
+    {
+      "content" : "def perimeter(width, height)\n  2 * (width + height)\nend",
+      "contentHash" : "99910fea4630cbd5",
+      "endLine" : 7,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "d65c33086b1af0b6"
+    }
+  ],
+  "ruby/function-modified/after" : [
+    {
+      "content" : "def area(width, height)\n  width * height / 2\nend",
+      "contentHash" : "56472c27eae75098",
+      "endLine" : 3,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "2c7f0cbb599264b5"
+    },
+    {
+      "content" : "def perimeter(width, height)\n  2 * (width + height)\nend",
+      "contentHash" : "99910fea4630cbd5",
+      "endLine" : 7,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "d65c33086b1af0b6"
+    }
+  ],
+  "ruby/function-modified/before" : [
+    {
+      "content" : "def area(width, height)\n  width * height\nend",
+      "contentHash" : "09760007774fda9b",
+      "endLine" : 3,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "505739915d28793c"
+    },
+    {
+      "content" : "def perimeter(width, height)\n  2 * (width + height)\nend",
+      "contentHash" : "99910fea4630cbd5",
+      "endLine" : 7,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "d65c33086b1af0b6"
+    }
+  ],
+  "ruby/function-moved/after" : [
+    {
+      "content" : "def perimeter(width, height)\n  2 * (width + height)\nend",
+      "contentHash" : "99910fea4630cbd5",
+      "endLine" : 3,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::perimeter",
+      "name" : "perimeter",
+      "startLine" : 1,
+      "structuralHash" : "d65c33086b1af0b6"
+    }
+  ],
+  "ruby/function-moved/before" : [
+    {
+      "content" : "def area(width, height)\n  width * height\nend",
+      "contentHash" : "09760007774fda9b",
+      "endLine" : 3,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "505739915d28793c"
+    },
+    {
+      "content" : "def perimeter(width, height)\n  2 * (width + height)\nend",
+      "contentHash" : "99910fea4630cbd5",
+      "endLine" : 7,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "d65c33086b1af0b6"
+    }
+  ],
+  "ruby/function-renamed/after" : [
+    {
+      "content" : "def order_total(prices, tax_rate)\n  subtotal = 0.0\n  prices.each do |price|\n    subtotal += price\n  end\n  subtotal + subtotal * tax_rate\nend",
+      "contentHash" : "d5d33fbcc43ffdaa",
+      "endLine" : 7,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::order_total",
+      "name" : "order_total",
+      "startLine" : 1,
+      "structuralHash" : "52ba1645e86cd30e"
+    }
+  ],
+  "ruby/function-renamed/before" : [
+    {
+      "content" : "def total_price(prices, tax_rate)\n  subtotal = 0.0\n  prices.each do |price|\n    subtotal += price\n  end\n  subtotal + subtotal * tax_rate\nend",
+      "contentHash" : "a8b72bea77f5b2fd",
+      "endLine" : 7,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::total_price",
+      "name" : "total_price",
+      "startLine" : 1,
+      "structuralHash" : "ee63fa9da97cf482"
+    }
+  ],
+  "ruby/type-with-methods/after" : [
+    {
+      "content" : "class Counter\n  def initialize\n    @count = 0\n  end\n\n  def increment\n    @count += 1\n  end\n\n  def value\n    @count\n  end\nend",
+      "contentHash" : "c3361087e242f75b",
+      "endLine" : 13,
+      "entityType" : "class",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "bb70f66066ccd149"
+    },
+    {
+      "content" : "def initialize\n    @count = 0\n  end",
+      "contentHash" : "96955027750b8ca2",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::inline.rb::class::Counter::initialize",
+      "name" : "initialize",
+      "parentID" : "inline.rb::class::Counter",
+      "startLine" : 2,
+      "structuralHash" : "bcc3541204a86355"
+    },
+    {
+      "content" : "def increment\n    @count += 1\n  end",
+      "contentHash" : "cb0867ed05e00c8f",
+      "endLine" : 8,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::inline.rb::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.rb::class::Counter",
+      "startLine" : 6,
+      "structuralHash" : "46cfb6276516c5a6"
+    },
+    {
+      "content" : "def value\n    @count\n  end",
+      "contentHash" : "3b2e296d6ff20da1",
+      "endLine" : 12,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::inline.rb::class::Counter::value",
+      "name" : "value",
+      "parentID" : "inline.rb::class::Counter",
+      "startLine" : 10,
+      "structuralHash" : "2cb6477ff63f4aee"
+    }
+  ],
+  "ruby/type-with-methods/before" : [
+    {
+      "content" : "class Counter\n  def initialize\n    @count = 0\n  end\n\n  def increment\n    @count += 1\n  end\nend",
+      "contentHash" : "8fa63fcae065ecae",
+      "endLine" : 9,
+      "entityType" : "class",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "c389702f00514fcf"
+    },
+    {
+      "content" : "def initialize\n    @count = 0\n  end",
+      "contentHash" : "96955027750b8ca2",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::inline.rb::class::Counter::initialize",
+      "name" : "initialize",
+      "parentID" : "inline.rb::class::Counter",
+      "startLine" : 2,
+      "structuralHash" : "bcc3541204a86355"
+    },
+    {
+      "content" : "def increment\n    @count += 1\n  end",
+      "contentHash" : "cb0867ed05e00c8f",
+      "endLine" : 8,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::inline.rb::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.rb::class::Counter",
+      "startLine" : 6,
+      "structuralHash" : "46cfb6276516c5a6"
+    }
+  ],
+  "ruby/whitespace-and-comments/after" : [
+    {
+      "content" : "def area(width,   height)\n  # The area of the rectangle.\n  width   *   height\nend",
+      "contentHash" : "d86bab4deca06e7c",
+      "endLine" : 4,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "505739915d28793c"
+    }
+  ],
+  "ruby/whitespace-and-comments/before" : [
+    {
+      "content" : "def area(width, height)\n  width * height\nend",
+      "contentHash" : "09760007774fda9b",
+      "endLine" : 3,
+      "entityType" : "method",
+      "filePath" : "inline.rb",
+      "id" : "inline.rb::method::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "505739915d28793c"
+    }
+  ],
+  "rust/function-added/after" : [
+    {
+      "content" : "fn area(width: f64, height: f64) -> f64 {\n    width * height\n}",
+      "contentHash" : "f8e9eeadaa764a29",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c6713bbecdc4fed6"
+    },
+    {
+      "content" : "fn perimeter(width: f64, height: f64) -> f64 {\n    2.0 * (width + height)\n}",
+      "contentHash" : "77aad6a891114e18",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "ce3f080f841cbbb2"
+    }
+  ],
+  "rust/function-added/before" : [
+    {
+      "content" : "fn area(width: f64, height: f64) -> f64 {\n    width * height\n}",
+      "contentHash" : "f8e9eeadaa764a29",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c6713bbecdc4fed6"
+    }
+  ],
+  "rust/function-deleted/after" : [
+    {
+      "content" : "fn area(width: f64, height: f64) -> f64 {\n    width * height\n}",
+      "contentHash" : "f8e9eeadaa764a29",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c6713bbecdc4fed6"
+    }
+  ],
+  "rust/function-deleted/before" : [
+    {
+      "content" : "fn area(width: f64, height: f64) -> f64 {\n    width * height\n}",
+      "contentHash" : "f8e9eeadaa764a29",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c6713bbecdc4fed6"
+    },
+    {
+      "content" : "fn perimeter(width: f64, height: f64) -> f64 {\n    2.0 * (width + height)\n}",
+      "contentHash" : "77aad6a891114e18",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "ce3f080f841cbbb2"
+    }
+  ],
+  "rust/function-modified/after" : [
+    {
+      "content" : "fn area(width: f64, height: f64) -> f64 {\n    width * height / 2.0\n}",
+      "contentHash" : "8f0dbfa57bf23e40",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "3b4c82755e6dfe42"
+    },
+    {
+      "content" : "fn perimeter(width: f64, height: f64) -> f64 {\n    2.0 * (width + height)\n}",
+      "contentHash" : "77aad6a891114e18",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "ce3f080f841cbbb2"
+    }
+  ],
+  "rust/function-modified/before" : [
+    {
+      "content" : "fn area(width: f64, height: f64) -> f64 {\n    width * height\n}",
+      "contentHash" : "f8e9eeadaa764a29",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c6713bbecdc4fed6"
+    },
+    {
+      "content" : "fn perimeter(width: f64, height: f64) -> f64 {\n    2.0 * (width + height)\n}",
+      "contentHash" : "77aad6a891114e18",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "ce3f080f841cbbb2"
+    }
+  ],
+  "rust/function-moved/after" : [
+    {
+      "content" : "fn perimeter(width: f64, height: f64) -> f64 {\n    2.0 * (width + height)\n}",
+      "contentHash" : "77aad6a891114e18",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 1,
+      "structuralHash" : "ce3f080f841cbbb2"
+    }
+  ],
+  "rust/function-moved/before" : [
+    {
+      "content" : "fn area(width: f64, height: f64) -> f64 {\n    width * height\n}",
+      "contentHash" : "f8e9eeadaa764a29",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c6713bbecdc4fed6"
+    },
+    {
+      "content" : "fn perimeter(width: f64, height: f64) -> f64 {\n    2.0 * (width + height)\n}",
+      "contentHash" : "77aad6a891114e18",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "ce3f080f841cbbb2"
+    }
+  ],
+  "rust/function-renamed/after" : [
+    {
+      "content" : "fn order_total(items: &[Item], tax_rate: f64) -> f64 {\n    let subtotal: f64 = items.iter().map(|item| item.price).sum();\n    let tax = subtotal * tax_rate;\n    subtotal + tax\n}",
+      "contentHash" : "b90397eb519837ef",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::order_total",
+      "name" : "order_total",
+      "startLine" : 1,
+      "structuralHash" : "07303927eb43fc1a"
+    }
+  ],
+  "rust/function-renamed/before" : [
+    {
+      "content" : "fn total_price(items: &[Item], tax_rate: f64) -> f64 {\n    let subtotal: f64 = items.iter().map(|item| item.price).sum();\n    let tax = subtotal * tax_rate;\n    subtotal + tax\n}",
+      "contentHash" : "d606ed9dda4f9b86",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::total_price",
+      "name" : "total_price",
+      "startLine" : 1,
+      "structuralHash" : "c19d2b53a57a6f1c"
+    }
+  ],
+  "rust/type-with-methods/after" : [
+    {
+      "content" : "pub struct Counter {\n    count: u32,\n}",
+      "contentHash" : "d05c5b15cfa38ec1",
+      "endLine" : 3,
+      "entityType" : "struct",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::struct::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "7a2d2ff3fda659c3"
+    },
+    {
+      "content" : "impl Counter {\n    pub fn new() -> Self {\n        Counter { count: 0 }\n    }\n\n    pub fn increment(&mut self) {\n        self.count += 1;\n    }\n\n    pub fn value(&self) -> u32 {\n        self.count\n    }\n}",
+      "contentHash" : "b42328ae4d5141ff",
+      "endLine" : 17,
+      "entityType" : "impl",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::impl::Counter",
+      "name" : "Counter",
+      "startLine" : 5,
+      "structuralHash" : "3b06f3df38b1d553"
+    },
+    {
+      "content" : "pub fn new() -> Self {\n        Counter { count: 0 }\n    }",
+      "contentHash" : "4719db94a6abbd74",
+      "endLine" : 8,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::inline.rs::impl::Counter::new",
+      "name" : "new",
+      "parentID" : "inline.rs::impl::Counter",
+      "startLine" : 6,
+      "structuralHash" : "bfcad795e9766dfe"
+    },
+    {
+      "content" : "pub fn increment(&mut self) {\n        self.count += 1;\n    }",
+      "contentHash" : "3be8204e29ce551e",
+      "endLine" : 12,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::inline.rs::impl::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.rs::impl::Counter",
+      "startLine" : 10,
+      "structuralHash" : "babd383aa6c84114"
+    },
+    {
+      "content" : "pub fn value(&self) -> u32 {\n        self.count\n    }",
+      "contentHash" : "442e74fa0c882252",
+      "endLine" : 16,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::inline.rs::impl::Counter::value",
+      "name" : "value",
+      "parentID" : "inline.rs::impl::Counter",
+      "startLine" : 14,
+      "structuralHash" : "f00d677545aca67c"
+    }
+  ],
+  "rust/type-with-methods/before" : [
+    {
+      "content" : "pub struct Counter {\n    count: u32,\n}",
+      "contentHash" : "d05c5b15cfa38ec1",
+      "endLine" : 3,
+      "entityType" : "struct",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::struct::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "7a2d2ff3fda659c3"
+    },
+    {
+      "content" : "impl Counter {\n    pub fn new() -> Self {\n        Counter { count: 0 }\n    }\n\n    pub fn increment(&mut self) {\n        self.count += 1;\n    }\n}",
+      "contentHash" : "f1191a028df9ba4a",
+      "endLine" : 13,
+      "entityType" : "impl",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::impl::Counter",
+      "name" : "Counter",
+      "startLine" : 5,
+      "structuralHash" : "43bdc4ce5cea5584"
+    },
+    {
+      "content" : "pub fn new() -> Self {\n        Counter { count: 0 }\n    }",
+      "contentHash" : "4719db94a6abbd74",
+      "endLine" : 8,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::inline.rs::impl::Counter::new",
+      "name" : "new",
+      "parentID" : "inline.rs::impl::Counter",
+      "startLine" : 6,
+      "structuralHash" : "bfcad795e9766dfe"
+    },
+    {
+      "content" : "pub fn increment(&mut self) {\n        self.count += 1;\n    }",
+      "contentHash" : "3be8204e29ce551e",
+      "endLine" : 12,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::inline.rs::impl::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.rs::impl::Counter",
+      "startLine" : 10,
+      "structuralHash" : "babd383aa6c84114"
+    }
+  ],
+  "rust/whitespace-and-comments/after" : [
+    {
+      "content" : "fn area(width: f64,   height: f64) -> f64 {\n    // The area of the rectangle.\n    width   *   height\n}",
+      "contentHash" : "2a25b8766773f2a2",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c6713bbecdc4fed6"
+    }
+  ],
+  "rust/whitespace-and-comments/before" : [
+    {
+      "content" : "fn area(width: f64, height: f64) -> f64 {\n    width * height\n}",
+      "contentHash" : "f8e9eeadaa764a29",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.rs",
+      "id" : "inline.rs::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "c6713bbecdc4fed6"
+    }
+  ],
+  "swift/function-added/after" : [
+    {
+      "content" : "func area(width: Double, height: Double) -> Double {\n    width * height\n}",
+      "contentHash" : "dfff69f8059d04d0",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "00676d17886737df"
+    },
+    {
+      "content" : "func perimeter(width: Double, height: Double) -> Double {\n    2 * (width + height)\n}",
+      "contentHash" : "a1f0431be92b9836",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "14295ef17c7b3dbd"
+    }
+  ],
+  "swift/function-added/before" : [
+    {
+      "content" : "func area(width: Double, height: Double) -> Double {\n    width * height\n}",
+      "contentHash" : "dfff69f8059d04d0",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "00676d17886737df"
+    }
+  ],
+  "swift/function-deleted/after" : [
+    {
+      "content" : "func area(width: Double, height: Double) -> Double {\n    width * height\n}",
+      "contentHash" : "dfff69f8059d04d0",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "00676d17886737df"
+    }
+  ],
+  "swift/function-deleted/before" : [
+    {
+      "content" : "func area(width: Double, height: Double) -> Double {\n    width * height\n}",
+      "contentHash" : "dfff69f8059d04d0",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "00676d17886737df"
+    },
+    {
+      "content" : "func perimeter(width: Double, height: Double) -> Double {\n    2 * (width + height)\n}",
+      "contentHash" : "a1f0431be92b9836",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "14295ef17c7b3dbd"
+    }
+  ],
+  "swift/function-modified/after" : [
+    {
+      "content" : "func area(width: Double, height: Double) -> Double {\n    width * height / 2\n}",
+      "contentHash" : "efeafac2ecdc23df",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "22f0d123e421a400"
+    },
+    {
+      "content" : "func perimeter(width: Double, height: Double) -> Double {\n    2 * (width + height)\n}",
+      "contentHash" : "a1f0431be92b9836",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "14295ef17c7b3dbd"
+    }
+  ],
+  "swift/function-modified/before" : [
+    {
+      "content" : "func area(width: Double, height: Double) -> Double {\n    width * height\n}",
+      "contentHash" : "dfff69f8059d04d0",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "00676d17886737df"
+    },
+    {
+      "content" : "func perimeter(width: Double, height: Double) -> Double {\n    2 * (width + height)\n}",
+      "contentHash" : "a1f0431be92b9836",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "14295ef17c7b3dbd"
+    }
+  ],
+  "swift/function-moved/after" : [
+    {
+      "content" : "func perimeter(width: Double, height: Double) -> Double {\n    2 * (width + height)\n}",
+      "contentHash" : "a1f0431be92b9836",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 1,
+      "structuralHash" : "14295ef17c7b3dbd"
+    }
+  ],
+  "swift/function-moved/before" : [
+    {
+      "content" : "func area(width: Double, height: Double) -> Double {\n    width * height\n}",
+      "contentHash" : "dfff69f8059d04d0",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "00676d17886737df"
+    },
+    {
+      "content" : "func perimeter(width: Double, height: Double) -> Double {\n    2 * (width + height)\n}",
+      "contentHash" : "a1f0431be92b9836",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "14295ef17c7b3dbd"
+    }
+  ],
+  "swift/function-renamed/after" : [
+    {
+      "content" : "func orderTotal(items: [Item], taxRate: Double) -> Double {\n    let subtotal = items.map { item in item.price }.reduce(0, +)\n    let tax = subtotal * taxRate\n    return subtotal + tax\n}",
+      "contentHash" : "f6e5fcef18f5536d",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::orderTotal",
+      "name" : "orderTotal",
+      "startLine" : 1,
+      "structuralHash" : "aeba48c2da45e872"
+    }
+  ],
+  "swift/function-renamed/before" : [
+    {
+      "content" : "func totalPrice(items: [Item], taxRate: Double) -> Double {\n    let subtotal = items.map { item in item.price }.reduce(0, +)\n    let tax = subtotal * taxRate\n    return subtotal + tax\n}",
+      "contentHash" : "f404a7624bb2552a",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::totalPrice",
+      "name" : "totalPrice",
+      "startLine" : 1,
+      "structuralHash" : "9a351c89f2aa5e24"
+    }
+  ],
+  "swift/type-with-methods/after" : [
+    {
+      "content" : "final class Counter {\n    private var count = 0\n\n    init() {}\n\n    func increment() {\n        count += 1\n    }\n\n    func value() -> Int {\n        count\n    }\n}",
+      "contentHash" : "d430a57971ec3e20",
+      "endLine" : 13,
+      "entityType" : "class",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "c2a00601a8881397"
+    },
+    {
+      "content" : "private var count = 0",
+      "contentHash" : "3e76d2af3c86a59d",
+      "endLine" : 2,
+      "entityType" : "property",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::inline.swift::class::Counter::count",
+      "name" : "count",
+      "parentID" : "inline.swift::class::Counter",
+      "startLine" : 2,
+      "structuralHash" : "33ede726eb87080c"
+    },
+    {
+      "content" : "init() {}",
+      "contentHash" : "3a31af8cb9b0c937",
+      "endLine" : 4,
+      "entityType" : "init_declaration",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::inline.swift::class::Counter::init",
+      "name" : "init",
+      "parentID" : "inline.swift::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "a7a56dedd5ea36bf"
+    },
+    {
+      "content" : "func increment() {\n        count += 1\n    }",
+      "contentHash" : "adfece96a48127ef",
+      "endLine" : 8,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::inline.swift::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.swift::class::Counter",
+      "startLine" : 6,
+      "structuralHash" : "c6151ee546160c62"
+    },
+    {
+      "content" : "func value() -> Int {\n        count\n    }",
+      "contentHash" : "2954c23b6ea0ca81",
+      "endLine" : 12,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::inline.swift::class::Counter::value",
+      "name" : "value",
+      "parentID" : "inline.swift::class::Counter",
+      "startLine" : 10,
+      "structuralHash" : "66cd0295ea112680"
+    }
+  ],
+  "swift/type-with-methods/before" : [
+    {
+      "content" : "final class Counter {\n    private var count = 0\n\n    init() {}\n\n    func increment() {\n        count += 1\n    }\n}",
+      "contentHash" : "b567e85325dcbfb2",
+      "endLine" : 9,
+      "entityType" : "class",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "f2952378d12bea13"
+    },
+    {
+      "content" : "private var count = 0",
+      "contentHash" : "3e76d2af3c86a59d",
+      "endLine" : 2,
+      "entityType" : "property",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::inline.swift::class::Counter::count",
+      "name" : "count",
+      "parentID" : "inline.swift::class::Counter",
+      "startLine" : 2,
+      "structuralHash" : "33ede726eb87080c"
+    },
+    {
+      "content" : "init() {}",
+      "contentHash" : "3a31af8cb9b0c937",
+      "endLine" : 4,
+      "entityType" : "init_declaration",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::inline.swift::class::Counter::init",
+      "name" : "init",
+      "parentID" : "inline.swift::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "a7a56dedd5ea36bf"
+    },
+    {
+      "content" : "func increment() {\n        count += 1\n    }",
+      "contentHash" : "adfece96a48127ef",
+      "endLine" : 8,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::inline.swift::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.swift::class::Counter",
+      "startLine" : 6,
+      "structuralHash" : "c6151ee546160c62"
+    }
+  ],
+  "swift/whitespace-and-comments/after" : [
+    {
+      "content" : "func area(width: Double,   height: Double) -> Double {\n    // The area of the rectangle.\n    width   *   height\n}",
+      "contentHash" : "1f8927ac9eb222f0",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "00676d17886737df"
+    }
+  ],
+  "swift/whitespace-and-comments/before" : [
+    {
+      "content" : "func area(width: Double, height: Double) -> Double {\n    width * height\n}",
+      "contentHash" : "dfff69f8059d04d0",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.swift",
+      "id" : "inline.swift::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "00676d17886737df"
+    }
+  ],
+  "tsx/function-added/after" : [
+    {
+      "content" : "function Greeting(props: { name: string }) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "8734c1114d67fb77",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "858afc88452723c8"
+    },
+    {
+      "content" : "function Farewell(props: { name: string }) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "e6e9fe64731fc743",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 5,
+      "structuralHash" : "2a8f1afa40828311"
+    }
+  ],
+  "tsx/function-added/before" : [
+    {
+      "content" : "function Greeting(props: { name: string }) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "8734c1114d67fb77",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "858afc88452723c8"
+    }
+  ],
+  "tsx/function-deleted/after" : [
+    {
+      "content" : "function Greeting(props: { name: string }) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "8734c1114d67fb77",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "858afc88452723c8"
+    }
+  ],
+  "tsx/function-deleted/before" : [
+    {
+      "content" : "function Greeting(props: { name: string }) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "8734c1114d67fb77",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "858afc88452723c8"
+    },
+    {
+      "content" : "function Farewell(props: { name: string }) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "e6e9fe64731fc743",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 5,
+      "structuralHash" : "2a8f1afa40828311"
+    }
+  ],
+  "tsx/function-modified/after" : [
+    {
+      "content" : "function Greeting(props: { name: string }) {\n  return <h1 className=\"title\">Hello, {props.name}!</h1>;\n}",
+      "contentHash" : "5fb2e29ee8b29ba6",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "b8b36c4de58fd062"
+    },
+    {
+      "content" : "function Farewell(props: { name: string }) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "e6e9fe64731fc743",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 5,
+      "structuralHash" : "2a8f1afa40828311"
+    }
+  ],
+  "tsx/function-modified/before" : [
+    {
+      "content" : "function Greeting(props: { name: string }) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "8734c1114d67fb77",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "858afc88452723c8"
+    },
+    {
+      "content" : "function Farewell(props: { name: string }) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "e6e9fe64731fc743",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 5,
+      "structuralHash" : "2a8f1afa40828311"
+    }
+  ],
+  "tsx/function-moved/after" : [
+    {
+      "content" : "function Farewell(props: { name: string }) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "e6e9fe64731fc743",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 1,
+      "structuralHash" : "2a8f1afa40828311"
+    }
+  ],
+  "tsx/function-moved/before" : [
+    {
+      "content" : "function Greeting(props: { name: string }) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "8734c1114d67fb77",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "858afc88452723c8"
+    },
+    {
+      "content" : "function Farewell(props: { name: string }) {\n  return <p>Goodbye, {props.name}</p>;\n}",
+      "contentHash" : "e6e9fe64731fc743",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Farewell",
+      "name" : "Farewell",
+      "startLine" : 5,
+      "structuralHash" : "2a8f1afa40828311"
+    }
+  ],
+  "tsx/function-renamed/after" : [
+    {
+      "content" : "function ProfileCard(props: { user: User }) {\n  const fullName = `${props.user.first} ${props.user.last}`;\n  return <div className=\"card\">{fullName}</div>;\n}",
+      "contentHash" : "3f6a2a97ab592461",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::ProfileCard",
+      "name" : "ProfileCard",
+      "startLine" : 1,
+      "structuralHash" : "66aeeb5892787c28"
+    }
+  ],
+  "tsx/function-renamed/before" : [
+    {
+      "content" : "function UserCard(props: { user: User }) {\n  const fullName = `${props.user.first} ${props.user.last}`;\n  return <div className=\"card\">{fullName}</div>;\n}",
+      "contentHash" : "9d89e24a4ab3c34b",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::UserCard",
+      "name" : "UserCard",
+      "startLine" : 1,
+      "structuralHash" : "59b7f612e96b7c0c"
+    }
+  ],
+  "tsx/type-with-methods/after" : [
+    {
+      "content" : "class Counter extends React.Component<{}, { count: number }> {\n  state = { count: 0 };\n\n  increment(): void {\n    this.setState({ count: this.state.count + 1 });\n  }\n\n  render() {\n    return <button onClick={() => this.increment()}>{this.state.count}</button>;\n  }\n}",
+      "contentHash" : "e0b1155e957c38d7",
+      "endLine" : 11,
+      "entityType" : "class",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "887352fb75411bed"
+    },
+    {
+      "content" : "state = { count: 0 }",
+      "contentHash" : "5d0702245efbd81f",
+      "endLine" : 2,
+      "entityType" : "field",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::inline.tsx::class::Counter::state",
+      "name" : "state",
+      "parentID" : "inline.tsx::class::Counter",
+      "startLine" : 2,
+      "structuralHash" : "3f0a12897d2e1667"
+    },
+    {
+      "content" : "increment(): void {\n    this.setState({ count: this.state.count + 1 });\n  }",
+      "contentHash" : "79244b001e24bd13",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::inline.tsx::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.tsx::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "61851b0956102a28"
+    },
+    {
+      "content" : "render() {\n    return <button onClick={() => this.increment()}>{this.state.count}</button>;\n  }",
+      "contentHash" : "e9caaca3642bb1b4",
+      "endLine" : 10,
+      "entityType" : "method",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::inline.tsx::class::Counter::render",
+      "name" : "render",
+      "parentID" : "inline.tsx::class::Counter",
+      "startLine" : 8,
+      "structuralHash" : "179bdb650379ee9b"
+    }
+  ],
+  "tsx/type-with-methods/before" : [
+    {
+      "content" : "class Counter extends React.Component<{}, { count: number }> {\n  state = { count: 0 };\n\n  increment(): void {\n    this.setState({ count: this.state.count + 1 });\n  }\n}",
+      "contentHash" : "1f44b53cb7ccae47",
+      "endLine" : 7,
+      "entityType" : "class",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "60ee725f35100b86"
+    },
+    {
+      "content" : "state = { count: 0 }",
+      "contentHash" : "5d0702245efbd81f",
+      "endLine" : 2,
+      "entityType" : "field",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::inline.tsx::class::Counter::state",
+      "name" : "state",
+      "parentID" : "inline.tsx::class::Counter",
+      "startLine" : 2,
+      "structuralHash" : "3f0a12897d2e1667"
+    },
+    {
+      "content" : "increment(): void {\n    this.setState({ count: this.state.count + 1 });\n  }",
+      "contentHash" : "79244b001e24bd13",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::inline.tsx::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.tsx::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "61851b0956102a28"
+    }
+  ],
+  "tsx/whitespace-and-comments/after" : [
+    {
+      "content" : "function Greeting(props:   { name: string }) {\n  // The heading of the page.\n  return   <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "8d7170c1fd204d8d",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "858afc88452723c8"
+    }
+  ],
+  "tsx/whitespace-and-comments/before" : [
+    {
+      "content" : "function Greeting(props: { name: string }) {\n  return <h1>Hello, {props.name}</h1>;\n}",
+      "contentHash" : "8734c1114d67fb77",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.tsx",
+      "id" : "inline.tsx::function::Greeting",
+      "name" : "Greeting",
+      "startLine" : 1,
+      "structuralHash" : "858afc88452723c8"
+    }
+  ],
+  "typescript/function-added/after" : [
+    {
+      "content" : "function area(width: number, height: number): number {\n  return width * height;\n}",
+      "contentHash" : "becafafa492db7c9",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "f884edcea19098a1"
+    },
+    {
+      "content" : "function perimeter(width: number, height: number): number {\n  return 2 * (width + height);\n}",
+      "contentHash" : "a35759938a9811cf",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "fa4c732559e22637"
+    }
+  ],
+  "typescript/function-added/before" : [
+    {
+      "content" : "function area(width: number, height: number): number {\n  return width * height;\n}",
+      "contentHash" : "becafafa492db7c9",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "f884edcea19098a1"
+    }
+  ],
+  "typescript/function-deleted/after" : [
+    {
+      "content" : "function area(width: number, height: number): number {\n  return width * height;\n}",
+      "contentHash" : "becafafa492db7c9",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "f884edcea19098a1"
+    }
+  ],
+  "typescript/function-deleted/before" : [
+    {
+      "content" : "function area(width: number, height: number): number {\n  return width * height;\n}",
+      "contentHash" : "becafafa492db7c9",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "f884edcea19098a1"
+    },
+    {
+      "content" : "function perimeter(width: number, height: number): number {\n  return 2 * (width + height);\n}",
+      "contentHash" : "a35759938a9811cf",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "fa4c732559e22637"
+    }
+  ],
+  "typescript/function-modified/after" : [
+    {
+      "content" : "function area(width: number, height: number): number {\n  return width * height / 2;\n}",
+      "contentHash" : "f34e0fe7bee29288",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "ce898ad759ecd55e"
+    },
+    {
+      "content" : "function perimeter(width: number, height: number): number {\n  return 2 * (width + height);\n}",
+      "contentHash" : "a35759938a9811cf",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "fa4c732559e22637"
+    }
+  ],
+  "typescript/function-modified/before" : [
+    {
+      "content" : "function area(width: number, height: number): number {\n  return width * height;\n}",
+      "contentHash" : "becafafa492db7c9",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "f884edcea19098a1"
+    },
+    {
+      "content" : "function perimeter(width: number, height: number): number {\n  return 2 * (width + height);\n}",
+      "contentHash" : "a35759938a9811cf",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "fa4c732559e22637"
+    }
+  ],
+  "typescript/function-moved/after" : [
+    {
+      "content" : "function perimeter(width: number, height: number): number {\n  return 2 * (width + height);\n}",
+      "contentHash" : "a35759938a9811cf",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 1,
+      "structuralHash" : "fa4c732559e22637"
+    }
+  ],
+  "typescript/function-moved/before" : [
+    {
+      "content" : "function area(width: number, height: number): number {\n  return width * height;\n}",
+      "contentHash" : "becafafa492db7c9",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "f884edcea19098a1"
+    },
+    {
+      "content" : "function perimeter(width: number, height: number): number {\n  return 2 * (width + height);\n}",
+      "contentHash" : "a35759938a9811cf",
+      "endLine" : 7,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::perimeter",
+      "name" : "perimeter",
+      "startLine" : 5,
+      "structuralHash" : "fa4c732559e22637"
+    }
+  ],
+  "typescript/function-renamed/after" : [
+    {
+      "content" : "function orderTotal(items: Item[], taxRate: number): number {\n  const subtotal = items.reduce((sum, item) => sum + item.price, 0);\n  const tax = subtotal * taxRate;\n  return subtotal + tax;\n}",
+      "contentHash" : "3b743098efcf5f9f",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::orderTotal",
+      "name" : "orderTotal",
+      "startLine" : 1,
+      "structuralHash" : "6c9ded80a8052b80"
+    }
+  ],
+  "typescript/function-renamed/before" : [
+    {
+      "content" : "function totalPrice(items: Item[], taxRate: number): number {\n  const subtotal = items.reduce((sum, item) => sum + item.price, 0);\n  const tax = subtotal * taxRate;\n  return subtotal + tax;\n}",
+      "contentHash" : "280acbb3b4851aae",
+      "endLine" : 5,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::totalPrice",
+      "name" : "totalPrice",
+      "startLine" : 1,
+      "structuralHash" : "1654d05ec02fac44"
+    }
+  ],
+  "typescript/interface/after" : [
+    {
+      "content" : "interface Shape {\n  area(): number;\n  perimeter(): number;\n}",
+      "contentHash" : "71699e137108a47d",
+      "endLine" : 4,
+      "entityType" : "interface",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::interface::Shape",
+      "name" : "Shape",
+      "startLine" : 1,
+      "structuralHash" : "3def835ea95ee4fd"
+    }
+  ],
+  "typescript/interface/before" : [
+    {
+      "content" : "interface Shape {\n  area(): number;\n}",
+      "contentHash" : "17be1b6fff80b817",
+      "endLine" : 3,
+      "entityType" : "interface",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::interface::Shape",
+      "name" : "Shape",
+      "startLine" : 1,
+      "structuralHash" : "a920fb1ba0b629a6"
+    }
+  ],
+  "typescript/type-alias/after" : [
+    {
+      "content" : "type Point = { x: number; y: number; z: number };",
+      "contentHash" : "08dfda16b3c06d1e",
+      "endLine" : 1,
+      "entityType" : "type",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::type::Point",
+      "name" : "Point",
+      "startLine" : 1,
+      "structuralHash" : "cc165fdb184bbd33"
+    }
+  ],
+  "typescript/type-alias/before" : [
+    {
+      "content" : "type Point = { x: number; y: number };",
+      "contentHash" : "a9ed824dc7401902",
+      "endLine" : 1,
+      "entityType" : "type",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::type::Point",
+      "name" : "Point",
+      "startLine" : 1,
+      "structuralHash" : "4161e477075261af"
+    }
+  ],
+  "typescript/type-with-methods/after" : [
+    {
+      "content" : "class Counter {\n  private count = 0;\n\n  increment(): void {\n    this.count += 1;\n  }\n\n  value(): number {\n    return this.count;\n  }\n}",
+      "contentHash" : "9e20f7ba05b2eba5",
+      "endLine" : 11,
+      "entityType" : "class",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "e4265a58c33f82b8"
+    },
+    {
+      "content" : "private count = 0",
+      "contentHash" : "8ec7de6e78170a17",
+      "endLine" : 2,
+      "entityType" : "field",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::inline.ts::class::Counter::count",
+      "name" : "count",
+      "parentID" : "inline.ts::class::Counter",
+      "startLine" : 2,
+      "structuralHash" : "91a5c42bb051d344"
+    },
+    {
+      "content" : "increment(): void {\n    this.count += 1;\n  }",
+      "contentHash" : "fcc377d6e9f06640",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::inline.ts::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.ts::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "6c8ef5b9a5de29ed"
+    },
+    {
+      "content" : "value(): number {\n    return this.count;\n  }",
+      "contentHash" : "140f83529a63974e",
+      "endLine" : 10,
+      "entityType" : "method",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::inline.ts::class::Counter::value",
+      "name" : "value",
+      "parentID" : "inline.ts::class::Counter",
+      "startLine" : 8,
+      "structuralHash" : "d3542e26ef1a44f0"
+    }
+  ],
+  "typescript/type-with-methods/before" : [
+    {
+      "content" : "class Counter {\n  private count = 0;\n\n  increment(): void {\n    this.count += 1;\n  }\n}",
+      "contentHash" : "de563f4ad2e961c4",
+      "endLine" : 7,
+      "entityType" : "class",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::class::Counter",
+      "name" : "Counter",
+      "startLine" : 1,
+      "structuralHash" : "9974dad328367742"
+    },
+    {
+      "content" : "private count = 0",
+      "contentHash" : "8ec7de6e78170a17",
+      "endLine" : 2,
+      "entityType" : "field",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::inline.ts::class::Counter::count",
+      "name" : "count",
+      "parentID" : "inline.ts::class::Counter",
+      "startLine" : 2,
+      "structuralHash" : "91a5c42bb051d344"
+    },
+    {
+      "content" : "increment(): void {\n    this.count += 1;\n  }",
+      "contentHash" : "fcc377d6e9f06640",
+      "endLine" : 6,
+      "entityType" : "method",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::inline.ts::class::Counter::increment",
+      "name" : "increment",
+      "parentID" : "inline.ts::class::Counter",
+      "startLine" : 4,
+      "structuralHash" : "6c8ef5b9a5de29ed"
+    }
+  ],
+  "typescript/whitespace-and-comments/after" : [
+    {
+      "content" : "function area(width: number,   height: number): number {\n  // The area of the rectangle.\n  return width   *   height;\n}",
+      "contentHash" : "3dfdcfa1bdd82a58",
+      "endLine" : 4,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "f884edcea19098a1"
+    }
+  ],
+  "typescript/whitespace-and-comments/before" : [
+    {
+      "content" : "function area(width: number, height: number): number {\n  return width * height;\n}",
+      "contentHash" : "becafafa492db7c9",
+      "endLine" : 3,
+      "entityType" : "function",
+      "filePath" : "inline.ts",
+      "id" : "inline.ts::function::area",
+      "name" : "area",
+      "startLine" : 1,
+      "structuralHash" : "f884edcea19098a1"
+    }
+  ]
+}

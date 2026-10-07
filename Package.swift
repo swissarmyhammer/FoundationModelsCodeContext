@@ -12,6 +12,7 @@ let packageName = "FoundationModelsCodeContext"
 // can't run the tree-sitter CLI codegen step), so it is pinned to the
 // `-with-generated-files` tag that does. The other grammars commit generated
 // sources directly, so plain semver pins work.
+let treeSitterRuntimePackage = "tree-sitter"
 let treeSitterSwiftPackage = "tree-sitter-swift"
 let treeSitterRustPackage = "tree-sitter-rust"
 let treeSitterTypeScriptPackage = "tree-sitter-typescript"
@@ -169,16 +170,27 @@ let package = Package(
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", exact: "0.25.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
         .package(url: "https://github.com/alex-pinkus/\(treeSitterSwiftPackage)", exact: "0.7.4-with-generated-files"),
-        .package(url: "\(treeSitterOrgURL)\(treeSitterRustPackage)", from: "0.24.0"),
+        // The tree-sitter C runtime that SwiftTreeSitter wraps. `CodeEntities`
+        // imports its `TreeSitter` module for `TSInputEncodingUTF8`: the parse
+        // reads UTF-8 bytes, thus each byte offset is a UTF-8 offset, as in the
+        // Rust `swissarmyhammer-sem` crate. The URL is the URL that
+        // SwiftTreeSitter writes, thus SwiftPM resolves one copy. Pinned exact:
+        // a new runtime can change a parse.
+        .package(url: "\(treeSitterOrgURL)\(treeSitterRuntimePackage)", exact: "0.25.10"),
+        // The code grammars are pinned exact. `CodeEntities` gives the entity
+        // values of the Rust `swissarmyhammer-sem` crate, and the
+        // `CodeEntitiesGoldenTests` snapshots pin those values. A new grammar
+        // can change a parse, thus a version change needs a new snapshot.
+        .package(url: "\(treeSitterOrgURL)\(treeSitterRustPackage)", exact: "0.24.2"),
         // The Python and JavaScript grammars are local targets, not packages.
         // See `treeSitterJavaScriptTargetName` above.
-        .package(url: "\(treeSitterOrgURL)\(treeSitterTypeScriptPackage)", from: "0.23.2"),
-        .package(url: "\(treeSitterOrgURL)\(treeSitterGoPackage)", from: "0.23.4"),
-        .package(url: "\(treeSitterOrgURL)\(treeSitterCPackage)", from: "0.24.1"),
-        .package(url: "\(treeSitterOrgURL)\(treeSitterCPPPackage)", from: "0.23.4"),
-        .package(url: "\(treeSitterOrgURL)\(treeSitterJavaPackage)", from: "0.23.5"),
-        .package(url: "\(treeSitterOrgURL)\(treeSitterCSharpPackage)", from: "0.23.1"),
-        .package(url: "\(treeSitterOrgURL)\(treeSitterPHPPackage)", from: "0.23.11"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterTypeScriptPackage)", exact: "0.23.2"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterGoPackage)", exact: "0.25.0"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterCPackage)", exact: "0.24.2"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterCPPPackage)", exact: "0.23.4"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterJavaPackage)", exact: "0.23.5"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterCSharpPackage)", exact: "0.23.5"),
+        .package(url: "\(treeSitterOrgURL)\(treeSitterPHPPackage)", exact: "0.25.1"),
         .package(url: "\(treeSitterOrgURL)\(treeSitterJSONPackage)", from: "0.24.0"),
         // Pinned exact: v0.7.1+ manifests gate `src/scanner.c` on
         // `FileManager.default.fileExists(atPath:)` — the same
@@ -189,10 +201,8 @@ let package = Package(
         // `src/scanner.c` unconditionally.
         .package(url: "\(treeSitterGrammarsOrgURL)\(treeSitterYAMLPackage)", exact: "0.7.0"),
         .package(url: "\(treeSitterGrammarsOrgURL)\(treeSitterMarkdownPackage)", from: "0.5.0"),
-        .package(url: "\(treeSitterOrgURL)\(treeSitterBashPackage)", from: "0.25.0"),
-        // Pinned exact: FoundationModelsMultitool links these grammars through
-        // this package, and its golden tests compare each parse with the Rust
-        // `swissarmyhammer-sem` crate, which uses these versions. Both
+        .package(url: "\(treeSitterOrgURL)\(treeSitterBashPackage)", exact: "0.25.1"),
+        // Pinned exact for the same reason as the code grammars above. Both
         // manifests list `src/scanner.c` with no `FileManager` check.
         .package(url: "\(treeSitterOrgURL)\(treeSitterRubyPackage)", exact: "0.23.1"),
         .package(url: "https://github.com/elixir-lang/\(treeSitterElixirPackage)", exact: "0.3.5"),
@@ -213,6 +223,7 @@ let package = Package(
                 // call and the index pass use it.
                 .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
+                .product(name: "TreeSitter", package: treeSitterRuntimePackage),
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Tracing", package: tracingPackage),
                 .product(name: "Logging", package: loggingPackage),
@@ -254,7 +265,9 @@ let package = Package(
             // `scripted-lsp-server.swift` is a standalone script launched via
             // `/usr/bin/env swift <path>` as a scripted subprocess in
             // ConnectionTests — not a source file of this test module.
-            exclude: ["Support/scripted-lsp-server.swift"]
+            // `Goldens/` holds the JSON fixtures that the tests read from the
+            // disk through `PackagePaths`, not through a resource bundle.
+            exclude: ["Support/scripted-lsp-server.swift", "Goldens"]
         ),
         // Standalone, single-root "way in" example (see plan.md's Goal and the
         // package README). It is a thin script over the public API of this
