@@ -10,13 +10,11 @@ let packageName = "FoundationModelsCodeContext"
 // Per-language tree-sitter grammar packages. `alex-pinkus/tree-sitter-swift`
 // does not commit generated parser sources on its default branch (SwiftPM
 // can't run the tree-sitter CLI codegen step), so it is pinned to the
-// `-with-generated-files` tag that does. The `tree-sitter` org's Rust/Python
-// grammars commit generated sources directly, so plain semver pins work.
+// `-with-generated-files` tag that does. The other grammars commit generated
+// sources directly, so plain semver pins work.
 let treeSitterSwiftPackage = "tree-sitter-swift"
 let treeSitterRustPackage = "tree-sitter-rust"
-let treeSitterPythonPackage = "tree-sitter-python"
 let treeSitterTypeScriptPackage = "tree-sitter-typescript"
-let treeSitterJavaScriptPackage = "tree-sitter-javascript"
 let treeSitterGoPackage = "tree-sitter-go"
 let treeSitterCPackage = "tree-sitter-c"
 let treeSitterCPPPackage = "tree-sitter-cpp"
@@ -27,6 +25,53 @@ let treeSitterJSONPackage = "tree-sitter-json"
 let treeSitterYAMLPackage = "tree-sitter-yaml"
 let treeSitterMarkdownPackage = "tree-sitter-markdown"
 let treeSitterBashPackage = "tree-sitter-bash"
+let treeSitterRubyPackage = "tree-sitter-ruby"
+let treeSitterElixirPackage = "tree-sitter-elixir"
+
+// The local C targets that hold the JavaScript and the Python grammars.
+// Each target holds the files of the tag `v0.25.0` of its upstream repo
+// (`tree-sitter/tree-sitter-javascript`, `tree-sitter/tree-sitter-python`)
+// with no change: `src/parser.c`, `src/scanner.c`, the headers in
+// `src/tree_sitter/`, the header of `bindings/swift/<Module>/` (here in
+// `include/`), and the MIT license of the grammar (`LICENSE`).
+//
+// Why a local target and not the package: the v0.25.0 manifests add
+// `src/scanner.c` to their sources only when
+// `FileManager.default.fileExists(atPath: "src/scanner.c")` is true. That
+// path is relative to the folder of the top-level build, not to the
+// package, thus a package that depends on the grammar does not compile the
+// scanner, and the link fails with undefined
+// `tree_sitter_<language>_external_scanner_*` symbols. A local target needs
+// no step on the host. When a released tag lists the scanner in its
+// manifest, the package can replace the target.
+let treeSitterJavaScriptTargetName = "TreeSitterJavaScript"
+let treeSitterPythonTargetName = "TreeSitterPython"
+
+// The upstream scanner of `treeSitterPythonTargetName`. The target does not
+// compile it directly: it compiles `scanner_build.c`, which includes it.
+// The C compiler of a root package enables `-Wshorten-64-to-32`, and this
+// file gives three such warnings. `scanner_build.c` stops that one warning,
+// thus the upstream file stays with no change.
+let treeSitterPythonScannerSource = "src/scanner.c"
+
+// The license file of a local grammar target. It is not an input of the
+// build, thus the target excludes it.
+let grammarLicenseFileName = "LICENSE"
+
+/// Builds the local C target of a grammar under `Sources/`.
+///
+/// SwiftPM compiles each `.c` file of the folder, and the folder `include/`
+/// holds the public header. The upstream files keep their upstream place in
+/// `src/`, thus `#include "tree_sitter/parser.h"` finds the header next to
+/// the file.
+///
+/// - Parameters:
+///   - name: The name of the target, of its module, and of its folder.
+///   - includedSources: The upstream `.c` files that a build unit of the
+///     target includes, thus SwiftPM must not compile them a second time.
+func localGrammarTarget(name: String, includedSources: [String] = []) -> Target {
+    .target(name: name, path: "Sources/\(name)", exclude: [grammarLicenseFileName] + includedSources)
+}
 
 // The telemetry APIs (the OpenTelemetry design of 2026-09-28). These are
 // abstractions, not exporters. The library target links the APIs only: it
@@ -64,14 +109,14 @@ let treeSitterGrammarsOrgURL = "https://github.com/tree-sitter-grammars/"
 let grammarProducts: [Target.Dependency] = [
     .product(name: "TreeSitterSwift", package: treeSitterSwiftPackage),
     .product(name: "TreeSitterRust", package: treeSitterRustPackage),
-    .product(name: "TreeSitterPython", package: treeSitterPythonPackage),
+    .target(name: treeSitterPythonTargetName),
     // `tree-sitter-typescript` bundles both the TypeScript and TSX grammars
     // as two targets under a single "TreeSitterTypeScript" library product
     // (no separate "TreeSitterTSX" product exists upstream); depending on
     // that one product makes both the `TreeSitterTypeScript` and
     // `TreeSitterTSX` modules importable.
     .product(name: "TreeSitterTypeScript", package: treeSitterTypeScriptPackage),
-    .product(name: "TreeSitterJavaScript", package: treeSitterJavaScriptPackage),
+    .target(name: treeSitterJavaScriptTargetName),
     .product(name: "TreeSitterGo", package: treeSitterGoPackage),
     .product(name: "TreeSitterC", package: treeSitterCPackage),
     .product(name: "TreeSitterCPP", package: treeSitterCPPPackage),
@@ -88,6 +133,8 @@ let grammarProducts: [Target.Dependency] = [
     // `MarkdownLanguage` doesn't need — see its doc comment.
     .product(name: "TreeSitterMarkdown", package: treeSitterMarkdownPackage),
     .product(name: "TreeSitterBash", package: treeSitterBashPackage),
+    .product(name: "TreeSitterRuby", package: treeSitterRubyPackage),
+    .product(name: "TreeSitterElixir", package: treeSitterElixirPackage),
 ]
 
 let package = Package(
@@ -123,22 +170,9 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
         .package(url: "https://github.com/alex-pinkus/\(treeSitterSwiftPackage)", exact: "0.7.4-with-generated-files"),
         .package(url: "\(treeSitterOrgURL)\(treeSitterRustPackage)", from: "0.24.0"),
-        // Pinned exact: v0.24.0+ manifests gate `src/scanner.c` on
-        // `FileManager.default.fileExists(atPath:)`, which resolves against
-        // the *top-level build's* working directory rather than this
-        // package's own checkout, so the external scanner silently drops
-        // out of the build and the linker fails with undefined
-        // `tree_sitter_python_external_scanner_*` symbols. v0.23.6 still
-        // lists `src/scanner.c` unconditionally.
-        .package(url: "\(treeSitterOrgURL)\(treeSitterPythonPackage)", exact: "0.23.6"),
+        // The Python and JavaScript grammars are local targets, not packages.
+        // See `treeSitterJavaScriptTargetName` above.
         .package(url: "\(treeSitterOrgURL)\(treeSitterTypeScriptPackage)", from: "0.23.2"),
-        // Pinned exact: the same `src/scanner.c`-gated-on-`FileManager` issue
-        // documented above for `tree-sitter-python` also hits
-        // `tree-sitter-javascript` starting at v0.25.0 (unresolved path
-        // check drops the external scanner and the linker fails with
-        // undefined `tree_sitter_javascript_external_scanner_*` symbols).
-        // v0.23.1 still lists `src/scanner.c` unconditionally.
-        .package(url: "\(treeSitterOrgURL)\(treeSitterJavaScriptPackage)", exact: "0.23.1"),
         .package(url: "\(treeSitterOrgURL)\(treeSitterGoPackage)", from: "0.23.4"),
         .package(url: "\(treeSitterOrgURL)\(treeSitterCPackage)", from: "0.24.1"),
         .package(url: "\(treeSitterOrgURL)\(treeSitterCPPPackage)", from: "0.23.4"),
@@ -156,6 +190,12 @@ let package = Package(
         .package(url: "\(treeSitterGrammarsOrgURL)\(treeSitterYAMLPackage)", exact: "0.7.0"),
         .package(url: "\(treeSitterGrammarsOrgURL)\(treeSitterMarkdownPackage)", from: "0.5.0"),
         .package(url: "\(treeSitterOrgURL)\(treeSitterBashPackage)", from: "0.25.0"),
+        // Pinned exact: FoundationModelsMultitool links these grammars through
+        // this package, and its golden tests compare each parse with the Rust
+        // `swissarmyhammer-sem` crate, which uses these versions. Both
+        // manifests list `src/scanner.c` with no `FileManager` check.
+        .package(url: "\(treeSitterOrgURL)\(treeSitterRubyPackage)", exact: "0.23.1"),
+        .package(url: "https://github.com/elixir-lang/\(treeSitterElixirPackage)", exact: "0.3.5"),
         // The same version ranges as FoundationModelsRouter and FoundationModelsExtras, so
         // that one graph resolves each telemetry API to one version.
         .package(url: "https://github.com/apple/\(tracingPackage).git", from: "1.4.1"),
@@ -180,6 +220,11 @@ let package = Package(
             ] + grammarProducts,
             path: "Sources/\(packageName)"
         ),
+        // The JavaScript and Python grammars of `grammarProducts`. See
+        // `treeSitterJavaScriptTargetName` for the upstream tag and for the
+        // reason that they are local.
+        localGrammarTarget(name: treeSitterJavaScriptTargetName),
+        localGrammarTarget(name: treeSitterPythonTargetName, includedSources: [treeSitterPythonScannerSource]),
         .testTarget(
             name: "\(packageName)Tests",
             dependencies: [

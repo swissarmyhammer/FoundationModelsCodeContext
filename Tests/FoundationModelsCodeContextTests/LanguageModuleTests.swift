@@ -39,6 +39,7 @@ struct LanguageModuleTests {
                 "typescript", "tsx", "javascript", "go",
                 "c", "cpp", "java", "csharp", "php",
                 "sql", "json", "yaml", "markdown", "bash",
+                "ruby", "elixir",
             ])
     }
 
@@ -89,6 +90,15 @@ struct LanguageModuleTests {
         #expect(Languages.module(forFileExtension: "yml")?.name == "yaml")
         #expect(Languages.module(forFileExtension: "md")?.name == "markdown")
         #expect(Languages.module(forFileExtension: "sh")?.name == "bash")
+    }
+
+    @Test
+    func moduleForFileExtensionResolvesRubyAndElixir() {
+        #expect(Languages.module(forFileExtension: "rb")?.name == "ruby")
+        #expect(Languages.module(forFileExtension: "rake")?.name == "ruby")
+        #expect(Languages.module(forFileExtension: "gemspec")?.name == "ruby")
+        #expect(Languages.module(forFileExtension: "ex")?.name == "elixir")
+        #expect(Languages.module(forFileExtension: "exs")?.name == "elixir")
     }
 
     @Test
@@ -234,6 +244,23 @@ struct LanguageModuleTests {
     }
 
     @Test
+    func rubyChunkKindsMapMethodTypeAndModuleKinds() {
+        #expect(RubyLanguage.chunkKinds["method"] == .method)
+        #expect(RubyLanguage.chunkKinds["singleton_method"] == .method)
+        #expect(RubyLanguage.chunkKinds["class"] == .type)
+        // A module declares a namespace or a mixin, not a type.
+        #expect(RubyLanguage.chunkKinds["module"] == .other)
+        #expect(RubyLanguage.containerNodeKinds == ["module"])
+    }
+
+    @Test
+    func elixirChunkKindsMapCallToOther() {
+        // Each Elixir definition is a `call` to a macro, thus the node kind
+        // alone does not tell which definition it is.
+        #expect(ElixirLanguage.chunkKinds == ["call": .other])
+    }
+
+    @Test
     func serverSpecDefaultsMatchPlan() {
         let spec = ServerSpec(command: "rust-analyzer", languageIDs: ["rust"], installHint: "install it")
         #expect(spec.startupTimeout == .seconds(30))
@@ -315,11 +342,25 @@ struct LanguageModuleTests {
         // swift/rust/python plus the eight LSP-backed ones added afterward)
         // has an LSP server spec; the five tree-sitter-only format modules
         // (sql, json, yaml, markdown, bash) added afterward intentionally
-        // have none.
-        let treeSitterOnlyFormats: Set<String> = ["sql", "json", "yaml", "markdown", "bash"]
-        for module in Languages.all where !treeSitterOnlyFormats.contains(module.name) {
+        // have none. Elixir has none too: `builtin/lsp/*.yaml` has no Elixir
+        // server.
+        let modulesWithNoServer: Set<String> = ["sql", "json", "yaml", "markdown", "bash", "elixir"]
+        for module in Languages.all where !modulesWithNoServer.contains(module.name) {
             #expect(module.languageServer != nil)
         }
+    }
+
+    @Test
+    func elixirHasNoLanguageServer() {
+        #expect(ElixirLanguage.languageServer == nil)
+    }
+
+    @Test
+    func rubyLanguageServerIsSolargraphOverStdio() {
+        let spec = RubyLanguage.languageServer
+        #expect(spec?.command == "solargraph")
+        #expect(spec?.arguments == ["stdio"])
+        #expect(spec?.languageIDs == ["ruby"])
     }
 
     @Test
@@ -409,5 +450,41 @@ struct LanguageModuleTests {
     func bashGrammarParsesWithoutError() throws {
         let language = try #require(BashLanguage.treeSitterLanguage)
         #expect(try parsesWithoutError(source: "greet() {\n  echo \"hi\"\n}\n", language: language))
+    }
+
+    @Test
+    func pythonGrammarParsesWithoutError() throws {
+        let language = try #require(PythonLanguage.treeSitterLanguage)
+        // A triple-quoted string and an indented block use the external
+        // scanner, thus this parse fails when the scanner is not linked.
+        #expect(
+            try parsesWithoutError(
+                source: "class Greeter:\n    def greet(self):\n        \"\"\"Doc.\"\"\"\n        return 1\n",
+                language: language))
+    }
+
+    @Test
+    func javaScriptTemplateStringParsesWithoutError() throws {
+        let language = try #require(JavaScriptLanguage.treeSitterLanguage)
+        // A template string uses the external scanner of the grammar.
+        #expect(try parsesWithoutError(source: "const s = `hi ${name}`;", language: language))
+    }
+
+    @Test
+    func rubyGrammarParsesWithoutError() throws {
+        let language = try #require(RubyLanguage.treeSitterLanguage)
+        #expect(
+            try parsesWithoutError(
+                source: "module Outer\n  class Greeter\n    def greet(name)\n      \"hi #{name}\"\n    end\n  end\nend\n",
+                language: language))
+    }
+
+    @Test
+    func elixirGrammarParsesWithoutError() throws {
+        let language = try #require(ElixirLanguage.treeSitterLanguage)
+        #expect(
+            try parsesWithoutError(
+                source: "defmodule Greeter do\n  def greet(name), do: \"hi #{name}\"\nend\n",
+                language: language))
     }
 }

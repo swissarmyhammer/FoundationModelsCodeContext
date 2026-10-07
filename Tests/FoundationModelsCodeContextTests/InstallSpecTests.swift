@@ -102,6 +102,7 @@ struct InstallSpecTests {
             ("go", GoLanguage.languageServer),
             ("python", PythonLanguage.languageServer),
             ("java", JavaLanguage.languageServer),
+            ("ruby", RubyLanguage.languageServer),
         ]
         for module in modulesWithInstallers {
             guard let spec = module.spec else {

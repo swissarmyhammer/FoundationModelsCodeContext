@@ -21,10 +21,10 @@ import Foundation
 /// |------------|-----------------------------------|------------------|
 /// | Swift      | `alex-pinkus/tree-sitter-swift`   | yes (pinned to a `-with-generated-files` tag; see `Package.swift`) |
 /// | Rust       | `tree-sitter/tree-sitter-rust`    | yes |
-/// | Python     | `tree-sitter/tree-sitter-python`  | yes (pinned exact; see `Package.swift`) |
+/// | Python     | `tree-sitter/tree-sitter-python`  | local target (v0.25.0; see `Package.swift`) |
 /// | TypeScript | `tree-sitter/tree-sitter-typescript` | yes (bundles TSX too, see `TSXLanguage`) |
 /// | TSX        | `tree-sitter/tree-sitter-typescript` | yes (same package as TypeScript) |
-/// | JavaScript | `tree-sitter/tree-sitter-javascript` | yes (pinned exact; see `Package.swift`) |
+/// | JavaScript | `tree-sitter/tree-sitter-javascript` | local target (v0.25.0; see `Package.swift`) |
 /// | Go         | `tree-sitter/tree-sitter-go`      | yes |
 /// | C          | `tree-sitter/tree-sitter-c`       | yes |
 /// | C++        | `tree-sitter/tree-sitter-cpp`     | yes |
@@ -35,6 +35,8 @@ import Foundation
 /// | YAML       | `tree-sitter-grammars/tree-sitter-yaml` | yes (pinned exact; see `Package.swift`) |
 /// | Markdown   | `tree-sitter-grammars/tree-sitter-markdown` | yes |
 /// | Bash       | `tree-sitter/tree-sitter-bash`    | yes |
+/// | Ruby       | `tree-sitter/tree-sitter-ruby`    | yes (pinned exact; see `Package.swift`) |
+/// | Elixir     | `elixir-lang/tree-sitter-elixir`  | yes (pinned exact; see `Package.swift`) |
 /// | SQL        | `DerekStride/tree-sitter-sql`     | **no** — the generated `src/parser.c` isn't committed to git (only `src/scanner.c` is); `SQLLanguage.treeSitterLanguage` is `nil` until a working wrapper exists — see `SQLLanguage`'s doc comment |
 ///
 /// A future language whose grammar has no upstream SwiftPM support follows
@@ -46,7 +48,7 @@ public enum Languages {
     /// Every registered language module, in the order new modules were
     /// ported: swift, rust, python, then the LSP-backed remainder of the v1
     /// set (plan.md port order step 4), then the tree-sitter-only format
-    /// modules (sql, json, yaml, markdown, bash).
+    /// modules (sql, json, yaml, markdown, bash), then ruby and elixir.
     public static let all: [any LanguageModule.Type] = [
         SwiftLanguage.self,
         RustLanguage.self,
@@ -65,6 +67,8 @@ public enum Languages {
         YAMLLanguage.self,
         MarkdownLanguage.self,
         BashLanguage.self,
+        RubyLanguage.self,
+        ElixirLanguage.self,
     ]
 
     /// Looks up the module registered for a file extension.
