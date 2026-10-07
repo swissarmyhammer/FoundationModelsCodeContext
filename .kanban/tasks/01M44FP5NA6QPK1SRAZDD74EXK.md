@@ -30,8 +30,25 @@ comments:
     - evidence: 7 files — Sources/FoundationModelsCodeContext/Index/Watcher.swift, Sources/FoundationModelsCodeContext/CodeContext.swift, Sources/FoundationModelsCodeContext/CodeContextManager.swift, Tests/FoundationModelsCodeContextTests/WatcherTests.swift, Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift, Tests/FoundationModelsCodeContextTests/FileEventSourcePublicAPITests.swift (new), Tests/FoundationModelsCodeContextTests/Support/RecordingFileEventSource.swift (new), plus plan.md. `swift test`: 765 tests in 69 suites passed, 0 failed. `swift test --package-path IntegrationTests --filter RealFSEventsWatcherTests`: 1 passed. `swift format lint` on the changed Swift files: clean. The only build warnings come from SwiftPM and the mlx-swift checkout, not from this package.
     - next: /review. Subtask 4 (push to main, tell FoundationModelsACPAgent the commit id) is for the commit step.
   timestamp: 2026-10-07T14:15:21.493424+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4bbw918fnbdymd8188fbqmy
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (b60be28). 0 findings, 0 confirmed, 0 refuted. 7 files reviewed, 0 failed. Not reviewed: .kanban/ (2 files, .reviewignore), plan.md (no validator).
+    - next: The user must do the open subtask: push to main, and tell the FoundationModelsACPAgent session the commit id. The pipeline does not push.
+  timestamp: 2026-10-07T14:22:02.280398+00:00
+- actor: claude-code
+  id: 01m4bbwggwxwsh32pn75g2p8wg
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 8 files
+    - test: green — swift test, 765 passed; IntegrationTests RealFSEventsWatcherTests, 1 passed
+    - commit: b60be28
+    - review: clean — 0 findings
+    - open: subtask "push to main and tell the FoundationModelsACPAgent session the commit id" is for the user. The pipeline does not push.
+  timestamp: 2026-10-07T14:22:09.948533+00:00
+position_column: done
+position_ordinal: d880
 title: Watcher.start() calls FSEventStreamStart on a Swift cooperative thread, and fseventsd serializes the starts
 ---
 ## Why
