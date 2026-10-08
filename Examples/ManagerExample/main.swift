@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModelsCodeContext
+import FoundationModelsExtras
 
 /// A runnable executable demonstrating multi-root `CodeContextManager` lifecycle and fan-out queries.
 ///
@@ -11,9 +12,9 @@ import FoundationModelsCodeContext
 ///
 /// ## The caller supplies the embedding model
 ///
-/// This package loads no embedding model. The caller gives any `TextEmbedding` value to
+/// This package loads no embedding model. The caller gives any `PooledEmbedding` value to
 /// `CodeContextManager(embedder:)`, and the manager gives that one embedder to each root it opens. The protocol has
-/// one member: `embed(_:)`, which returns one unit-length vector for each text. The protocol declares no vector
+/// one member: `embed(texts:)`, which returns one unit-length vector for each text. The protocol declares no vector
 /// length: each `CodeContext` reads the length from the first vector that the embedder returns. A production host
 /// wraps its real model (for example an MLX embedder) in a small conformance with this one member. This file
 /// defines `HashingEmbedder`, a conformance that needs no model and no network (see `CodeContextExample` for more).
@@ -139,15 +140,15 @@ func firstRegularFile(under directory: URL) -> URL? {
     return nil
 }
 
-// MARK: - A caller-defined TextEmbedding
+// MARK: - A caller-defined PooledEmbedding
 
 // Each example keeps its own copy of `HashingEmbedder`. An executable target
 // cannot share source with a different executable target, and a shared target
 // for approximately 20 lines costs more than it gives.
 
-/// A `TextEmbedding` that needs no model: it counts hashed tokens.
+/// A `PooledEmbedding` that needs no model: it counts hashed tokens.
 ///
-/// This type shows all of the contract that a caller supplies: an `embed(_:)`
+/// This type shows all of the contract that a caller supplies: an `embed(texts:)`
 /// that returns one unit-length vector for each text. The embedder declares no
 /// vector length: CodeContext reads the length from the vectors. A production
 /// host puts its real model (for example an MLX embedder) behind the same
@@ -157,14 +158,14 @@ func firstRegularFile(under directory: URL) -> URL? {
 /// 64-bit FNV-1a hash of its UTF-8 bytes. Do not use `Hasher` or `hashValue`
 /// here: their seed changes in each process, and the index stays on disk in
 /// `<root>/.code-context`, so vectors from two runs would not match.
-private struct HashingEmbedder: TextEmbedding {
+private struct HashingEmbedder: PooledEmbedding {
     /// The 64-bit FNV-1a offset basis, the start value of each hash.
     private static let fnvOffsetBasis: UInt64 = 0xCBF2_9CE4_8422_2325
 
     /// The 64-bit FNV-1a prime, the multiplier for each byte.
     private static let fnvPrime: UInt64 = 0x0000_0100_0000_01B3
 
-    /// The length of each vector that `embed(_:)` returns.
+    /// The length of each vector that `embed(texts:)` returns.
     let vectorLength: Int
 
     /// Makes an embedder that returns vectors of `vectorLength` length.
@@ -181,7 +182,7 @@ private struct HashingEmbedder: TextEmbedding {
     ///
     /// - Parameter texts: The texts to embed.
     /// - Returns: One `vectorLength`-length vector for each text, in the order of `texts`.
-    func embed(_ texts: [String]) async throws -> [[Float]] {
+    func embed(texts: [String]) async throws -> [[Float]] {
         texts.map(vector(for:))
     }
 

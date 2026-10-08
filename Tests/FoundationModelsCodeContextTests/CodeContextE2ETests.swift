@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsExtras
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -25,7 +26,7 @@ struct CodeContextE2ETests {
     /// required to satisfy the general initializer's type).
     private static func makeCodeContext(
         rootDirectory: URL,
-        embedder: TextEmbedding
+        embedder: PooledEmbedding
     ) async throws -> CodeContext<FakeLanguageServerConnection> {
         try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: rootDirectory,

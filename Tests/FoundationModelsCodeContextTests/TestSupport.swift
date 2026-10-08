@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModelsCodeContext
+import FoundationModelsExtras
 import GRDB
 
 /// Creates a fresh temporary workspace directory for `body`, removed
@@ -38,22 +39,22 @@ func writeMostlyPythonTree(in root: URL) throws {
     try write("html:\n\tsphinx-build -b html . _build\n", to: "docs/Makefile", in: root)
 }
 
-/// A `TextEmbedding` that the caller defines, with no model and no network.
+/// A `PooledEmbedding` that the caller defines, with no model and no network.
 ///
 /// The public-API test suites use this type. Those suites see only the public
 /// API, so they cannot use the internal `FakeEmbedder`. The first entry of
 /// each vector is the character count of its text, and the other entries are
 /// zero. The vectors are not useful for search; the suites examine only that
 /// the public API accepts the type.
-struct CallerDefinedEmbedder: TextEmbedding {
-    /// The length of each vector that `embed(_:)` returns.
+struct CallerDefinedEmbedder: PooledEmbedding {
+    /// The length of each vector that `embed(texts:)` returns.
     let vectorLength: Int
 
     /// Returns one `vectorLength`-length vector for each text, in order.
     ///
     /// - Parameter texts: The texts to embed.
     /// - Returns: One vector for each text, in the order of `texts`.
-    func embed(_ texts: [String]) async throws -> [[Float]] {
+    func embed(texts: [String]) async throws -> [[Float]] {
         texts.map { text in
             [Float(text.count)] + Array(repeating: 0, count: vectorLength - 1)
         }

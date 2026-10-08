@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsExtras
 import FoundationModelsRanker
 import Tracing
 
@@ -268,7 +269,7 @@ public enum SearchCode {
     /// of the query is a child span of the search span.
     public static func run(
         corpus: SearchCorpus,
-        embedder: TextEmbedding?,
+        embedder: PooledEmbedding?,
         query: String,
         topK: Int = CodeContextDefaults.searchTopK,
         weights: SearchWeights = CodeContextDefaults.searchWeights,
@@ -371,7 +372,7 @@ public enum SearchCode {
     ///   `Signals.cosine`'s documented "no embedding" value).
     private static func computeCosineRanking(
         snapshot: SearchCorpusSnapshot,
-        embedder: TextEmbedding?,
+        embedder: PooledEmbedding?,
         query: String,
         tracer: (any Tracer)?
     ) async -> (ranking: [Int], scores: [Double]) {
@@ -395,7 +396,7 @@ public enum SearchCode {
     ///
     /// The embed call runs in one `CodeContextTracing.SpanName.embed` span
     /// through `tracer`, and writes one "enter" log record.
-    private static func embedQuery(embedder: TextEmbedding, query: String, tracer: (any Tracer)?) async -> [Float]? {
+    private static func embedQuery(embedder: PooledEmbedding, query: String, tracer: (any Tracer)?) async -> [Float]? {
         do {
             return try await CodeContextSpans.embed([query], with: embedder, tracer: tracer).first
         } catch {

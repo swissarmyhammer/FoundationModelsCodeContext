@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsExtras
 import Tracing
 
 @testable import FoundationModelsCodeContext
@@ -113,19 +114,19 @@ func withLiveContext<T: Sendable>(
     }
 }
 
-/// A deterministic, hash-based `TextEmbedding` test double.
+/// A deterministic, hash-based `PooledEmbedding` test double.
 ///
 /// The same input text always produces the same L2-normalized vector, derived
 /// from a stable FNV-1a hash of the text (not Swift's per-process `Hasher`,
 /// which is seed-randomized), so tests run without a real model or GPU. This
 /// copy drops the root unit target's injected-failure hook; this suite does
-/// not use it. The double declares no length: `TextEmbedding` has no
+/// not use it. The double declares no length: `PooledEmbedding` has no
 /// `dimension` requirement.
-struct FakeEmbedder: TextEmbedding {
+struct FakeEmbedder: PooledEmbedding {
     /// The length of every vector this embedder produces.
     let vectorLength: Int
 
-    func embed(_ texts: [String]) async throws -> [[Float]] {
+    func embed(texts: [String]) async throws -> [[Float]] {
         texts.map { text in Self.vector(forText: text, vectorLength: vectorLength) }
     }
 

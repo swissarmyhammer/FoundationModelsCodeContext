@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsExtras
 
 /// Owns and routes to one `CodeContext` per open workspace root, enforcing a strict
 /// non-overlapping-roots invariant across every root currently open.
@@ -41,7 +42,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// The embedder that each `CodeContext` of this manager receives. `nil` turns the embedding
     /// layer off for each `CodeContext` that this manager creates. Then `searchCode` and
     /// `findDuplicates` throw `CodeContextError.embeddingDisabled`.
-    private let embedder: TextEmbedding?
+    private let embedder: PooledEmbedding?
 
     /// The clock handed to every `CodeContext` this manager creates. Defaults to
     /// `ContinuousClock()`; tests inject a fake or manually-driven clock.
@@ -100,7 +101,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     ///   - connectionFactory: Spawns a fresh connection for every LSP daemon any created
     ///     `CodeContext`'s supervisor ends up needing.
     init(
-        embedder: TextEmbedding?,
+        embedder: PooledEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
         eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
@@ -389,7 +390,7 @@ extension CodeContextManager where Connection == ProcessLanguageServerConnection
     ///     `CodeContext` that this manager creates. Defaults to `FSEventsFileEventSource()`. Give
     ///     `nil` to turn the watchers off: then no FSEvents stream starts.
     public init(
-        embedder: TextEmbedding?,
+        embedder: PooledEmbedding?,
         autoInstall: LspAutoInstall = LspAutoInstall(),
         eventSource: (any FileEventSource)? = FSEventsFileEventSource()
     ) async {

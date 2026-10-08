@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsExtras
 import InMemoryLogging
 import InMemoryTracing
 import Testing
@@ -295,7 +296,7 @@ internal struct TracingSpanTests {
     /// - Parameters:
     ///   - embedder: The embedder of the context, or `nil` to turn the embedding layer off.
     ///   - tracer: The tracer of the context.
-    private static func runFirstIndexPass(embedder: TextEmbedding?, tracer: InMemoryTracer) async throws {
+    private static func runFirstIndexPass(embedder: PooledEmbedding?, tracer: InMemoryTracer) async throws {
         try await withTemporaryWorkspace { root in
             for index in 0..<fixtureFileCount {
                 try write("func greet\(index)() -> String {\n    \"hello\"\n}\n", to: "Greeter\(index).swift", in: root)
@@ -315,7 +316,7 @@ internal struct TracingSpanTests {
     /// - Returns: The context.
     private static func makeContext(
         root: URL,
-        embedder: TextEmbedding?,
+        embedder: PooledEmbedding?,
         tracer: InMemoryTracer
     ) async throws -> CodeContext<FakeLanguageServerConnection> {
         try await CodeContext<FakeLanguageServerConnection>(
@@ -334,7 +335,7 @@ internal struct TracingSpanTests {
     /// - Returns: The corpus.
     private static func makeEmbeddedCorpus(root: URL) async throws -> SearchCorpus {
         let store = try Store(rootDirectory: root)
-        let vectors = try await FakeEmbedder(vectorLength: embeddingDimension).embed([searchQuery])
+        let vectors = try await FakeEmbedder(vectorLength: embeddingDimension).embed(texts: [searchQuery])
         try await insertChunk(
             store: store,
             filePath: "Network.swift",

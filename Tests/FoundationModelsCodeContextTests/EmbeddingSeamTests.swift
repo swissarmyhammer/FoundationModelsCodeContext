@@ -15,8 +15,8 @@ struct EmbeddingSeamTests {
     func fakeEmbedderProducesTheSameVectorForTheSameTextEveryCall() async throws {
         let embedder = FakeEmbedder(vectorLength: 16)
 
-        let first = try await embedder.embed(["func add() {}"])
-        let second = try await embedder.embed(["func add() {}"])
+        let first = try await embedder.embed(texts: ["func add() {}"])
+        let second = try await embedder.embed(texts: ["func add() {}"])
 
         #expect(first == second)
     }
@@ -25,7 +25,7 @@ struct EmbeddingSeamTests {
     func fakeEmbedderProducesDifferentVectorsForDifferentText() async throws {
         let embedder = FakeEmbedder(vectorLength: 16)
 
-        let vectors = try await embedder.embed(["func add() {}", "func subtract() {}"])
+        let vectors = try await embedder.embed(texts: ["func add() {}", "func subtract() {}"])
 
         #expect(vectors[0] != vectors[1])
     }
@@ -34,7 +34,7 @@ struct EmbeddingSeamTests {
     func fakeEmbedderProducesL2NormalizedVectorsOfTheConfiguredDimension() async throws {
         let embedder = FakeEmbedder(vectorLength: 12)
 
-        let vectors = try await embedder.embed(["func add() {}", "struct Sample {}"])
+        let vectors = try await embedder.embed(texts: ["func add() {}", "struct Sample {}"])
 
         for vector in vectors {
             #expect(vector.count == 12)

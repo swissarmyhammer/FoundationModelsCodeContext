@@ -249,6 +249,10 @@ let package = Package(
                 // directly, so the `Operations` module must be an explicit dependency here, not
                 // just reachable through FoundationModelsCodeContext.
                 .product(name: "Operations", package: "FoundationModelsExtras"),
+                // The test embedders conform to `PooledEmbedding` of FoundationModelsExtras, so
+                // the module must be an explicit dependency here, not just reachable through
+                // FoundationModelsCodeContext.
+                .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
                 // The tracing tests give an explicit `InMemoryTracer` to the code under test and
                 // read the finished spans from it. They do not bootstrap the global system.
                 .product(name: "InMemoryTracing", package: tracingPackage),
@@ -273,23 +277,26 @@ let package = Package(
         // package README). It is a thin script over the public API of this
         // package, and it is not part of the library product. The caller
         // supplies the embedding model: the example defines its own small
-        // `TextEmbedding` conformance and gives it to `CodeContext`. Thus it
-        // needs only the library target.
+        // `PooledEmbedding` conformance and gives it to `CodeContext`. Thus it
+        // needs the library target, and FoundationModelsExtras for the protocol.
         .executableTarget(
             name: "CodeContextExample",
             dependencies: [
-                .target(name: packageName)
+                .target(name: packageName),
+                .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
             ],
             path: "Examples/CodeContextExample"
         ),
         // Second "way in" example, over `CodeContextManager` instead of one `CodeContext`.
         // It opens each repo root below a parent directory, not one fixed root. Like
-        // `CodeContextExample` above, it defines its own `TextEmbedding` conformance and
-        // gives it to the manager. Thus it needs only the library target.
+        // `CodeContextExample` above, it defines its own `PooledEmbedding` conformance and
+        // gives it to the manager. Thus it needs the library target, and FoundationModelsExtras
+        // for the protocol.
         .executableTarget(
             name: "ManagerExample",
             dependencies: [
-                .target(name: packageName)
+                .target(name: packageName),
+                .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
             ],
             path: "Examples/ManagerExample"
         ),

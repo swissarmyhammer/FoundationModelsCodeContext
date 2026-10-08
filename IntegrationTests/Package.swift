@@ -51,6 +51,10 @@ let package = Package(
         // tree directly into the store. Use the same version floor as
         // `../Package.swift`.
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
+        // The test embedder conforms to `PooledEmbedding` of
+        // FoundationModelsExtras. Use the same URL and the same branch as
+        // `../Package.swift`, thus SwiftPM resolves one copy.
+        .package(url: "git@github.com:swissarmyhammer/FoundationModelsExtras.git", branch: "main"),
     ],
     targets: [
         // The live language server suites, and the tests that start a real
@@ -67,6 +71,7 @@ let package = Package(
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
                 .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
             ],
             path: "Tests/FoundationModelsCodeContextIntegrationTests"
         )

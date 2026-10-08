@@ -11,7 +11,7 @@ compile-verified program:
 ```swift
 import FoundationModelsCodeContext
 
-// `embedder` is the same `TextEmbedding` used for a single `CodeContext`.
+// `embedder` is the same `PooledEmbedding` used for a single `CodeContext`.
 // Each repository that the manager opens shares it.
 let manager = await CodeContextManager(embedder: embedder)
 

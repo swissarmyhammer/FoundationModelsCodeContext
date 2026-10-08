@@ -128,7 +128,7 @@ internal enum CodeContextSpans {
     ///
     /// The span and the record hold the count of the texts. They never hold the texts.
     ///
-    /// `TextEmbedding` declares no vector length. Thus the span gets the dimension after the call,
+    /// `PooledEmbedding` declares no vector length. Thus the span gets the dimension after the call,
     /// from the length of the first vector that the call returns. The "enter" record is written
     /// before the call, thus it holds no dimension. A call that throws, or that returns no vector,
     /// gives a span with no dimension.
@@ -139,7 +139,7 @@ internal enum CodeContextSpans {
     ///   - tracer: The tracer of the span, or `nil` to read the bootstrapped tracer now.
     /// - Returns: The vectors that `embedder` makes, in the order of `texts`.
     /// - Throws: The error of `embedder`. The span records only the type name of the error.
-    internal static func embed(_ texts: [String], with embedder: TextEmbedding, tracer: (any Tracer)?) async throws -> [[Float]] {
+    internal static func embed(_ texts: [String], with embedder: PooledEmbedding, tracer: (any Tracer)?) async throws -> [[Float]] {
         try await withEnterRecord(
             CodeContextTracing.SpanName.embed,
             tracer: tracer,
@@ -147,7 +147,7 @@ internal enum CodeContextSpans {
             attributes: { $0[CodeContextTracing.AttributeKey.embeddingInputCount] = texts.count },
             metadata: [CodeContextTracing.MetadataKey.embeddingInputCount: .stringConvertible(texts.count)],
             { span in
-                let vectors = try await embedder.embed(texts)
+                let vectors = try await embedder.embed(texts: texts)
                 if let dimension = vectors.first?.count {
                     span.attributes[CodeContextTracing.AttributeKey.embeddingDimension] = dimension
                 }

@@ -102,6 +102,13 @@ comments:
     - commit: df4e706
     - review: clean — 0 findings
   timestamp: 2026-09-30T15:25:10.925054+00:00
+- actor: claude-code
+  id: 01m3t69jp3bxn7zty1e6j8gads
+  text: |-
+    ### ci — green
+    - evidence: GitHub Actions CI run 36782132769 on 0220e9b: "ci / Build & test" success, "ci / Integration (opt-in, real dependencies)" success.
+    - next: none. All acceptance criteria are checked.
+  timestamp: 2026-09-30T22:17:21.347027+00:00
 position_column: done
 position_ordinal: d480
 title: Take the embedding dimension from the first vector, not from TextEmbedding.dimension
@@ -120,7 +127,7 @@ title: Take the embedding dimension from the first vector, not from TextEmbeddin
 ## Acceptance Criteria
 - [x] No CodeContext source reads an embedder `dimension`.
 - [x] A stored index with a different dimension from the new embedder is detected as before.
-- [ ] CI is green on the pushed commit.
+- [x] CI is green on the pushed commit.
 
 ## Tests
 - [x] `Tests/FoundationModelsCodeContextTests/EmbeddingBatchTests.swift` / `CodeContextStartTests.swift`: dimension from the first vector; a mismatch with the stored index is detected; the probe is embedded one time only.

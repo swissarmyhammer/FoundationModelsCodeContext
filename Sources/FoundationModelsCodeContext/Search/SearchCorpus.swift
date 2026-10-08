@@ -81,7 +81,7 @@ public struct SearchCorpusSnapshot: Sendable {
     /// `vDSP_mmul` matrix–vector product over `embeddingMatrix`.
     ///
     /// Both `embeddingMatrix`'s rows and `queryVector` must already be
-    /// L2-normalized (the injected `TextEmbedding` guarantees this for its
+    /// L2-normalized (the injected `PooledEmbedding` guarantees this for its
     /// own output), so cosine similarity reduces to a plain dot product —
     /// see plan.md "Search", "Where the cosines happen".
     ///

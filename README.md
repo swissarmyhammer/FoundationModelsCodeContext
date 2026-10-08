@@ -17,7 +17,7 @@ agent can call the same operations.
 import FoundationModelsCodeContext
 
 // `embedder` is your embedding model: any value that conforms to
-// `TextEmbedding`, the embedding protocol of FoundationModelsRanker.
+// `PooledEmbedding`, the embedding protocol of FoundationModelsExtras.
 let context = try await CodeContext(
     rootDirectory: URL(fileURLWithPath: "/path/to/repo", isDirectory: true),
     embedder: embedder
@@ -92,8 +92,10 @@ necessary):
 
 Hybrid search ranking (BM25 + trigram + cosine, fused with RRF) comes from
 [FoundationModelsRanker](https://github.com/swissarmyhammer/FoundationModelsRanker).
-Your app supplies the embedding model through `TextEmbedding`. This package
-has no embedding model of its own. The same value also works with the
-`Searcher` of FoundationModelsRanker. `Searcher` also takes a FoundationModels
-`LanguageModelSession` for its selection tier. `CodeContext` itself takes no
+Your app supplies the embedding model through `PooledEmbedding`, the embedding
+protocol of
+[FoundationModelsExtras](https://github.com/swissarmyhammer/FoundationModelsExtras).
+This package has no embedding model of its own. The same value also works with
+the `Searcher` of FoundationModelsRanker. `Searcher` also takes a FoundationModels
+`LanguageModel` for its selection tier. `CodeContext` itself takes no
 language model.

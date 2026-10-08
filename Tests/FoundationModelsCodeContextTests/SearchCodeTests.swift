@@ -141,7 +141,7 @@ struct SearchCodeTests {
             #expect(Set(Tokenizer.tokenize(text: query)).isDisjoint(with: Tokenizer.tokenize(text: symbolPath + " " + text)))
             #expect(Trigram.dice(query: query, target: symbolPath + " " + text) == 0.0)
 
-            let queryVector = try await embedder.embed([query])
+            let queryVector = try await embedder.embed(texts: [query])
             let semanticVector = try #require(queryVector.first)
             try await insertChunk(store: store, filePath: "Unrelated.swift", symbolPath: symbolPath, text: text, embedding: semanticVector)
 
@@ -249,7 +249,7 @@ struct SearchCodeTests {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
             let embedder = FakeEmbedder(vectorLength: Self.embeddingDimension)
-            let vector = try #require(try await embedder.embed(["parse the configuration file"]).first)
+            let vector = try #require(try await embedder.embed(texts: ["parse the configuration file"]).first)
             try await insertChunk(
                 store: store,
                 filePath: "Config.swift",

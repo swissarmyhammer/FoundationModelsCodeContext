@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsExtras
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -13,7 +14,7 @@ struct CodeContextStartTests {
     /// The dimension of the fake embedding vectors.
     private static let dimension = 8
 
-    /// The number of fixture files. Each file is one `embed(_:)` call or more,
+    /// The number of fixture files. Each file is one `embed(texts:)` call or more,
     /// thus a complete pass makes more than one call.
     private static let fixtureFileCount = 3
 
@@ -58,7 +59,7 @@ struct CodeContextStartTests {
     /// and then controls the debounce timer of the watcher.
     private static func makeCodeContext(
         rootDirectory: URL,
-        embedder: TextEmbedding?,
+        embedder: PooledEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
         eventSource: FakeFileEventSource = FakeFileEventSource()
     ) async throws -> CodeContext<FakeLanguageServerConnection> {

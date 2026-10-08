@@ -1,8 +1,9 @@
 import Foundation
+import FoundationModelsExtras
 
 @testable import FoundationModelsCodeContext
 
-/// The record of each `embed(_:)` call of a `GatedEmbedder`, and the gate that
+/// The record of each `embed(texts:)` call of a `GatedEmbedder`, and the gate that
 /// can hold those calls.
 ///
 /// A test closes the gate to hold the embedding step at a known point. The
@@ -14,28 +15,28 @@ import Foundation
 /// batches. A probe call is not in `batchSizes`, it does not stop at the gate,
 /// and it does not end `waitForFirstCall()`.
 actor EmbedCallLog {
-    /// The number of texts in each chunk-batch `embed(_:)` call, in call order.
+    /// The number of texts in each chunk-batch `embed(texts:)` call, in call order.
     private(set) var batchSizes: [Int] = []
 
-    /// The number of `embed(_:)` calls that embedded the probe text of
+    /// The number of `embed(texts:)` calls that embedded the probe text of
     /// `MeasuredEmbedder`.
     private(set) var probeCallCount = 0
 
-    /// `true` while each `embed(_:)` call must stop at the gate.
+    /// `true` while each `embed(texts:)` call must stop at the gate.
     private var isGated = false
 
-    /// The `embed(_:)` calls that wait at the closed gate, by wait identifier.
+    /// The `embed(texts:)` calls that wait at the closed gate, by wait identifier.
     private var gateWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
-    /// The tests that wait for the first chunk-batch `embed(_:)` call.
+    /// The tests that wait for the first chunk-batch `embed(texts:)` call.
     private var firstCallWaiters: [CheckedContinuation<Void, Never>] = []
 
-    /// Makes each subsequent `embed(_:)` call stop until `openGate()`.
+    /// Makes each subsequent `embed(texts:)` call stop until `openGate()`.
     func closeGate() {
         isGated = true
     }
 
-    /// Releases each `embed(_:)` call that waits at the gate, and stops the
+    /// Releases each `embed(texts:)` call that waits at the gate, and stops the
     /// gate for subsequent calls.
     func openGate() {
         isGated = false
@@ -46,7 +47,7 @@ actor EmbedCallLog {
         }
     }
 
-    /// Returns when the embedder has received one chunk-batch `embed(_:)` call
+    /// Returns when the embedder has received one chunk-batch `embed(texts:)` call
     /// or more.
     func waitForFirstCall() async {
         if !batchSizes.isEmpty {
@@ -57,7 +58,7 @@ actor EmbedCallLog {
         }
     }
 
-    /// Records one chunk-batch `embed(_:)` call, then waits while the gate is
+    /// Records one chunk-batch `embed(texts:)` call, then waits while the gate is
     /// closed.
     ///
     /// The wait stops when the gate opens, and also when the task of the
@@ -76,7 +77,7 @@ actor EmbedCallLog {
         }
     }
 
-    /// Records one `embed(_:)` call that embedded the probe text.
+    /// Records one `embed(texts:)` call that embedded the probe text.
     func recordProbeCall() {
         probeCallCount += 1
     }
@@ -107,7 +108,7 @@ actor EmbedCallLog {
     }
 }
 
-/// A `TextEmbedding` test double that records each call in an `EmbedCallLog`
+/// A `PooledEmbedding` test double that records each call in an `EmbedCallLog`
 /// and stops at the gate of that log.
 ///
 /// The vectors are the vectors of `FakeEmbedder`, thus they are deterministic.
@@ -115,20 +116,20 @@ actor EmbedCallLog {
 /// embedding model can do. A call that embeds only the probe text of
 /// `MeasuredEmbedder` is recorded as a probe call and does not stop at the
 /// gate.
-struct GatedEmbedder: TextEmbedding {
+struct GatedEmbedder: PooledEmbedding {
     /// The length of every vector this embedder produces.
     let vectorLength: Int
 
     /// The record of the calls, and the gate that holds them.
     let log: EmbedCallLog
 
-    func embed(_ texts: [String]) async throws -> [[Float]] {
+    func embed(texts: [String]) async throws -> [[Float]] {
         if texts == [MeasuredEmbedder.probeText] {
             await log.recordProbeCall()
         } else {
             await log.recordCall(batchSize: texts.count)
         }
         try Task.checkCancellation()
-        return try await FakeEmbedder(vectorLength: vectorLength).embed(texts)
+        return try await FakeEmbedder(vectorLength: vectorLength).embed(texts: texts)
     }
 }

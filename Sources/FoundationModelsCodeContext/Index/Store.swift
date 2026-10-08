@@ -376,7 +376,7 @@ public final class Store: Sendable {
     /// or `nil` if none has been recorded yet.
     ///
     /// Callers compare this against the length of the first vector that the
-    /// current embedder returns (`TextEmbedding` declares no length); a
+    /// current embedder returns (`PooledEmbedding` declares no length); a
     /// mismatch means every chunk must be treated as un-embedded and
     /// re-embedded (see plan.md "Embeddings").
     ///

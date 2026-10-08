@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsExtras
 import GRDB
 import Tracing
 
@@ -24,7 +25,7 @@ import Tracing
 /// `EmbeddingCodec`. Without an `embedder`, every written row's `embedding`
 /// column stays `NULL`, exactly as before this integration.
 public enum TreeSitterWorker {
-    /// The default maximum number of chunk texts in one `embed(_:)` call.
+    /// The default maximum number of chunk texts in one `embed(texts:)` call.
     ///
     /// A bounded batch keeps each call to the embedding model short, thus the
     /// worker can look for task cancellation between two calls.
@@ -48,7 +49,7 @@ public enum TreeSitterWorker {
     /// The embedding step, when `embedder` is given, runs independently of
     /// how many files were chunked this pass (see `embedDirtyChunks`).
     ///
-    /// `TextEmbedding` declares no vector length, thus each call of this
+    /// `PooledEmbedding` declares no vector length, thus each call of this
     /// function measures `embedder` again: the embedding step embeds one probe
     /// text before the chunks (see `MeasuredEmbedder`). `CodeContext` keeps one
     /// `MeasuredEmbedder` for its life and calls
@@ -63,9 +64,9 @@ public enum TreeSitterWorker {
     ///     skip embedding entirely, leaving chunks with a `NULL` embedding.
     ///     Defaults to `nil`.
     ///   - embeddingBatchSize: The maximum number of chunk texts in one
-    ///     `embed(_:)` call. A value less than 1 is used as 1. Defaults to
+    ///     `embed(texts:)` call. A value less than 1 is used as 1. Defaults to
     ///     `defaultEmbeddingBatchSize`.
-    ///   - tracer: The tracer of the span of each `embed(_:)` call. Defaults
+    ///   - tracer: The tracer of the span of each `embed(texts:)` call. Defaults
     ///     to `nil`, which reads the bootstrapped tracer at the time of each
     ///     call.
     /// - Returns: The number of dirty tree-sitter files drained this pass.
@@ -77,7 +78,7 @@ public enum TreeSitterWorker {
     public static func run(
         store: Store,
         rootDirectory: URL,
-        embedder: TextEmbedding? = nil,
+        embedder: PooledEmbedding? = nil,
         embeddingBatchSize: Int = TreeSitterWorker.defaultEmbeddingBatchSize,
         tracer: (any Tracer)? = nil
     ) async throws -> Int {
@@ -106,8 +107,8 @@ public enum TreeSitterWorker {
     ///   - measuredEmbedder: The embedder of the embedding step and its
     ///     vector length, or `nil` to skip embedding entirely.
     ///   - embeddingBatchSize: The maximum number of chunk texts in one
-    ///     `embed(_:)` call. A value less than 1 is used as 1.
-    ///   - tracer: The tracer of the span of each `embed(_:)` call, or `nil`
+    ///     `embed(texts:)` call. A value less than 1 is used as 1.
+    ///   - tracer: The tracer of the span of each `embed(texts:)` call, or `nil`
     ///     to read the bootstrapped tracer at the time of each call.
     /// - Returns: The number of dirty tree-sitter files drained this pass.
     /// - Throws: Rethrows `Store`'s storage errors. Throws `CancellationError`
@@ -301,7 +302,7 @@ public enum TreeSitterWorker {
     /// `embedInBatches` looks for it before each batch, thus a cancelled
     /// pass stops after one batch at most.
     ///
-    /// Each `embed(_:)` call runs in its own span through `tracer`.
+    /// Each `embed(texts:)` call runs in its own span through `tracer`.
     private static func embedDirtyChunks(
         measuredEmbedder: MeasuredEmbedder,
         store: Store,
@@ -385,9 +386,9 @@ public enum TreeSitterWorker {
 
     /// Embeds the texts of `chunks` in batches of `batchSize` texts at most.
     ///
-    /// One `embed(_:)` call holds one batch, thus one large file is not one
+    /// One `embed(texts:)` call holds one batch, thus one large file is not one
     /// very large call. The function looks for task cancellation before each
-    /// batch. When `embedder.embed(_:)` throws, or returns a vector count
+    /// batch. When `embedder.embed(texts:)` throws, or returns a vector count
     /// that is not the batch count, the function writes a log entry and
     /// returns `nil`, and the caller skips the file.
     ///
@@ -395,16 +396,16 @@ public enum TreeSitterWorker {
     ///   - chunks: The chunks of one file, in identifier order.
     ///   - filePath: The path of the file, for the log entries.
     ///   - embedder: The embedder that makes the vectors.
-    ///   - batchSize: The maximum number of texts in one `embed(_:)` call.
+    ///   - batchSize: The maximum number of texts in one `embed(texts:)` call.
     ///     The value is 1 or more.
-    ///   - tracer: The tracer of the span of each `embed(_:)` call.
+    ///   - tracer: The tracer of the span of each `embed(texts:)` call.
     /// - Returns: One vector for each chunk, in the order of `chunks`, or
     ///   `nil` when the caller must skip the file.
     /// - Throws: `CancellationError` when the task is cancelled.
     private static func embedInBatches(
         chunks: [EmbeddableChunk],
         filePath: String,
-        embedder: TextEmbedding,
+        embedder: PooledEmbedding,
         batchSize: Int,
         tracer: (any Tracer)?
     ) async throws -> [[Float]]? {
@@ -452,7 +453,7 @@ public enum TreeSitterWorker {
     ///
     /// A file with no chunks (e.g. one with no chunkable nodes) is
     /// vacuously fully embedded and marked as such without calling
-    /// `embedder`. Otherwise, `embedder.embed(_:)` throwing, or returning a
+    /// `embedder`. Otherwise, `embedder.embed(texts:)` throwing, or returning a
     /// vector count that doesn't match the chunk count, is logged and
     /// treated as a graceful skip — never a crash, and never a partial
     /// write: a file's chunks are all embedded or none are. On success, the
@@ -463,7 +464,7 @@ public enum TreeSitterWorker {
     /// file.
     private static func embedChunks(
         forFilePath filePath: String,
-        embedder: TextEmbedding,
+        embedder: PooledEmbedding,
         store: Store,
         batchSize: Int,
         tracer: (any Tracer)?

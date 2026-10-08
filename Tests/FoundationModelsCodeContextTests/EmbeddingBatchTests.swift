@@ -7,7 +7,7 @@ import Testing
 /// Tests for the batch bound, the cancellation and the dimension check of the
 /// embedding step of `TreeSitterWorker`.
 ///
-/// `TextEmbedding` declares no vector length. The worker gets the dimension
+/// `PooledEmbedding` declares no vector length. The worker gets the dimension
 /// from the length of the first vector that the embedder returns, and embeds
 /// one probe text when the embedder has returned no vector yet.
 struct EmbeddingBatchTests {

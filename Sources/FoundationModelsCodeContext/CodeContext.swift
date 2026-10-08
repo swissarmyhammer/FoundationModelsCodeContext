@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsExtras
 import Tracing
 
 /// The public facade actor tying every subsystem in this package together for one workspace.
@@ -211,7 +212,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// - Throws: `CodeContextError.storage` if the index store can't be opened or migrated.
     init(
         rootDirectory: URL,
-        embedder: TextEmbedding?,
+        embedder: PooledEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
         eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
@@ -596,7 +597,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// - Returns: The embedder of this context.
     /// - Throws: `CodeContextError.embeddingDisabled` when the host turned the embedding layer
     ///   off.
-    private func requireEmbedder() throws -> TextEmbedding {
+    private func requireEmbedder() throws -> PooledEmbedding {
         guard let measuredEmbedder else {
             throw CodeContextError.embeddingDisabled
         }
@@ -1056,7 +1057,7 @@ extension CodeContext where Connection == ProcessLanguageServerConnection {
     /// - Throws: `CodeContextError.storage` if the index store can't be opened or migrated.
     public init(
         rootDirectory: URL,
-        embedder: TextEmbedding?,
+        embedder: PooledEmbedding?,
         autoInstall: LspAutoInstall = LspAutoInstall(),
         eventSource: (any FileEventSource)? = FSEventsFileEventSource()
     ) async throws {

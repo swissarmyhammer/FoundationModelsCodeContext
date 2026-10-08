@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsExtras
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -21,7 +22,7 @@ struct CodeContextManagerTests {
     ///   embedding layer off. The default is a `FakeEmbedder`.
     /// - Returns: A manager wired to fake filesystem-event and connection sources for testing.
     private static func makeManager(
-        embedder: TextEmbedding? = FakeEmbedder(vectorLength: embeddingDimension)
+        embedder: PooledEmbedding? = FakeEmbedder(vectorLength: embeddingDimension)
     ) async -> CodeContextManager<FakeLanguageServerConnection> {
         await CodeContextManager<FakeLanguageServerConnection>(
             embedder: embedder,

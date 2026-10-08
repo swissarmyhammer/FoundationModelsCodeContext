@@ -1,8 +1,9 @@
+import FoundationModelsExtras
 import Tracing
 
 /// An embedder, and the length of the vectors that it returns.
 ///
-/// `TextEmbedding` declares no vector length: an embedder that loads its model at the first call
+/// `PooledEmbedding` declares no vector length: an embedder that loads its model at the first call
 /// cannot know the length before that call. This actor gets the length from the first vector that
 /// the embedder returns. When the embedder has returned no vector yet,
 /// ``vectorLength(tracer:)`` embeds one short probe text. After the first vector, the actor
@@ -25,7 +26,7 @@ internal actor MeasuredEmbedder {
     internal static let probeText = "vector length probe"
 
     /// The embedder that makes the vectors.
-    internal nonisolated let embedder: TextEmbedding
+    internal nonisolated let embedder: PooledEmbedding
 
     /// The length of the first vector that `embedder` returned, or `nil` before that vector.
     private var knownVectorLength: Int?
@@ -33,7 +34,7 @@ internal actor MeasuredEmbedder {
     /// Makes a measured embedder that knows no vector length yet.
     ///
     /// - Parameter embedder: The embedder that makes the vectors.
-    internal init(embedder: TextEmbedding) {
+    internal init(embedder: PooledEmbedding) {
         self.embedder = embedder
     }
 

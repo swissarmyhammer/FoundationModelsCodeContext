@@ -1,7 +1,8 @@
 import Foundation
 import FoundationModelsCodeContext
+import FoundationModelsExtras
 
-/// A deterministic, hash-based `TextEmbedding` test double.
+/// A deterministic, hash-based `PooledEmbedding` test double.
 ///
 /// The same input text always produces the same L2-normalized vector,
 /// derived from a stable FNV-1a hash of the text (not Swift's per-process
@@ -11,13 +12,13 @@ import FoundationModelsCodeContext
 /// optional injected failure lets tests exercise the worker's
 /// graceful-skip path.
 ///
-/// The double declares no length: `TextEmbedding` has no `dimension`
+/// The double declares no length: `PooledEmbedding` has no `dimension`
 /// requirement. The only way to learn the length is to read a returned vector.
-struct FakeEmbedder: TextEmbedding {
+struct FakeEmbedder: PooledEmbedding {
     /// The length of every vector this embedder produces.
     private let vectorLength: Int
 
-    /// When set, every call to `embed(_:)` throws this error instead of
+    /// When set, every call to `embed(texts:)` throws this error instead of
     /// producing vectors.
     private let failure: (any Error)?
 
@@ -26,14 +27,14 @@ struct FakeEmbedder: TextEmbedding {
     ///
     /// - Parameters:
     ///   - vectorLength: The length of every vector this embedder produces.
-    ///   - failure: When non-nil, `embed(_:)` throws this error instead of
+    ///   - failure: When non-nil, `embed(texts:)` throws this error instead of
     ///     computing vectors. Defaults to `nil`.
     init(vectorLength: Int, failure: (any Error)? = nil) {
         self.vectorLength = vectorLength
         self.failure = failure
     }
 
-    func embed(_ texts: [String]) async throws -> [[Float]] {
+    func embed(texts: [String]) async throws -> [[Float]] {
         if let failure {
             throw failure
         }

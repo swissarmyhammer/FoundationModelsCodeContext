@@ -2,13 +2,13 @@ import Foundation
 import FoundationModelsCodeContext
 import Testing
 
-/// Proves that a caller outside this module can give its own `TextEmbedding` conformance to the
+/// Proves that a caller outside this module can give its own `PooledEmbedding` conformance to the
 /// public `CodeContextManager` initializer.
 ///
 /// This file uses a plain `import FoundationModelsCodeContext`, not `@testable import`, and it does
 /// not import FoundationModelsRanker. Thus it sees only the public API, as a host package sees it.
-/// If `TextEmbedding` or the manager initializer stops being public, or if the initializer stops
-/// accepting a caller-defined conformance, this file does not compile.
+/// If the manager initializer stops being public, or if the initializer stops accepting a
+/// caller-defined conformance, this file does not compile.
 struct CallerEmbedderPublicAPITests {
     /// The length of each vector that `CallerDefinedEmbedder` returns.
     private static let embeddingDimension = 8

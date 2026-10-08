@@ -70,7 +70,7 @@ public enum CodeContextTracing {
         /// One JSON-RPC request to a language server.
         public static let lspRequest = modulePrefix + "lsp.request"
 
-        /// One `TextEmbedding.embed(_:)` call.
+        /// One `PooledEmbedding.embed(texts:)` call.
         public static let embed = modulePrefix + "embed"
 
         /// One `searchCode` call.
@@ -125,7 +125,7 @@ public enum CodeContextTracing {
         public static let embeddingInputCount = "embedding.input_count"
 
         /// The length of each vector that one embed call makes. The span gets it from the first
-        /// vector that the call returns, not from the embedder: `TextEmbedding` declares no
+        /// vector that the call returns, not from the embedder: `PooledEmbedding` declares no
         /// vector length.
         public static let embeddingDimension = "embedding.dimension"
 
@@ -230,7 +230,7 @@ public enum CodeContextTracing {
         public static let exitCode = "process.exit_code"
 
         /// The length of each vector that the embedder makes. The index pass gets it from the
-        /// first vector that the embedder returns, not from the embedder: `TextEmbedding`
+        /// first vector that the embedder returns, not from the embedder: `PooledEmbedding`
         /// declares no vector length.
         public static let embeddingDimension = AttributeKey.embeddingDimension
 

@@ -56,7 +56,7 @@ struct SearchCorpusIncrementalTests {
             ("Delta.swift", "Delta.hashInput", "compute a stable hash of the input bytes"),
         ]
         for fixture in fixtures {
-            let vector = try #require(try await embedder.embed([fixture.text]).first)
+            let vector = try #require(try await embedder.embed(texts: [fixture.text]).first)
             try await insertChunk(
                 store: store, filePath: fixture.file, symbolPath: fixture.symbol, text: fixture.text, embedding: vector
             )
@@ -78,7 +78,7 @@ struct SearchCorpusIncrementalTests {
 
             // Edit exactly one file: new symbol/text, re-embedded.
             let newText = "look up the account balance ledger entry"
-            let newVector = try #require(try await embedder.embed([newText]).first)
+            let newVector = try #require(try await embedder.embed(texts: [newText]).first)
             try await reindexFile(
                 store: store, filePath: "Beta.swift",
                 chunks: [(symbolPath: "Beta.accountBalance", text: newText, embedding: newVector)]
@@ -204,7 +204,7 @@ struct SearchCorpusIncrementalTests {
             )
 
             let newText = "serialize the message envelope to wire format"
-            let newVector = try #require(try await embedder.embed([newText]).first)
+            let newVector = try #require(try await embedder.embed(texts: [newText]).first)
             try await reindexFile(
                 store: store, filePath: "Delta.swift",
                 chunks: [(symbolPath: "Delta.serialize", text: newText, embedding: newVector)]
@@ -258,7 +258,7 @@ struct SearchCorpusIncrementalTests {
                 try String.fetchAll(db, sql: "SELECT text FROM ts_chunks ORDER BY id")
             }
             // Embed outside the (synchronous) write transaction, then apply.
-            let widerVectors = try await widerEmbedder.embed(chunkTexts)
+            let widerVectors = try await widerEmbedder.embed(texts: chunkTexts)
             let encoded = zip(chunkIds, widerVectors).map { (id: $0, blob: EmbeddingCodec.encode($1)) }
             try await store.write { db in
                 for entry in encoded {

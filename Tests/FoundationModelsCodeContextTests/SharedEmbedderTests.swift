@@ -1,14 +1,15 @@
 import Foundation
 import FoundationModelsCodeContext
+import FoundationModelsExtras
 import FoundationModelsRanker
 import Testing
 
 /// Proves that one embedding-model value serves CodeContext and FoundationModelsRanker.
 ///
-/// The embedder in this file conforms only to `FoundationModelsRanker.TextEmbedding`. This file
+/// The embedder in this file conforms only to `FoundationModelsExtras.PooledEmbedding`. This file
 /// uses a plain `import FoundationModelsCodeContext`, not `@testable import`. Thus it sees only the
-/// public API, as a host package sees it. If `FoundationModelsCodeContext.TextEmbedding` is not the
-/// same type as `FoundationModelsRanker.TextEmbedding`, this file does not compile.
+/// public API, as a host package sees it. If CodeContext or FoundationModelsRanker stops taking a
+/// `PooledEmbedding`, this file does not compile.
 struct SharedEmbedderTests {
     /// The length of each vector that `RankerConformingEmbedder` returns.
     private static let embeddingDimension = 8
@@ -19,21 +20,21 @@ struct SharedEmbedderTests {
     /// The text of the one item that the test adds to the Ranker corpus.
     private static let itemText = "func greet() prints a greeting"
 
-    /// A caller-defined embedder that conforms to `FoundationModelsRanker.TextEmbedding` and to no
+    /// A caller-defined embedder that conforms to `FoundationModelsExtras.PooledEmbedding` and to no
     /// other protocol, with no model and no network.
     ///
     /// The first entry of each vector is the character count of its text, and the other entries
     /// are zero. The vectors are not useful for search. The test examines only that the two APIs
     /// accept the same value.
-    private struct RankerConformingEmbedder: FoundationModelsRanker.TextEmbedding {
-        /// The length of each vector that `embed(_:)` returns.
+    private struct RankerConformingEmbedder: FoundationModelsExtras.PooledEmbedding {
+        /// The length of each vector that `embed(texts:)` returns.
         let vectorLength: Int
 
         /// Returns one `vectorLength`-length vector for each text, in order.
         ///
         /// - Parameter texts: The texts to embed.
         /// - Returns: One vector for each text, in the order of `texts`.
-        func embed(_ texts: [String]) async throws -> [[Float]] {
+        func embed(texts: [String]) async throws -> [[Float]] {
             texts.map { text in
                 [Float(text.count)] + Array(repeating: 0, count: vectorLength - 1)
             }
