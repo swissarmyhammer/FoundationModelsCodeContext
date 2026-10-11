@@ -32,8 +32,24 @@ comments:
     - evidence: 6 files — Sources/FoundationModelsCodeContext/TreeSitter/Chunker.swift, Sources/FoundationModelsCodeContext/TreeSitter/ContainerEmbeddingText.swift, Tests/FoundationModelsCodeContextTests/EmbeddingTextTests.swift, Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python-decorated/source.py, Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python-decorated/expected.txt, plan.md; `swift build` OK; `swift test` 827 tests in 74 suites, 0 failures
     - next: /review
   timestamp: 2026-10-11T15:46:38.672141+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4ntjj1awb5sw2zr6a1mqzad
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (a6cbb97). 0 findings, 0 confirmed, 0 refuted. 9 validator pairs attempted, 0 failed.
+    - next: none. The task is in done.
+  timestamp: 2026-10-11T15:51:16.778916+00:00
+- actor: claude-code
+  id: 01m4ntjrz6akj9r9tf7s6k21p2
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 6 files (Chunker.swift, ContainerEmbeddingText.swift, EmbeddingTextTests.swift, python-decorated golden, plan.md)
+    - test: green — swift test, 827 tests in 74 suites passed, 0 skipped
+    - commit: a6cbb97
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-10-11T15:51:23.878386+00:00
+position_column: done
+position_ordinal: db80
 title: A decorated Python class embeds its full text through its decorated_definition chunk
 ---
 ## Problem
