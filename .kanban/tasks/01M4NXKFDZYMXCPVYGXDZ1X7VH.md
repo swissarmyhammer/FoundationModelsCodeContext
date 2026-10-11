@@ -51,8 +51,24 @@ comments:
     - evidence: 8 files — Sources/FoundationModelsCodeContext/Index/EmbeddingCallQueue.swift (new), Sources/FoundationModelsCodeContext/Index/TreeSitterWorker.swift, Tests/FoundationModelsCodeContextTests/CrossFileEmbeddingTests.swift (new), Tests/FoundationModelsCodeContextTests/EmbeddingCallQueueTests.swift (new), Tests/FoundationModelsCodeContextTests/Support/GatedEmbedder.swift, Tests/FoundationModelsCodeContextTests/TracingSpanTests.swift, plan.md, plus this task file. `swift build --build-tests`: no compiler warning (only the SwiftPM `missing creator for mutated node` line for the mlx-swift bundle, which is also on a clean HEAD). `swift test`: 834 tests in 76 suites passed. IndexBenchmark: pass 116.75 s (baseline 144.17 s), embed 105.01 s (130.49 s), 32 calls (408), 7,702 texts (7,674; +28 from the new and edited files of this change), 66.0 texts/s pass (53.2), 73.3 texts/s embed only (58.8).
     - next: /review. Not committed. Note: the doc comment of `EmbeddingBatchDivision.defaultTokenBudget` in FoundationModelsExtras still says that FoundationModelsCodeContext embeds 32 chunks in each call; that text is in the other repo.
   timestamp: 2026-10-11T18:04:42.590694+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4p2hy4w4my0jfavbvd8v05t
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (f47e70f). 0 findings, 0 confirmed, 2 refuted, 7 attempted, 0 failed. 6 files reviewed. Not reviewed: 2 .kanban files (ignore rule) and plan.md (no validator matches).
+    - next: None. The task is in done.
+  timestamp: 2026-10-11T18:10:45.020415+00:00
+- actor: claude-code
+  id: 01m4p2j5bwe5krdm45eeyf3102
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — EmbeddingCallQueue.swift (new), TreeSitterWorker.swift, 2 new test files, GatedEmbedder, TracingSpanTests, plan.md; IndexBenchmark pass 144.17 s → 116.75 s
+    - test: green — swift test, 834 tests in 76 suites passed, 0 skipped
+    - commit: f47e70f
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-10-11T18:10:52.412315+00:00
+position_column: done
+position_ordinal: dc80
 title: Send embed calls that cover the dirty chunks of several files, not 32 chunks of one file
 ---
 ## Problem
