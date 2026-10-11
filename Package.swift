@@ -300,5 +300,17 @@ let package = Package(
             ],
             path: "Examples/ManagerExample"
         ),
+        // Local benchmark of one cold index pass with a real MLX embedding model. It is not part of
+        // the automated verification. It uses `PooledEmbedder` of FoundationModelsExtras, which loads
+        // the model through the MLX loader of the shared model pool. Thus it needs the library target,
+        // and FoundationModelsExtras for the embedder.
+        .executableTarget(
+            name: "IndexBenchmark",
+            dependencies: [
+                .target(name: packageName),
+                .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
+            ],
+            path: "Examples/IndexBenchmark"
+        ),
     ]
 )
