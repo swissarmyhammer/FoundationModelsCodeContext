@@ -179,10 +179,14 @@ all layers dirty, new → INSERT dirty.
    (batched through the injected embedder; skip gracefully if unavailable,
    leaving `embedded = 0`) → write chunks + heuristic call edges → mark done.
    Parsing/embedding happen outside any DB transaction. The worker sends the
-   chunk texts to the embedder in bounded batches
-   (`TreeSitterWorker.defaultEmbeddingBatchSize`, which is 32). It calls
-   `Task.checkCancellation()` between files and between batches. Thus a
-   cancelled pass (for example from `stop()`) stops between batches. With no
+   chunk texts to the embedder in bounded calls
+   (`TreeSitterWorker.defaultEmbeddingBatchSize`, which is 256 texts). One
+   call can hold the chunks of more than one file (`EmbeddingCallQueue`), thus
+   the embedder can sort the texts of a call by length. A file is marked
+   embedded only when each of its chunks has a vector. A failed call skips
+   only the files of that call, and a later pass embeds them again. The worker
+   calls `Task.checkCancellation()` between files and before each call. Thus
+   a cancelled pass (for example from `stop()`) stops between calls. With no
    embedder (`embedder: nil`), the worker makes no embeddings.
    A container chunk (a node kind in both `chunkKinds` and
    `containerNodeKinds`) embeds a summary, not its full text: its

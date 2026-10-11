@@ -26,10 +26,28 @@ import Tracing
 /// column stays `NULL`, exactly as before this integration.
 public enum TreeSitterWorker {
     /// The default maximum number of chunk texts in one `embed(texts:)` call.
+    /// One call can hold the chunks of more than one file.
     ///
-    /// A bounded batch keeps each call to the embedding model short, thus the
-    /// worker can look for task cancellation between two calls.
-    public static let defaultEmbeddingBatchSize = 32
+    /// The value is 256 for these reasons:
+    ///
+    /// - The MLX embedder of FoundationModelsExtras sorts the texts of one
+    ///   call by token count, and divides them into sub-batches of 16,384
+    ///   tokens at most, (texts) x (longest text). 256 texts of 64 tokens fill
+    ///   one sub-batch. Many code chunks are that short, thus a call of 256
+    ///   texts gives the sort enough texts of each length to fill full
+    ///   sub-batches. A call of 32 texts fills a sub-batch only with texts of
+    ///   512 tokens.
+    /// - A larger call gives the sort no more advantage, but it makes each
+    ///   call longer. The worker looks for task cancellation only between two
+    ///   calls, and a failed call skips each file of that call. At the rate
+    ///   that `IndexBenchmark` measured for the embedding step on this package
+    ///   with calls of 32 texts (approximately 59 texts each second), a call
+    ///   of 256 texts takes approximately 4 seconds. Thus a cancelled pass
+    ///   stops in approximately 4 seconds.
+    ///
+    /// The bound is a number of texts, not a number of tokens. The worker
+    /// does not cut a text.
+    public static let defaultEmbeddingBatchSize = 256
 
     /// Drains and processes every file with `ts_indexed = 0` in `store`, then
     /// — if `embedder` is given — embeds every file with `embedded = 0`.
@@ -72,7 +90,7 @@ public enum TreeSitterWorker {
     /// - Returns: The number of dirty tree-sitter files drained this pass.
     /// - Throws: Rethrows `Store`'s storage errors. Throws `CancellationError`
     ///   when the task is cancelled. The pass looks for cancellation before
-    ///   each file and before each embedding batch, and each file that is
+    ///   each file and before each `embed(texts:)` call, and each file that is
     ///   complete at that time stays complete.
     @discardableResult
     public static func run(
@@ -327,7 +345,8 @@ public enum TreeSitterWorker {
     ///
     /// Only a container chunk has an embed text that is not its text. Thus
     /// the column does not hold a second copy of the text of each other
-    /// chunk. `embedChunks` reads `COALESCE(embedding_text, text)`.
+    /// chunk. `embeddableChunks(ofFilePath:store:)` reads
+    /// `COALESCE(embedding_text, text)`.
     private static func storedEmbeddingText(of chunk: SemanticChunk) -> String? {
         chunk.embeddingText == chunk.text ? nil : chunk.embeddingText
     }
@@ -336,7 +355,15 @@ public enum TreeSitterWorker {
 
     /// Batch-embeds every chunk of every file with `embedded = 0`, writing
     /// vectors through `EmbeddingCodec` and marking each file's `embedded`
-    /// flag once its whole batch succeeds.
+    /// flag once each of its chunks has a vector.
+    ///
+    /// One `embed(texts:)` call holds `batchSize` texts at most, and it can
+    /// hold the chunks of more than one file (see `EmbeddingCallQueue`). The
+    /// step reads the chunks of the dirty files in path order, and sends a
+    /// call each time `batchSize` texts are ready. The last call holds the
+    /// texts that are left. A file with no chunks is marked embedded at once.
+    /// When a call fails, the step skips each file of that call, and a later
+    /// pass embeds those files again (see `embedNextCall`).
     ///
     /// Before draining, gets the dimension of the embedder from the length of
     /// the first vector that it returns (see `measureDimension`), and
@@ -353,8 +380,9 @@ public enum TreeSitterWorker {
     /// dirty file stays dirty, thus a later pass embeds it.
     ///
     /// The step looks for task cancellation before each file, and
-    /// `embedInBatches` looks for it before each batch, thus a cancelled
-    /// pass stops after one batch at most.
+    /// `embedNextCall` looks for it before each call, thus a cancelled pass
+    /// stops after one call at most. Each file that is complete at that time
+    /// stays complete.
     ///
     /// Each `embed(texts:)` call runs in its own span through `tracer`.
     private static func embedDirtyChunks(
@@ -368,16 +396,23 @@ public enum TreeSitterWorker {
         }
         try await reconcileEmbedderDimension(dimension, store: store)
 
-        let dirtyPaths = try await store.drainEmbeddingDirty()
-        for filePath in dirtyPaths {
+        let embedder = measuredEmbedder.embedder
+        var queue = EmbeddingCallQueue()
+        for filePath in try await store.drainEmbeddingDirty() {
             try Task.checkCancellation()
-            try await embedChunks(
-                forFilePath: filePath,
-                embedder: measuredEmbedder.embedder,
-                store: store,
-                batchSize: batchSize,
-                tracer: tracer
-            )
+            let chunks = try await embeddableChunks(ofFilePath: filePath, store: store)
+            guard !chunks.isEmpty else {
+                // A file with no chunks is fully embedded with no call.
+                try await store.markIndexed(filePath: filePath, layer: .embedding)
+                continue
+            }
+            queue.append(filePath: filePath, chunks: chunks)
+            while queue.unsentCount >= batchSize {
+                try await embedNextCall(from: &queue, embedder: embedder, store: store, batchSize: batchSize, tracer: tracer)
+            }
+        }
+        while !queue.isEmpty {
+            try await embedNextCall(from: &queue, embedder: embedder, store: store, batchSize: batchSize, tracer: tracer)
         }
     }
 
@@ -455,43 +490,63 @@ public enum TreeSitterWorker {
         try db.execute(sql: "UPDATE \(Schema.IndexedFiles.table) SET \(assignments)")
     }
 
-    /// Embeds the texts of `chunks` in batches of `batchSize` texts at most.
+    /// Sends the next call of `queue` to the embedder, and writes each file
+    /// that the call makes complete.
     ///
-    /// One `embed(texts:)` call holds one batch, thus one large file is not one
-    /// very large call. The function looks for task cancellation before each
-    /// batch. When `embedder.embed(texts:)` throws, or returns a vector count
-    /// that is not the batch count, the function writes a log entry and
-    /// returns `nil`, and the caller skips the file.
+    /// The function looks for task cancellation before the call. When the
+    /// call fails (see `embed(_:with:tracer:)`), the function skips each file
+    /// of the call: each chunk of the file keeps a `NULL` embedding and the
+    /// file keeps `embedded = 0`, thus a later pass embeds it again. The other
+    /// files of `queue` do not change.
     ///
     /// - Parameters:
-    ///   - chunks: The chunks of one file, in identifier order.
-    ///   - filePath: The path of the file, for the log entries.
+    ///   - queue: The chunks that do not have a vector yet. One chunk or more
+    ///     of the queue is not in a call yet.
     ///   - embedder: The embedder that makes the vectors.
-    ///   - batchSize: The maximum number of texts in one `embed(texts:)` call.
-    ///     The value is 1 or more.
-    ///   - tracer: The tracer of the span of each `embed(texts:)` call.
-    /// - Returns: One vector for each chunk, in the order of `chunks`, or
-    ///   `nil` when the caller must skip the file.
-    /// - Throws: `CancellationError` when the task is cancelled.
-    private static func embedInBatches(
-        chunks: [EmbeddableChunk],
-        filePath: String,
+    ///   - store: The index store to write the vectors into.
+    ///   - batchSize: The maximum number of texts in the call. The value is 1
+    ///     or more.
+    ///   - tracer: The tracer of the span of the call.
+    /// - Throws: `CancellationError` when the task is cancelled. Rethrows the
+    ///   storage errors of `store`.
+    private static func embedNextCall(
+        from queue: inout EmbeddingCallQueue,
         embedder: PooledEmbedding,
+        store: Store,
         batchSize: Int,
         tracer: (any Tracer)?
-    ) async throws -> [[Float]]? {
-        var vectors: [[Float]] = []
-        vectors.reserveCapacity(chunks.count)
-        for batchStart in stride(from: 0, to: chunks.count, by: batchSize) {
+    ) async throws {
+        try Task.checkCancellation()
+        let call = queue.nextCall(maxTextCount: batchSize)
+        guard let vectors = try await embed(call, with: embedder, tracer: tracer) else {
+            queue.skip(call)
+            return
+        }
+        try await writeVectors(of: queue.complete(call, vectors: vectors), store: store)
+    }
+
+    /// Embeds the texts of `call` in one `embed(texts:)` call.
+    ///
+    /// When `embedder.embed(texts:)` throws, or returns a vector count that is
+    /// not the text count, the function writes one log entry for each file of
+    /// the call and returns `nil`, and the caller skips those files.
+    ///
+    /// - Parameters:
+    ///   - call: The texts to embed, and the file of each text.
+    ///   - embedder: The embedder that makes the vectors.
+    ///   - tracer: The tracer of the span of the call.
+    /// - Returns: One vector for each text of `call`, in the order of its
+    ///   texts, or `nil` when the caller must skip the files of the call.
+    /// - Throws: `CancellationError` when the task is cancelled.
+    private static func embed(_ call: EmbeddingCall, with embedder: PooledEmbedding, tracer: (any Tracer)?) async throws -> [[Float]]? {
+        let vectors: [[Float]]
+        do {
+            vectors = try await CodeContextSpans.embed(call.texts, with: embedder, tracer: tracer)
+        } catch {
+            // A cancelled embedder can throw an error of its own type.
+            // A cancelled pass must stop, not skip the files and continue.
             try Task.checkCancellation()
-            let batch = chunks[batchStart..<min(batchStart + batchSize, chunks.count)]
-            let batchVectors: [[Float]]
-            do {
-                batchVectors = try await CodeContextSpans.embed(batch.map(\.text), with: embedder, tracer: tracer)
-            } catch {
-                // A cancelled embedder can throw an error of its own type.
-                // A cancelled pass must stop, not skip the file and continue.
-                try Task.checkCancellation()
+            for filePath in call.filePaths {
                 Log.embedding.warning(
                     "the embedder failed; the index skips the file",
                     metadata: [
@@ -499,52 +554,41 @@ public enum TreeSitterWorker {
                         CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
                     ]
                 )
-                return nil
             }
-            guard batchVectors.count == batch.count else {
+            return nil
+        }
+        guard vectors.count == call.texts.count else {
+            for filePath in call.filePaths {
                 Log.embedding.warning(
                     "the embedder returned a vector count that is not the chunk count; the index skips the file",
                     metadata: [
                         CodeContextTracing.MetadataKey.filePath: .string(filePath),
-                        CodeContextTracing.MetadataKey.embeddingInputCount: .stringConvertible(batch.count),
-                        CodeContextTracing.MetadataKey.embeddingOutputCount: .stringConvertible(batchVectors.count),
+                        CodeContextTracing.MetadataKey.embeddingInputCount: .stringConvertible(call.texts.count),
+                        CodeContextTracing.MetadataKey.embeddingOutputCount: .stringConvertible(vectors.count),
                     ]
                 )
-                return nil
             }
-            vectors.append(contentsOf: batchVectors)
+            return nil
         }
         return vectors
     }
 
-    /// The name of the result column of `embedChunks` that holds the text to
-    /// embed: the embed text of a container chunk, else the chunk text.
+    /// The name of the result column of `embeddableChunks(ofFilePath:store:)`
+    /// that holds the text to embed: the embed text of a container chunk,
+    /// else the chunk text.
     private static let embeddableTextColumn = "embeddable_text"
 
-    /// Embeds the embed texts of `filePath`'s `ts_chunks` rows in bounded batches (see
-    /// `embedInBatches`) and writes the resulting vectors back, or leaves
-    /// the file's chunks untouched (still `NULL`, still `embedded = 0`) on
-    /// any failure.
+    /// Reads the `ts_chunks` rows of `filePath` and the text to embed for
+    /// each row.
     ///
-    /// A file with no chunks (e.g. one with no chunkable nodes) is
-    /// vacuously fully embedded and marked as such without calling
-    /// `embedder`. Otherwise, `embedder.embed(texts:)` throwing, or returning a
-    /// vector count that doesn't match the chunk count, is logged and
-    /// treated as a graceful skip — never a crash, and never a partial
-    /// write: a file's chunks are all embedded or none are. On success, the
-    /// per-chunk embedding `UPDATE`s and the file's `embedded = 1` flip run
-    /// inside one `Store.write` transaction, so there's no window in which
-    /// a chunk holds a non-`NULL` embedding while `embedded` is still 0 (or
-    /// vice versa) — including under concurrent invocation for the same
-    /// file.
-    private static func embedChunks(
-        forFilePath filePath: String,
-        embedder: PooledEmbedding,
-        store: Store,
-        batchSize: Int,
-        tracer: (any Tracer)?
-    ) async throws {
-        let chunks: [EmbeddableChunk] = try await store.read { db in
+    /// - Parameters:
+    ///   - filePath: The path of the file.
+    ///   - store: The index store to read.
+    /// - Returns: The chunks of the file, in identifier order. A file with no
+    ///   chunkable nodes has no chunks.
+    /// - Throws: `CodeContextError.storage` if the read fails.
+    private static func embeddableChunks(ofFilePath filePath: String, store: Store) async throws -> [EmbeddableChunk] {
+        try await store.read { db in
             try Row.fetchAll(
                 db,
                 sql: """
@@ -558,39 +602,38 @@ public enum TreeSitterWorker {
                 EmbeddableChunk(id: row[Schema.TsChunks.id], text: row[embeddableTextColumn])
             }
         }
+    }
 
-        guard !chunks.isEmpty else {
-            try await store.markIndexed(filePath: filePath, layer: .embedding)
+    /// Writes the vectors of each file of `files`, and marks each file
+    /// embedded, in one `Store.write` transaction.
+    ///
+    /// Each file of `files` has a vector for each of its chunks, thus a file
+    /// is written whole or not at all. The chunk embedding `UPDATE`s of a file
+    /// and its `embedded = 1` flip are in the same transaction. Thus no reader
+    /// sees a chunk with a vector while its file has `embedded = 0`, or the
+    /// reverse.
+    ///
+    /// - Parameters:
+    ///   - files: The complete files. An empty value writes nothing.
+    ///   - store: The index store to write into.
+    /// - Throws: `CodeContextError.storage` if the write fails.
+    private static func writeVectors(of files: [EmbeddedFile], store: Store) async throws {
+        guard !files.isEmpty else {
             return
         }
-
-        let embedded = try await embedInBatches(chunks: chunks, filePath: filePath, embedder: embedder, batchSize: batchSize, tracer: tracer)
-        guard let vectors = embedded else {
-            return
-        }
-
         try await store.write { db in
-            for (chunk, vector) in zip(chunks, vectors) {
+            for file in files {
+                for (chunk, vector) in zip(file.chunks, file.vectors) {
+                    try db.execute(
+                        sql: "UPDATE \(Schema.TsChunks.table) SET \(Schema.TsChunks.embedding) = ? WHERE \(Schema.TsChunks.id) = ?",
+                        arguments: [EmbeddingCodec.encode(vector), chunk.id]
+                    )
+                }
                 try db.execute(
-                    sql: "UPDATE \(Schema.TsChunks.table) SET \(Schema.TsChunks.embedding) = ? WHERE \(Schema.TsChunks.id) = ?",
-                    arguments: [EmbeddingCodec.encode(vector), chunk.id]
+                    sql: "UPDATE \(Schema.IndexedFiles.table) SET \(Schema.IndexedFiles.embedded) = 1 WHERE \(Schema.IndexedFiles.filePath) = ?",
+                    arguments: [file.filePath]
                 )
             }
-            try db.execute(
-                sql: "UPDATE \(Schema.IndexedFiles.table) SET \(Schema.IndexedFiles.embedded) = 1 WHERE \(Schema.IndexedFiles.filePath) = ?",
-                arguments: [filePath]
-            )
         }
     }
-}
-
-/// One `ts_chunks` row's identity and the text to embed for it, fetched for
-/// embedding.
-private struct EmbeddableChunk: Sendable {
-    /// The `ts_chunks` row identifier.
-    let id: Int64
-
-    /// The text to embed: the embed text of the chunk, which is the chunk
-    /// text for each chunk that is not a container.
-    let text: String
 }

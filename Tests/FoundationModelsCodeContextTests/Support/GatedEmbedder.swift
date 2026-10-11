@@ -115,19 +115,30 @@ actor EmbedCallLog {
 /// A call whose task is cancelled throws `CancellationError`, as a real
 /// embedding model can do. A call that embeds only the probe text of
 /// `MeasuredEmbedder` is recorded as a probe call and does not stop at the
-/// gate.
+/// gate. A chunk-batch call whose number is in `failingCallNumbers` throws
+/// `ScriptedFailure`.
 struct GatedEmbedder: PooledEmbedding {
+    /// The error of a chunk-batch call whose number is in `failingCallNumbers`.
+    struct ScriptedFailure: Error {}
+
     /// The length of every vector this embedder produces.
     let vectorLength: Int
 
     /// The record of the calls, and the gate that holds them.
     let log: EmbedCallLog
 
+    /// The numbers of the chunk-batch calls that throw `ScriptedFailure`. The
+    /// first chunk-batch call has the number 1. A probe call has no number.
+    var failingCallNumbers: Set<Int> = []
+
     func embed(texts: [String]) async throws -> [[Float]] {
         if texts == [MeasuredEmbedder.probeText] {
             await log.recordProbeCall()
         } else {
             await log.recordCall(batchSize: texts.count)
+            if failingCallNumbers.contains(await log.batchSizes.count) {
+                throw ScriptedFailure()
+            }
         }
         try Task.checkCancellation()
         return try await FakeEmbedder(vectorLength: vectorLength).embed(texts: texts)

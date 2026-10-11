@@ -23,6 +23,12 @@ internal struct TracingSpanTests {
     /// The number of fixture files of the index pass tests.
     private static let fixtureFileCount = 3
 
+    /// The number of embed spans of the first index pass with an embedder: one
+    /// for the probe that gets the vector length, and one for the chunks. The
+    /// fixture files hold fewer chunks than one `embed(texts:)` call holds,
+    /// thus one call holds the chunks of all the fixture files.
+    private static let firstPassEmbedSpanCount = 2
+
     /// The time limit of each test that starts background work, in minutes.
     private static let timeLimitMinutes = 1
 
@@ -62,8 +68,7 @@ internal struct TracingSpanTests {
 
         let passSpan = try #require(Self.spans(named: CodeContextTracing.SpanName.indexPass, in: tracer).first)
         let embedSpans = Self.spans(named: CodeContextTracing.SpanName.embed, in: tracer)
-        // One embed span for each fixture file, and one for the probe that gets the vector length.
-        #expect(embedSpans.count == Self.fixtureFileCount + 1)
+        #expect(embedSpans.count == Self.firstPassEmbedSpanCount)
         for embedSpan in embedSpans {
             #expect(embedSpan.parentSpanID == passSpan.spanID)
             #expect(embedSpan.attributes.get(CodeContextTracing.AttributeKey.embeddingDimension) == .int64(Int64(Self.embeddingDimension)))
