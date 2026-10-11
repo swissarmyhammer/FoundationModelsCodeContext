@@ -5,3 +5,4 @@
 .DS_Store
 .build/
 Package.resolved
+__pycache__/

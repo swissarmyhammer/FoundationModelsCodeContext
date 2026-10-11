@@ -36,7 +36,12 @@ struct EmbeddingTextTests {
         var testDescription: String { folder }
     }
 
-    /// The golden cases, one for each language that the task names.
+    /// The golden cases: one for each language that the task names, and one
+    /// for a decorated Python class.
+    ///
+    /// The container of the decorated case is the `decorated_definition`
+    /// chunk that wraps the class. That wrapper has no name, thus its symbol
+    /// path is its node kind.
     static let goldenCases = [
         GoldenCase(
             folder: "swift", sourceFileName: "source.swift", module: SwiftLanguage.self, containerSymbolPath: "Cache",
@@ -47,6 +52,9 @@ struct EmbeddingTextTests {
         GoldenCase(
             folder: "python", sourceFileName: "source.py", module: PythonLanguage.self, containerSymbolPath: "Repository",
             otherSymbolPaths: ["helper", "Repository.find", "Repository.size"]),
+        GoldenCase(
+            folder: "python-decorated", sourceFileName: "source.py", module: PythonLanguage.self,
+            containerSymbolPath: "decorated_definition", otherSymbolPaths: ["label", "Row.__lt__", "Row.width"]),
     ]
 
     /// The folder of the golden cases.
@@ -123,6 +131,23 @@ struct EmbeddingTextTests {
 
         let container = try #require(chunks.first { $0.symbolPath == "Plain" })
         #expect(container.embeddingText == "class Plain:\n\"\"\"The doc text.\"\"\"\ndef run(self):")
+    }
+
+    @Test
+    func theDecoratedDefinitionChunkOfAPythonFunctionEmbedsItsFullText() throws {
+        let source = """
+            @functools.cache
+            def load(path):
+                \"\"\"Give the text at `path`.\"\"\"
+                return path
+            """
+        let file = SourceFile(relativePath: "load.py", contents: source)
+
+        let chunks = Chunker.chunk(file: file, module: PythonLanguage.self)
+
+        let wrapper = try #require(chunks.first { $0.symbolPath == "decorated_definition" })
+        #expect(wrapper.text == source)
+        #expect(wrapper.embeddingText == wrapper.text)
     }
 
     @Test

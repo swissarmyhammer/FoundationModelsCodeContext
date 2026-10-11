@@ -71,8 +71,10 @@ public struct SemanticChunk: Sendable, Equatable {
     /// `containerNodeKinds` of its `LanguageModule`), this is a summary: the
     /// declaration of the container, its doc text, and the declaration of
     /// each member chunk on one line. The members are also chunks, thus the
-    /// full text of a container embeds their text a second time. For each
-    /// other chunk, this is `text`.
+    /// full text of a container embeds their text a second time. A wrapper
+    /// chunk of a container (the `decorated_definition` of a Python class)
+    /// also embeds a summary, with its decorators in the declaration. For
+    /// each other chunk, this is `text`.
     public let embeddingText: String
 
     /// Creates a semantic chunk.
@@ -404,6 +406,10 @@ public enum Chunker {
     /// container. The embed text of a container needs the declaration of each
     /// member (see `ContainerEmbeddingText`).
     ///
+    /// A wrapper chunk of a container (the `decorated_definition` of a Python
+    /// class) is also a container. The container that it wraps is not one of
+    /// its members: the members of that container are its members too.
+    ///
     /// - Parameters:
     ///   - root: The node to walk, itself included.
     ///   - file: The source file `root` was parsed from.
@@ -418,20 +424,69 @@ public enum Chunker {
     ) -> [SemanticChunk] {
         var foundNodes: [FoundChunkNode] = []
         walk(from: root, direction: .children, context: nil as Int?) { node, enclosingIndex in
-            let nodeKind = node.nodeType ?? ""
-            guard let kind = module.chunkKinds[nodeKind] else {
+            guard let kind = module.chunkKinds[node.nodeType ?? ""] else {
                 return enclosingIndex
             }
-            if let enclosingIndex, foundNodes[enclosingIndex].isContainer {
-                let memberDeclaration = ContainerEmbeddingText.memberDeclaration(of: node, in: file.contents)
-                foundNodes[enclosingIndex].memberDeclarations.append(memberDeclaration)
+            var found = FoundChunkNode(node: node, kind: kind, isContainer: isContainer(node, module: module))
+            if let enclosingIndex {
+                if ContainerEmbeddingText.wrappedDefinition(of: foundNodes[enclosingIndex].node) == node {
+                    found.wrapperIndex = enclosingIndex
+                } else {
+                    addMemberDeclaration(of: node, toContainerAt: enclosingIndex, in: &foundNodes, source: file.contents)
+                }
             }
-            foundNodes.append(
-                FoundChunkNode(node: node, kind: kind, isContainer: module.containerNodeKinds.contains(nodeKind)))
+            foundNodes.append(found)
             return foundNodes.count - 1
         }
         return foundNodes.compactMap { found in
             makeChunk(found: found, file: file, module: module)
+        }
+    }
+
+    /// `true` when `node` is a container: its kind is in `containerNodeKinds`,
+    /// or it wraps a definition whose kind is (see
+    /// `ContainerEmbeddingText.wrappedDefinition(of:)`).
+    ///
+    /// - Parameters:
+    ///   - node: The chunk node to test.
+    ///   - module: The language module supplying the container table.
+    /// - Returns: `true` for a container or a wrapper of a container.
+    private static func isContainer(_ node: Node, module: any LanguageModule.Type) -> Bool {
+        let containerKinds = module.containerNodeKinds
+        if containerKinds.contains(node.nodeType ?? "") {
+            return true
+        }
+        guard let wrappedKind = ContainerEmbeddingText.wrappedDefinition(of: node)?.nodeType else {
+            return false
+        }
+        return containerKinds.contains(wrappedKind)
+    }
+
+    /// Adds the one-line declaration of the member chunk `node` to the
+    /// container at `index`, and to each wrapper of that container.
+    ///
+    /// Does nothing when the chunk at `index` is not a container.
+    ///
+    /// - Parameters:
+    ///   - node: The node of the member chunk.
+    ///   - index: The index in `foundNodes` of the nearest enclosing chunk of
+    ///     `node`.
+    ///   - foundNodes: The chunk nodes found so far.
+    ///   - source: The full text of the file that `node` is in.
+    private static func addMemberDeclaration(
+        of node: Node,
+        toContainerAt index: Int,
+        in foundNodes: inout [FoundChunkNode],
+        source: String
+    ) {
+        guard foundNodes[index].isContainer else {
+            return
+        }
+        let memberDeclaration = ContainerEmbeddingText.memberDeclaration(of: node, in: source)
+        var containerIndex: Int? = index
+        while let currentIndex = containerIndex {
+            foundNodes[currentIndex].memberDeclarations.append(memberDeclaration)
+            containerIndex = foundNodes[currentIndex].wrapperIndex
         }
     }
 
@@ -444,8 +499,15 @@ public enum Chunker {
         /// The meta-type of the chunk.
         let kind: SymbolMetaType
 
-        /// `true` when the node kind is also in `containerNodeKinds`.
+        /// `true` when the node kind is also in `containerNodeKinds`, or when
+        /// the node wraps a definition whose kind is (see
+        /// `isContainer(_:module:)`).
         let isContainer: Bool
+
+        /// The index of the wrapper chunk of this chunk (the
+        /// `decorated_definition` chunk of a decorated Python class), or `nil`
+        /// when no chunk wraps this chunk.
+        var wrapperIndex: Int?
 
         /// The one-line declaration of each member chunk, in source order.
         /// Empty when `isContainer` is `false`.

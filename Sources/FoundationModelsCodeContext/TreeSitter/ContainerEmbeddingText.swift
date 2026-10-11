@@ -12,8 +12,10 @@ extension Chunker {
     /// thus the dimension check cannot see such a change.
     ///
     /// Version 0 is the rules before container summaries: each chunk embedded
-    /// its full text.
-    static let embeddingTextVersion = 1
+    /// its full text. Version 1 is the rules before wrapper summaries: a
+    /// wrapper chunk of a container (the `decorated_definition` of a Python
+    /// class) embedded its full text.
+    static let embeddingTextVersion = 2
 }
 
 /// Makes the embed text of a container chunk: a summary of the container,
@@ -31,6 +33,11 @@ extension Chunker {
 /// 3. The declaration of each member chunk, on one line for each member.
 ///
 /// An empty part is not in the summary.
+///
+/// A wrapper chunk of a container, for example the `decorated_definition` of
+/// a Python class, also embeds a summary. Its declaration starts at the
+/// wrapper, thus the decorators are in it. Its doc text and its member
+/// declarations are those of the container that it wraps.
 enum ContainerEmbeddingText {
     /// The field that holds the body of a definition in most grammars.
     private static let bodyFieldName = "body"
@@ -107,10 +114,20 @@ enum ContainerEmbeddingText {
         return trimmingTrailingWhitespace(text(in: declarationRange, of: source))
     }
 
+    /// Gives the definition that a wrapper node wraps (see
+    /// `wrappedDefinitionFieldName`), or `nil` when `node` wraps no
+    /// definition.
+    ///
+    /// - Parameter node: The node that can be a wrapper.
+    /// - Returns: The wrapped definition node, or `nil`.
+    static func wrappedDefinition(of node: Node) -> Node? {
+        node.child(byFieldName: wrappedDefinitionFieldName)
+    }
+
     /// Gives the body node of a definition node, or `nil` when it has none.
     private static func body(of node: Node) -> Node? {
         node.child(byFieldName: bodyFieldName)
-            ?? node.child(byFieldName: wrappedDefinitionFieldName)?.child(byFieldName: bodyFieldName)
+            ?? wrappedDefinition(of: node)?.child(byFieldName: bodyFieldName)
     }
 
     /// Gives the doc text of a definition node from `location`.

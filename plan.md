@@ -189,7 +189,11 @@ all layers dirty, new → INSERT dirty.
    declaration (the node text up to its `body` field), its doc text
    (`LanguageModule.docTextLocation`: the comments directly before the node,
    or the docstring in Python), and the one-line declaration of each member
-   chunk. Each other chunk embeds its full text. `ts_chunks.text` keeps the
+   chunk. A wrapper chunk of a container (the `decorated_definition` of a
+   Python class) also embeds a summary: the decorators and the class
+   declaration, the doc text, and the member declarations of the class. A
+   decorated function keeps its full text. Each other chunk embeds its full
+   text. `ts_chunks.text` keeps the
    full text, and `ts_chunks.embedding_text` holds the summary. The `meta`
    table records the version of these rules (`Chunker.embeddingTextVersion`).
    When the stored version is not the current version, the worker chunks

@@ -1,0 +1,9 @@
+@functools.total_ordering
+@dataclasses.dataclass(frozen=True)
+class Row:
+"""Hold one row of a table.
+
+    The rows sort by key.
+    """
+def __lt__(self, other):
+@property def width(self) -> int:
