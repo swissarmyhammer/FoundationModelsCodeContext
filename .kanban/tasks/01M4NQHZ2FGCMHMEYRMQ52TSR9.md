@@ -51,6 +51,41 @@ comments:
     - evidence: `swift build --build-tests` (no warnings in package sources); RED seen first (missing `embeddingText` / `embeddingTextVersion`); `swift test --filter "EmbeddingTextTests|StoreTests"` 20 tests passed; full `swift test` 826 tests in 74 suites passed. Files: Sources/.../TreeSitter/ContainerEmbeddingText.swift (new), Sources/.../TreeSitter/Chunker.swift, Sources/.../Languages/LanguageModule.swift, Sources/.../Languages/Python.swift, Sources/.../Index/Migrations.swift, Sources/.../Index/Store.swift, Sources/.../Index/TreeSitterWorker.swift, Sources/.../Tracing/CodeContextTracing.swift, Tests/.../EmbeddingTextTests.swift (new), Tests/.../Goldens/embedding-text/{swift,rust,python}/ (new), Tests/.../StoreTests.swift, Tests/.../CodeContextTracingTests.swift, plan.md.
     - next: /review
   timestamp: 2026-10-11T15:20:58.512048+00:00
+- actor: claude-code
+  id: 01m4ns8kxwnj335a4m62mas175
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (d0df4e4). 10 findings (10 confirmed, 1 refuted). All are in Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py: lines 1, 5, 13, 17, 20, 29 (2 findings), 30, 33 (2 findings). The 3 Rust tool rules failed because there is no Cargo.toml. They gave no findings.
+    - next: Do the 10 findings in the "## Review Findings (2026-10-11 10:22)" checklist. Then run /review again. The task stays in review.
+  timestamp: 2026-10-11T15:28:22.460028+00:00
+- actor: claude-code
+  id: 01m4ns946pxad6vx5f3nrg7m5j
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 13 paths (ContainerEmbeddingText.swift, Chunker, LanguageModule, Python, Migrations, Store, TreeSitterWorker, tracing, tests, goldens, plan.md)
+    - test: green — swift test, 826 tests in 74 suites passed, 0 skipped
+    - commit: d0df4e4
+    - review: findings — Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:1, :5, :13, :17, :20, :29, :29, :30, :33, :33
+  timestamp: 2026-10-11T15:28:39.126358+00:00
+- actor: claude-code
+  id: 01m4nsh65pch2851gsc7rmh14s
+  text: |-
+    ### Review findings fix (python golden source.py)
+    - Before the change, `vulture --min-confidence 60 source.py` gave 8 results, not 4: also `limit`, `size`, `find` and `matches`. `ruff check --isolated --select D100,D101,D102,D103,D104,D106,D107` gave the 6 D1 results. I removed the cause in the full file, not only on the lines of the findings.
+    - The module, `Repository`, `__init__`, `size`, `find`, `Meta` and `helper` now have docstrings.
+    - A module-level `__all__` names `Base`, `Repository` and `helper`. `find` uses `matches` and `limit`. `helper(repository, key)` uses `size`, `find` and `Meta.ordering`. `__init__` sets `rows`.
+    - New `class Base` with a docstring, because `Repository(Base)` used a name that the file did not define. The declaration line `class Repository(Base):` does not change.
+    - The comment directly before `class Repository` stays, thus the golden still shows that Python does not take a preceding comment as doc text.
+    - `expected.txt` did not change. Member docstrings are in the member body, and the member line is the declaration only. Thus the summary is the same. The test compares with the real output, and it passes.
+    - Now `vulture` and `ruff` (D1 codes, and the ruff default rules) report nothing for the file.
+  timestamp: 2026-10-11T15:33:03.286221+00:00
+- actor: claude-code
+  id: 01m4nsh8hkxeg2dej96rvvmb9v
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py. `vulture --min-confidence 60 source.py`: 0 results (8 before). `ruff check --isolated --no-cache --select D100,D101,D102,D103,D104,D106,D107 source.py`: 0 results (6 before). `swift test --filter EmbeddingTextTests`: 7 tests passed. expected.txt and the test did not change. All 10 findings are checked.
+    - next: /test, then /review
+  timestamp: 2026-10-11T15:33:05.715482+00:00
 position_column: doing
 position_ordinal: '80'
 title: Embed a summary of each container chunk, not its full text
@@ -99,3 +134,39 @@ FoundationModelsExtras task: sort and divide the texts of `MLXEmbedding.embed` i
 ## Follow-up
 
 Run the Django SWE-bench again in FoundationModelsACPAgent. If indexing is fast, remove `semanticSearch: false` from `bench/code-context.config.yaml`. #index #feature #cross-repo
+
+## Review Findings (2026-10-11 10:22)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 14 file(s) reviewed, 8 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 4 file(s) not reviewed — no validator matched:
+> - `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/expected.txt` — no validator matches this file
+> - `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/rust/expected.txt` — no validator matches this file
+> - `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/swift/expected.txt` — no validator matches this file
+> - `plan.md` — no validator matches this file
+
+> ⚠️ tool rule 'code-hygiene/dead-code-rust' failed — the tool judged nothing, so its findings are missing:
+> error: could not find `Cargo.toml` in `/Users/wballard/github/swissarmyhammer/FoundationModelsCodeContext` or any parent directory
+> dead-code-rust: cargo could not check the workspace
+
+> ⚠️ tool rule 'code-hygiene/function-length-rust' failed — the tool judged nothing, so its findings are missing:
+> error: could not find `Cargo.toml` in `/Users/wballard/github/swissarmyhammer/FoundationModelsCodeContext` or any parent directory
+> function-length-rust: cargo could not run clippy over the workspace
+
+> ⚠️ tool rule 'code-hygiene/missing-docs-rust' failed — the tool judged nothing, so its findings are missing:
+> error: could not find `Cargo.toml` in `/Users/wballard/github/swissarmyhammer/FoundationModelsCodeContext` or any parent directory
+> missing-docs-rust: cargo could not run clippy over the workspace
+
+- [x] `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:1` `code-hygiene/missing-docs-python` — D100 Missing docstring in public module.
+- [x] `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:5` `code-hygiene/dead-code-python` — unused class 'Repository'.
+- [x] `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:13` `code-hygiene/missing-docs-python` — D107 Missing docstring in `__init__`.
+- [x] `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:17` `code-hygiene/missing-docs-python` — D102 Missing docstring in public method.
+- [x] `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:20` `code-hygiene/missing-docs-python` — D102 Missing docstring in public method.
+- [x] `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:29` `code-hygiene/dead-code-python` — unused class 'Meta'.
+- [x] `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:29` `code-hygiene/missing-docs-python` — D106 Missing docstring in public nested class.
+- [x] `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:30` `code-hygiene/dead-code-python` — unused variable 'ordering'.
+- [x] `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:33` `code-hygiene/dead-code-python` — unused function 'helper'.
+- [x] `Tests/FoundationModelsCodeContextTests/Goldens/embedding-text/python/source.py:33` `code-hygiene/missing-docs-python` — D103 Missing docstring in public function.
