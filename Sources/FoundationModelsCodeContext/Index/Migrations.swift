@@ -42,6 +42,10 @@ enum Schema {
         /// Little-endian `Float32` blob (see `EmbeddingCodec`), `NULL`
         /// until the embedding worker processes the chunk.
         static let embedding = "embedding"
+        /// The text that the embedding worker embeds for the chunk (see
+        /// `SemanticChunk.embeddingText`), or `NULL` when that text is
+        /// `text`. Only a container chunk has a value here.
+        static let embeddingText = "embedding_text"
     }
 
     /// Symbols discovered via `textDocument/documentSymbol`, flattened and
@@ -77,9 +81,10 @@ enum Schema {
         static let source = "source"
     }
 
-    /// Small workspace-level key/value table — currently just the embedder
-    /// dimension in use, so a dimension change (different embedder/model)
-    /// can be detected and trigger re-embedding.
+    /// Small workspace-level key/value table: the embedder dimension in use,
+    /// so a dimension change (different embedder/model) can be detected and
+    /// trigger re-embedding, and the version of the embed-text rules (see
+    /// `Chunker.embeddingTextVersion`).
     enum Meta {
         static let table = "meta"
         static let key = "key"
@@ -160,6 +165,12 @@ enum Migrations {
         migrator.registerMigration("v2_lspContentHash") { db in
             try db.alter(table: Schema.IndexedFiles.table) { t in
                 t.add(column: Schema.IndexedFiles.lspContentHash, .blob)
+            }
+        }
+
+        migrator.registerMigration("v3_embeddingText") { db in
+            try db.alter(table: Schema.TsChunks.table) { t in
+                t.add(column: Schema.TsChunks.embeddingText, .text)
             }
         }
 

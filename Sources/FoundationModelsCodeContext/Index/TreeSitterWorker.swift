@@ -95,6 +95,10 @@ public enum TreeSitterWorker {
     /// — if `measuredEmbedder` is given — embeds every file with
     /// `embedded = 0`.
     ///
+    /// Before the drain, the pass compares the embed-text version of the
+    /// index with `Chunker.embeddingTextVersion` (see
+    /// `reconcileEmbeddingTextVersion(store:)`).
+    ///
     /// This is `run(store:rootDirectory:embedder:embeddingBatchSize:tracer:)`
     /// for a caller that keeps one `MeasuredEmbedder` for more than one pass.
     /// The measured embedder keeps the vector length that it learned, thus a
@@ -121,6 +125,7 @@ public enum TreeSitterWorker {
         embeddingBatchSize: Int,
         tracer: (any Tracer)?
     ) async throws -> Int {
+        try await reconcileEmbeddingTextVersion(store: store)
         let dirtyPaths = try await store.drainTsDirty()
 
         for relativePath in dirtyPaths {
@@ -215,6 +220,42 @@ public enum TreeSitterWorker {
         return ParsedFile(file: file, module: module, chunks: chunks)
     }
 
+    /// Compares the embed-text version that `store` records with
+    /// `Chunker.embeddingTextVersion` and, on a difference, makes the index
+    /// chunk each file again and embed each chunk again.
+    ///
+    /// The stored embed text of a chunk comes from the chunker, thus a change
+    /// of the embed-text rules needs a new chunk pass, not only a new embed
+    /// pass. On a difference, one transaction clears every chunk embedding and
+    /// resets the `ts_indexed` and `embedded` flags of every file. Then the
+    /// function records the current version. The drain of this pass then
+    /// chunks each file, and the embedding step embeds each chunk, one time.
+    /// The vector length does not change, thus `reconcileEmbedderDimension`
+    /// cannot see this change.
+    ///
+    /// An index with no recorded version has version 0. On a new index each
+    /// file is already dirty, thus the reset changes nothing there.
+    ///
+    /// - Parameter store: The index store that records the version.
+    /// - Throws: `CodeContextError.storage` if a read or a write fails.
+    private static func reconcileEmbeddingTextVersion(store: Store) async throws {
+        let storedVersion = try await store.embeddingTextVersion()
+        guard storedVersion != Chunker.embeddingTextVersion else {
+            return
+        }
+        Log.embedding.notice(
+            "the embed-text rules changed; the index chunks all files again and embeds all chunks again",
+            metadata: [
+                CodeContextTracing.MetadataKey.embeddingStoredTextVersion: .stringConvertible(storedVersion),
+                CodeContextTracing.MetadataKey.embeddingTextVersion: .stringConvertible(Chunker.embeddingTextVersion),
+            ]
+        )
+        try await store.write { db in
+            try clearAllEmbeddings(db: db, dirtyFlags: [Schema.IndexedFiles.tsIndexed, Schema.IndexedFiles.embedded])
+        }
+        try await store.setEmbeddingTextVersion(Chunker.embeddingTextVersion)
+    }
+
     /// Replaces `file`'s `ts_chunks` rows with `chunks` and its
     /// tree-sitter-sourced `lsp_call_edges` rows with `TSCallGraph`'s
     /// heuristic edges, in one write transaction: deletes the file's
@@ -223,6 +264,9 @@ public enum TreeSitterWorker {
     /// with a `NULL` embedding, extracts and replaces call-graph edges via
     /// `TSCallGraph.writeCallEdges(db:file:module:)`, marks the file
     /// tree-sitter-indexed, and resets its `embedded` flag to 0.
+    ///
+    /// The `embedding_text` column of a row holds the embed text of the chunk
+    /// only when it is not the chunk text (see `storedEmbeddingText(of:)`).
     ///
     /// Call-graph edge extraction runs in the same transaction as the chunk
     /// write (rather than as a separate `store.write` call afterward) so a
@@ -254,13 +298,13 @@ public enum TreeSitterWorker {
                         INSERT INTO \(Schema.TsChunks.table)
                             (\(Schema.TsChunks.filePath), \(Schema.TsChunks.startByte), \(Schema.TsChunks.endByte), \
                              \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine), \(Schema.TsChunks.text), \
-                             \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind))
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                             \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind), \(Schema.TsChunks.embeddingText))
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [
                         chunk.filePath, chunk.startByte, chunk.endByte,
                         chunk.startLine, chunk.endLine, chunk.text,
-                        chunk.symbolPath, chunk.kind.rawValue,
+                        chunk.symbolPath, chunk.kind.rawValue, storedEmbeddingText(of: chunk),
                     ]
                 )
             }
@@ -276,6 +320,16 @@ public enum TreeSitterWorker {
                 arguments: [file.relativePath]
             )
         }
+    }
+
+    /// Gives the value of the `embedding_text` column of `chunk`: its embed
+    /// text, or `nil` when the embed text is the chunk text.
+    ///
+    /// Only a container chunk has an embed text that is not its text. Thus
+    /// the column does not hold a second copy of the text of each other
+    /// chunk. `embedChunks` reads `COALESCE(embedding_text, text)`.
+    private static func storedEmbeddingText(of chunk: SemanticChunk) -> String? {
+        chunk.embeddingText == chunk.text ? nil : chunk.embeddingText
     }
 
     // MARK: - Embedding
@@ -377,11 +431,28 @@ public enum TreeSitterWorker {
                 ]
             )
             try await store.write { db in
-                try db.execute(sql: "UPDATE \(Schema.TsChunks.table) SET \(Schema.TsChunks.embedding) = NULL")
-                try db.execute(sql: "UPDATE \(Schema.IndexedFiles.table) SET \(Schema.IndexedFiles.embedded) = 0")
+                try clearAllEmbeddings(db: db, dirtyFlags: [Schema.IndexedFiles.embedded])
             }
         }
         try await store.setEmbedderDimension(dimension)
+    }
+
+    /// Clears the embedding of every chunk and sets each column of
+    /// `dirtyFlags` to 0 for every file, so that the next drain of those
+    /// layers picks up the whole index.
+    ///
+    /// Shared by `reconcileEmbedderDimension` and
+    /// `reconcileEmbeddingTextVersion(store:)`. Each caller runs it in its
+    /// own write transaction.
+    ///
+    /// - Parameters:
+    ///   - db: The database connection of the write transaction.
+    ///   - dirtyFlags: The `indexed_files` flag columns to set to 0.
+    /// - Throws: The error of a failed `UPDATE`.
+    private static func clearAllEmbeddings(db: Database, dirtyFlags: [String]) throws {
+        try db.execute(sql: "UPDATE \(Schema.TsChunks.table) SET \(Schema.TsChunks.embedding) = NULL")
+        let assignments = dirtyFlags.map { "\($0) = 0" }.joined(separator: ", ")
+        try db.execute(sql: "UPDATE \(Schema.IndexedFiles.table) SET \(assignments)")
     }
 
     /// Embeds the texts of `chunks` in batches of `batchSize` texts at most.
@@ -446,7 +517,11 @@ public enum TreeSitterWorker {
         return vectors
     }
 
-    /// Embeds `filePath`'s `ts_chunks` texts in bounded batches (see
+    /// The name of the result column of `embedChunks` that holds the text to
+    /// embed: the embed text of a container chunk, else the chunk text.
+    private static let embeddableTextColumn = "embeddable_text"
+
+    /// Embeds the embed texts of `filePath`'s `ts_chunks` rows in bounded batches (see
     /// `embedInBatches`) and writes the resulting vectors back, or leaves
     /// the file's chunks untouched (still `NULL`, still `embedded = 0`) on
     /// any failure.
@@ -473,12 +548,14 @@ public enum TreeSitterWorker {
             try Row.fetchAll(
                 db,
                 sql: """
-                    SELECT \(Schema.TsChunks.id), \(Schema.TsChunks.text) FROM \(Schema.TsChunks.table) \
+                    SELECT \(Schema.TsChunks.id), \
+                    COALESCE(\(Schema.TsChunks.embeddingText), \(Schema.TsChunks.text)) AS \(embeddableTextColumn) \
+                    FROM \(Schema.TsChunks.table) \
                     WHERE \(Schema.TsChunks.filePath) = ? ORDER BY \(Schema.TsChunks.id)
                     """,
                 arguments: [filePath]
             ).map { row in
-                EmbeddableChunk(id: row[Schema.TsChunks.id], text: row[Schema.TsChunks.text])
+                EmbeddableChunk(id: row[Schema.TsChunks.id], text: row[embeddableTextColumn])
             }
         }
 
@@ -507,8 +584,13 @@ public enum TreeSitterWorker {
     }
 }
 
-/// One `ts_chunks` row's identity and text, fetched for embedding.
+/// One `ts_chunks` row's identity and the text to embed for it, fetched for
+/// embedding.
 private struct EmbeddableChunk: Sendable {
+    /// The `ts_chunks` row identifier.
     let id: Int64
+
+    /// The text to embed: the embed text of the chunk, which is the chunk
+    /// text for each chunk that is not a container.
     let text: String
 }

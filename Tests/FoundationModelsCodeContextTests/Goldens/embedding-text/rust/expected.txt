@@ -1,0 +1,7 @@
+impl<T: Clone> Stack<T>
+// The methods of the stack.
+// Each method keeps the order of the items.
+pub fn new() -> Self
+pub fn push(&mut self, item: T)
+pub fn peek(&self) -> Option<&T> where T: Clone,
+const LIMIT: usize = 64;

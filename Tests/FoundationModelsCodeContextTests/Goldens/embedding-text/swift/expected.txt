@@ -1,0 +1,7 @@
+public final class Cache<Key: Hashable, Value>: Sendable
+/// A cache that keeps the last value of each key.
+///
+/// The cache removes the oldest key when it is full.
+func value( forKey key: Key ) -> Value?
+func removeAll()
+struct Entry

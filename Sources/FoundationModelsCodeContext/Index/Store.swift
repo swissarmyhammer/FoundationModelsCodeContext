@@ -368,9 +368,16 @@ public final class Store: Sendable {
         }
     }
 
-    // MARK: - meta (embedder dimension)
+    // MARK: - meta (embedder dimension, embed-text version)
 
     private static let embedderDimensionKey = "embedder_dimension"
+
+    /// The `meta` key of the version of the embed-text rules.
+    private static let embeddingTextVersionKey = "embedding_text_version"
+
+    /// The embed-text version of an index that has no recorded version: the
+    /// rules before the version was recorded.
+    private static let unrecordedEmbeddingTextVersion = 0
 
     /// The embedder dimension recorded the last time chunks were embedded,
     /// or `nil` if none has been recorded yet.
@@ -383,13 +390,7 @@ public final class Store: Sendable {
     /// - Returns: The recorded dimension, or `nil` if none has been set.
     /// - Throws: `CodeContextError.storage` if the query fails.
     public func embedderDimension() async throws -> Int? {
-        try await read { db in
-            try String.fetchOne(
-                db,
-                sql: "SELECT \(Schema.Meta.value) FROM \(Schema.Meta.table) WHERE \(Schema.Meta.key) = ?",
-                arguments: [Self.embedderDimensionKey]
-            ).flatMap(Int.init)
-        }
+        try await metaInteger(forKey: Self.embedderDimensionKey)
     }
 
     /// Records the embedder dimension currently in use.
@@ -397,13 +398,59 @@ public final class Store: Sendable {
     /// - Parameter dimension: The embedder dimension to record.
     /// - Throws: `CodeContextError.storage` if the upsert fails.
     public func setEmbedderDimension(_ dimension: Int) async throws {
+        try await setMetaInteger(dimension, forKey: Self.embedderDimensionKey)
+    }
+
+    /// The version of the embed-text rules that made the stored embed texts
+    /// and embeddings (see `Chunker.embeddingTextVersion`).
+    ///
+    /// An index with no recorded version gives 0: the rules before the
+    /// version was recorded, when each chunk embedded its full text.
+    ///
+    /// - Returns: The recorded version, or 0 if none has been set.
+    /// - Throws: `CodeContextError.storage` if the query fails.
+    public func embeddingTextVersion() async throws -> Int {
+        try await metaInteger(forKey: Self.embeddingTextVersionKey) ?? Self.unrecordedEmbeddingTextVersion
+    }
+
+    /// Records the version of the embed-text rules of the index.
+    ///
+    /// - Parameter version: The embed-text version to record.
+    /// - Throws: `CodeContextError.storage` if the upsert fails.
+    public func setEmbeddingTextVersion(_ version: Int) async throws {
+        try await setMetaInteger(version, forKey: Self.embeddingTextVersionKey)
+    }
+
+    /// Reads the integer value of `key` in `meta`.
+    ///
+    /// - Parameter key: The `meta` key.
+    /// - Returns: The value, or `nil` when `key` has no row or its value is
+    ///   not an integer.
+    /// - Throws: `CodeContextError.storage` if the query fails.
+    private func metaInteger(forKey key: String) async throws -> Int? {
+        try await read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT \(Schema.Meta.value) FROM \(Schema.Meta.table) WHERE \(Schema.Meta.key) = ?",
+                arguments: [key]
+            ).flatMap(Int.init)
+        }
+    }
+
+    /// Records `value` as the value of `key` in `meta`.
+    ///
+    /// - Parameters:
+    ///   - value: The value to record.
+    ///   - key: The `meta` key.
+    /// - Throws: `CodeContextError.storage` if the upsert fails.
+    private func setMetaInteger(_ value: Int, forKey key: String) async throws {
         try await write { db in
             try db.execute(
                 sql: """
                     INSERT INTO \(Schema.Meta.table) (\(Schema.Meta.key), \(Schema.Meta.value)) VALUES (?, ?)
                     ON CONFLICT(\(Schema.Meta.key)) DO UPDATE SET \(Schema.Meta.value) = excluded.\(Schema.Meta.value)
                     """,
-                arguments: [Self.embedderDimensionKey, String(dimension)]
+                arguments: [key, String(value)]
             )
         }
     }

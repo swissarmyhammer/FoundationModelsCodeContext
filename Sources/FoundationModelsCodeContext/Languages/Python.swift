@@ -49,6 +49,14 @@ public enum PythonLanguage: LanguageModule {
         "class_definition"
     ]
 
+    /// The doc text of a Python definition is its docstring: the first
+    /// statement of its body, when that statement is a string literal.
+    /// A `#` comment before the definition is not doc text.
+    public static let docTextLocation = DocTextLocation.bodyStringStatement(
+        statementKind: "expression_statement",
+        stringKind: "string"
+    )
+
     /// Marker files that identify a Python project.
     ///
     /// `pyproject.toml` or `setup.py`.

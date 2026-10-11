@@ -238,6 +238,13 @@ public enum CodeContextTracing {
         /// embedder.
         public static let embeddingStoredDimension = "embedding.stored_dimension"
 
+        /// The version of the embed-text rules of this package.
+        public static let embeddingTextVersion = "embedding.text_version"
+
+        /// The version of the embed-text rules that made the embeddings that
+        /// the index holds.
+        public static let embeddingStoredTextVersion = "embedding.stored_text_version"
+
         /// The number of strings that one embed call embeds.
         public static let embeddingInputCount = AttributeKey.embeddingInputCount
 

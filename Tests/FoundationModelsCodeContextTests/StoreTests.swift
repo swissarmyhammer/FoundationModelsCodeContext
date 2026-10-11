@@ -110,6 +110,21 @@ struct StoreTests {
         }
     }
 
+    @Test
+    func embeddingTextVersionRoundTripsAndIsZeroBeforeTheFirstRecord() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            #expect(try await store.embeddingTextVersion() == 0)
+
+            try await store.setEmbeddingTextVersion(3)
+            #expect(try await store.embeddingTextVersion() == 3)
+
+            try await store.setEmbeddingTextVersion(4)
+            #expect(try await store.embeddingTextVersion() == 4)
+            #expect(try await store.embedderDimension() == nil)
+        }
+    }
+
     /// Row counts across the three child tables, used to assert
     /// FK-cascade behavior before/after deleting an `indexed_files` row.
     private struct ChildRowCounts: Equatable {

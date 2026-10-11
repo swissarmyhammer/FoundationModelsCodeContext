@@ -44,4 +44,35 @@ public protocol LanguageModule: Sendable {
     /// markdown, and bash format modules — none of them has an entry in
     /// `builtin/lsp/*.yaml`).
     static var languageServer: ServerSpec? { get }
+
+    /// The location of the doc text of a definition.
+    ///
+    /// `Chunker` puts the doc text of a container chunk into the embed text
+    /// of that chunk. The default is `DocTextLocation.precedingComments`.
+    static var docTextLocation: DocTextLocation { get }
+}
+
+extension LanguageModule {
+    /// The default location of the doc text: the comment nodes directly
+    /// before the definition (`///`, `/** */`, `#`).
+    public static var docTextLocation: DocTextLocation { .precedingComments }
+}
+
+/// The location of the doc text of a definition in the parse tree of a
+/// language.
+public enum DocTextLocation: Sendable, Equatable {
+    /// The comment nodes directly before the definition node. A blank line
+    /// between two comments, or between a comment and the definition, ends
+    /// the doc text.
+    case precedingComments
+
+    /// The first statement of the `body` field of the definition, when that
+    /// statement holds only a string literal (a Python docstring).
+    ///
+    /// - Parameters:
+    ///   - statementKind: The node kind of a statement that holds one
+    ///     expression, for example `expression_statement`.
+    ///   - stringKind: The node kind of a string literal, for example
+    ///     `string`.
+    case bodyStringStatement(statementKind: String, stringKind: String)
 }

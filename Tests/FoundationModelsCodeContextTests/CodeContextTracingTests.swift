@@ -71,6 +71,8 @@ struct CodeContextTracingTests {
         CodeContextTracing.MetadataKey.exitCode,
         CodeContextTracing.MetadataKey.embeddingDimension,
         CodeContextTracing.MetadataKey.embeddingStoredDimension,
+        CodeContextTracing.MetadataKey.embeddingTextVersion,
+        CodeContextTracing.MetadataKey.embeddingStoredTextVersion,
         CodeContextTracing.MetadataKey.embeddingInputCount,
         CodeContextTracing.MetadataKey.embeddingOutputCount,
     ]

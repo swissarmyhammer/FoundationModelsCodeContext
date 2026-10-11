@@ -1,0 +1,9 @@
+class Repository(Base):
+"""Keep the rows of one table.
+
+    The rows stay in memory.
+    """
+def __init__(self, name):
+@property def size(self) -> int:
+def find( self, key, ):
+class Meta:

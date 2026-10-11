@@ -64,6 +64,17 @@ public struct SemanticChunk: Sendable, Equatable {
     /// `chunkKinds` map.
     public let kind: SymbolMetaType
 
+    /// The text that the embedding step sends to the embedder for this
+    /// chunk.
+    ///
+    /// For a container chunk (a node kind in both `chunkKinds` and
+    /// `containerNodeKinds` of its `LanguageModule`), this is a summary: the
+    /// declaration of the container, its doc text, and the declaration of
+    /// each member chunk on one line. The members are also chunks, thus the
+    /// full text of a container embeds their text a second time. For each
+    /// other chunk, this is `text`.
+    public let embeddingText: String
+
     /// Creates a semantic chunk.
     ///
     /// - Parameters:
@@ -75,6 +86,8 @@ public struct SemanticChunk: Sendable, Equatable {
     ///   - text: The chunk's source text.
     ///   - symbolPath: The chunk's qualified symbol path.
     ///   - kind: The chunk's meta-type.
+    ///   - embeddingText: The text to embed for the chunk, or `nil` to embed
+    ///     `text`. Defaults to `nil`.
     public init(
         filePath: String,
         startByte: Int,
@@ -83,7 +96,8 @@ public struct SemanticChunk: Sendable, Equatable {
         endLine: Int,
         text: String,
         symbolPath: String,
-        kind: SymbolMetaType
+        kind: SymbolMetaType,
+        embeddingText: String? = nil
     ) {
         self.filePath = filePath
         self.startByte = startByte
@@ -93,6 +107,7 @@ public struct SemanticChunk: Sendable, Equatable {
         self.text = text
         self.symbolPath = symbolPath
         self.kind = kind
+        self.embeddingText = embeddingText ?? text
     }
 }
 
@@ -383,6 +398,12 @@ public enum Chunker {
     /// (a method inside a class, a function inside a module) are still
     /// found. `WalkDirection.children` is that same traversal.
     ///
+    /// The walk carries the index of the nearest enclosing chunk node as its
+    /// context. Thus one walk also finds the member chunks of each container
+    /// chunk: a member is a chunk whose nearest enclosing chunk is that
+    /// container. The embed text of a container needs the declaration of each
+    /// member (see `ContainerEmbeddingText`).
+    ///
     /// - Parameters:
     ///   - root: The node to walk, itself included.
     ///   - file: The source file `root` was parsed from.
@@ -395,32 +416,62 @@ public enum Chunker {
         file: SourceFile,
         module: any LanguageModule.Type
     ) -> [SemanticChunk] {
-        var chunks: [SemanticChunk] = []
-        walk(from: root, direction: .children) { node in
-            if let kind = module.chunkKinds[node.nodeType ?? ""],
-                let chunk = makeChunk(node: node, kind: kind, file: file, module: module)
-            {
-                chunks.append(chunk)
+        var foundNodes: [FoundChunkNode] = []
+        walk(from: root, direction: .children, context: nil as Int?) { node, enclosingIndex in
+            let nodeKind = node.nodeType ?? ""
+            guard let kind = module.chunkKinds[nodeKind] else {
+                return enclosingIndex
             }
+            if let enclosingIndex, foundNodes[enclosingIndex].isContainer {
+                let memberDeclaration = ContainerEmbeddingText.memberDeclaration(of: node, in: file.contents)
+                foundNodes[enclosingIndex].memberDeclarations.append(memberDeclaration)
+            }
+            foundNodes.append(
+                FoundChunkNode(node: node, kind: kind, isContainer: module.containerNodeKinds.contains(nodeKind)))
+            return foundNodes.count - 1
         }
-        return chunks
+        return foundNodes.compactMap { found in
+            makeChunk(found: found, file: file, module: module)
+        }
     }
 
-    /// Builds a `SemanticChunk` for `node`, or `nil` if `node`'s range can't
-    /// be resolved against `file.contents` (only possible for a malformed
-    /// tree, not expected in practice).
+    /// One chunk node that `collectChunks(root:file:module:)` found, before
+    /// it becomes a `SemanticChunk`.
+    private struct FoundChunkNode {
+        /// The AST node of the chunk.
+        let node: Node
+
+        /// The meta-type of the chunk.
+        let kind: SymbolMetaType
+
+        /// `true` when the node kind is also in `containerNodeKinds`.
+        let isContainer: Bool
+
+        /// The one-line declaration of each member chunk, in source order.
+        /// Empty when `isContainer` is `false`.
+        var memberDeclarations: [String] = []
+    }
+
+    /// Builds a `SemanticChunk` for `found`, or `nil` if its node's range
+    /// can't be resolved against `file.contents` (only possible for a
+    /// malformed tree, not expected in practice).
     private static func makeChunk(
-        node: Node,
-        kind: SymbolMetaType,
+        found: FoundChunkNode,
         file: SourceFile,
         module: any LanguageModule.Type
     ) -> SemanticChunk? {
+        let node = found.node
         guard let (text, startByte, endByte) = extractTextAndRange(of: node, in: file.contents) else {
             return nil
         }
 
         let names = collectSymbolNames(node: node, file: file, module: module)
         let symbolPath = names.isEmpty ? (node.nodeType ?? "") : names.joined(separator: symbolPathSeparator)
+        let embeddingText =
+            found.isContainer
+            ? ContainerEmbeddingText.summary(
+                of: node, memberDeclarations: found.memberDeclarations, in: file.contents, module: module)
+            : text
 
         return SemanticChunk(
             filePath: file.relativePath,
@@ -430,7 +481,8 @@ public enum Chunker {
             endLine: Int(node.pointRange.upperBound.row),
             text: text,
             symbolPath: symbolPath,
-            kind: kind
+            kind: found.kind,
+            embeddingText: embeddingText
         )
     }
 

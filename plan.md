@@ -184,6 +184,16 @@ all layers dirty, new → INSERT dirty.
    `Task.checkCancellation()` between files and between batches. Thus a
    cancelled pass (for example from `stop()`) stops between batches. With no
    embedder (`embedder: nil`), the worker makes no embeddings.
+   A container chunk (a node kind in both `chunkKinds` and
+   `containerNodeKinds`) embeds a summary, not its full text: its
+   declaration (the node text up to its `body` field), its doc text
+   (`LanguageModule.docTextLocation`: the comments directly before the node,
+   or the docstring in Python), and the one-line declaration of each member
+   chunk. Each other chunk embeds its full text. `ts_chunks.text` keeps the
+   full text, and `ts_chunks.embedding_text` holds the summary. The `meta`
+   table records the version of these rules (`Chunker.embeddingTextVersion`).
+   When the stored version is not the current version, the worker chunks
+   each file again and embeds each chunk again, one time.
 2. *LSP worker* (one per running daemon) — drain `lsp_indexed = 0` for that
    server's extensions: `didOpen` → `documentSymbol` (flatten to qualified
    symbols) → `prepareCallHierarchy`/`outgoingCalls` per function-like symbol →
