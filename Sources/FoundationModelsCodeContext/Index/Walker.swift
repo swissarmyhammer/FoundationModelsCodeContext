@@ -57,7 +57,13 @@ enum Walker {
     /// - Throws: Rethrows `FileManager`'s directory-enumeration errors.
     static func walkEntries(rootDirectory: URL) throws -> [Entry] {
         var results: [Entry] = []
-        try walkDirectory(rootDirectory, ignoreStack: GitignoreStack(), rootDirectory: rootDirectory, into: &results)
+        let rootComponents = RelativePath.components(of: rootDirectory)
+        try walkDirectory(
+            WalkedDirectory(url: rootDirectory, pathComponents: rootComponents),
+            ignoreStack: GitignoreStack(),
+            rootComponentCount: rootComponents.count,
+            into: &results
+        )
         return results
     }
 
@@ -101,21 +107,49 @@ enum Walker {
         Set(Languages.all.flatMap { module in module.fileExtensions.map { $0.lowercased() } })
     }
 
+    /// One directory that `walkDirectory(_:ignoreStack:rootComponentCount:into:)`
+    /// visits: its URL and the path components of its standardized form.
+    ///
+    /// The walk builds the components of each child from the components of
+    /// its directory (the walk skips symbolic links, `.` and `..`, thus the
+    /// result is the same as `RelativePath.components(of:)`). Thus the walk
+    /// makes no standardized URL for each entry. On a tree of the size of a
+    /// Django clone, the standardized URLs of the gitignore check used most of
+    /// the time of the walk.
+    private struct WalkedDirectory {
+        /// The URL of the directory.
+        let url: URL
+
+        /// The path components of the standardized URL of the directory.
+        let pathComponents: [String]
+    }
+
+    /// Appends each non-ignored entry below `directory` to `results`, depth
+    /// first, in name order.
+    ///
+    /// - Parameters:
+    ///   - directory: The directory to walk.
+    ///   - ignoreStack: The `.gitignore` rules of the ancestors of `directory`.
+    ///   - rootComponentCount: The number of path components of the root of the
+    ///     walk. An entry's relative path is its components after these.
+    ///   - results: The entries found until now.
+    /// - Throws: Rethrows `FileManager`'s directory-enumeration errors.
     private static func walkDirectory(
-        _ directory: URL,
+        _ directory: WalkedDirectory,
         ignoreStack: GitignoreStack,
-        rootDirectory: URL,
+        rootComponentCount: Int,
         into results: inout [Entry]
     ) throws {
         let children = try FileManager.default.contentsOfDirectory(
-            at: directory,
+            at: directory.url,
             includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
             options: []
         )
-        let stack = ignoreStack.appending(gitignoreAt: directory)
+        let stack = ignoreStack.appending(gitignoreAt: directory.url)
 
         for childURL in children.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            if childURL.lastPathComponent.hasPrefix(".") {
+            let name = childURL.lastPathComponent
+            if name.hasPrefix(".") {
                 continue
             }
 
@@ -125,15 +159,16 @@ enum Walker {
             }
             let isDirectory = resourceValues.isDirectory == true
 
-            if stack.isIgnored(childURL, isDirectory: isDirectory) {
+            let child = WalkedDirectory(url: childURL, pathComponents: directory.pathComponents + [name])
+            if stack.isIgnored(pathComponents: child.pathComponents, isDirectory: isDirectory) {
                 continue
             }
 
-            let entryRelativePath = relativePath(of: childURL, rootDirectory: rootDirectory)
+            let entryRelativePath = child.pathComponents.dropFirst(rootComponentCount).joined(separator: "/")
             results.append(Entry(url: childURL, relativePath: entryRelativePath, isDirectory: isDirectory))
 
             if isDirectory {
-                try walkDirectory(childURL, ignoreStack: stack, rootDirectory: rootDirectory, into: &results)
+                try walkDirectory(child, ignoreStack: stack, rootComponentCount: rootComponentCount, into: &results)
             }
         }
     }

@@ -388,6 +388,18 @@ what decides which language servers to spawn.
   declared by its `LanguageModule` (same marker semantics as the Rust crate).
   One directory can match **multiple types**, and a monorepo yields one
   `DetectedProject(type, directory)` per hit.
+- **Component**: `ProjectDetector` holds one `ProjectDetectionStrategy` for
+  each project kind. The default strategies are one `MarkerFileStrategy` for
+  each `LanguageModule`, made from its `projectMarkers` and `fileExtensions`.
+  The detector reads the file tree one time and runs each strategy on each
+  non-ignored directory.
+- **Isolation**: the detector reads only the file tree. It never uses the
+  `CodeContext` actor, the index store, the embedder or the LSP supervisor.
+  `detectProjects()` is `nonisolated`, it runs the walk on a GCD queue (not
+  on the Swift cooperative pool), and it does not wait for the main actor to
+  publish `state.projects`. Thus it never waits for index work: not for an
+  index pass, an embedding pass, a re-index after a file change, or the start
+  of a language server.
 - **Shared markers need a source file**: a marker that more than one module
   declares (`package.json` for typescript/tsx/javascript,
   `CMakeLists.txt`/`Makefile` for c/cpp) does not identify one language. It

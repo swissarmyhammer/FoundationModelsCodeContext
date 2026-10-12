@@ -17,14 +17,40 @@ enum RelativePath {
     /// - Returns: `url`'s path components following `base`'s, joined with
     ///   `/`, or `nil` if `url` is not a descendant of `base`.
     static func of(_ url: URL, relativeTo base: URL) -> String? {
-        let baseComponents = base.standardizedFileURL.pathComponents
-        let urlComponents = url.standardizedFileURL.pathComponents
+        of(components: components(of: url), relativeTo: components(of: base))
+    }
+
+    /// Computes the path relative to a base directory from path components
+    /// that the caller computed before, using `/` separators.
+    ///
+    /// A caller that compares one URL with many base directories (for
+    /// example `GitignoreStack`, one base for each pattern) computes each
+    /// component array one time with `components(of:)`, because a
+    /// standardized URL is expensive.
+    ///
+    /// - Parameters:
+    ///   - urlComponents: The path components of the candidate URL, from
+    ///     `components(of:)`.
+    ///   - baseComponents: The path components of the base directory, from
+    ///     `components(of:)`.
+    /// - Returns: The components that follow `baseComponents`, joined with
+    ///   `/`, or `nil` if the candidate is not a descendant of the base.
+    static func of(components urlComponents: [String], relativeTo baseComponents: [String]) -> String? {
         guard urlComponents.count > baseComponents.count,
-            Array(urlComponents.prefix(baseComponents.count)) == baseComponents
+            urlComponents.starts(with: baseComponents)
         else {
             return nil
         }
         return urlComponents.suffix(from: baseComponents.count).joined(separator: "/")
+    }
+
+    /// The path components of the standardized form of `url`, the input of
+    /// `of(components:relativeTo:)`.
+    ///
+    /// - Parameter url: A file URL.
+    /// - Returns: The path components of `url.standardizedFileURL`.
+    static func components(of url: URL) -> [String] {
+        url.standardizedFileURL.pathComponents
     }
 
     /// Returns whether `relativePath` is safe to resolve against a

@@ -22,13 +22,16 @@ struct GitignorePattern {
     let isDirectoryOnly: Bool
 
     /// `true` when the pattern contains a `/` other than a single trailing
-    /// one, meaning it only matches relative to `baseDirectory` rather than
+    /// one, meaning it only matches relative to its base directory rather than
     /// at any depth beneath it.
     let isAnchored: Bool
 
-    /// The directory containing the `.gitignore` file this pattern came
-    /// from.
-    let baseDirectory: URL
+    /// The path components of the standardized directory that contains the
+    /// `.gitignore` file this pattern came from, computed one time (see
+    /// `RelativePath.components(of:)`). `GitignoreStack` compares each walked
+    /// entry with each pattern, thus a standardized URL for each comparison
+    /// is too expensive for a large tree.
+    let baseDirectoryComponents: [String]
 
     /// The compiled glob-to-regex matcher for the pattern's body, with any
     /// `!` prefix, directory-only trailing `/`, and anchoring leading `/`
@@ -87,22 +90,22 @@ struct GitignorePattern {
         isNegated = negated
         isDirectoryOnly = directoryOnly
         isAnchored = anchored
-        self.baseDirectory = baseDirectory
+        baseDirectoryComponents = RelativePath.components(of: baseDirectory)
         self.regex = regex
     }
 
     /// Whether this pattern matches an entry at `relativePath` (relative to
-    /// `baseDirectory`, using `/` separators).
+    /// the base directory of the pattern, using `/` separators).
     ///
     /// - Parameters:
-    ///   - relativePath: The candidate entry's path relative to
-    ///     `baseDirectory`.
+    ///   - relativePath: The candidate entry's path relative to the base
+    ///     directory of the pattern.
     ///   - isDirectory: Whether the candidate entry is a directory.
     func matches(relativePath: String, isDirectory: Bool) -> Bool {
         if isDirectoryOnly, !isDirectory {
             return false
         }
-        // Anchored patterns match the full path from baseDirectory;
+        // Anchored patterns match the full path from the base directory;
         // unanchored patterns match the basename at any depth beneath it.
         let candidate = isAnchored ? relativePath : (relativePath as NSString).lastPathComponent
         let range = NSRange(candidate.startIndex..., in: candidate)
@@ -207,9 +210,27 @@ struct GitignoreStack {
     /// - Returns: `true` if the last pattern (across all accumulated
     ///   `.gitignore` files) that applies to `url` is a non-negated match.
     func isIgnored(_ url: URL, isDirectory: Bool) -> Bool {
+        isIgnored(pathComponents: RelativePath.components(of: url), isDirectory: isDirectory)
+    }
+
+    /// Whether the entry with the standardized path components
+    /// `urlComponents` should be excluded from the walk under the
+    /// accumulated rules.
+    ///
+    /// `Walker` calls this form for each entry of a tree. It builds the
+    /// components of a child from the components of its directory, thus it
+    /// makes no standardized URL for each entry, and no pattern makes one.
+    ///
+    /// - Parameters:
+    ///   - urlComponents: The path components of the candidate entry, as
+    ///     `RelativePath.components(of:)` gives them.
+    ///   - isDirectory: Whether the candidate entry is a directory.
+    /// - Returns: `true` if the last pattern (across all accumulated
+    ///   `.gitignore` files) that applies to the entry is a non-negated match.
+    func isIgnored(pathComponents urlComponents: [String], isDirectory: Bool) -> Bool {
         var ignored = false
         for pattern in patterns {
-            guard let relative = RelativePath.of(url, relativeTo: pattern.baseDirectory) else {
+            guard let relative = RelativePath.of(components: urlComponents, relativeTo: pattern.baseDirectoryComponents) else {
                 continue
             }
             if pattern.matches(relativePath: relative, isDirectory: isDirectory) {

@@ -452,12 +452,20 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// caller (or a SwiftUI harness bound to `state`) sees the current project set. A later
     /// `start()`-style daemon spawn for a project detected only after `start()` already ran is out
     /// of this task's scope (this facade's project detection is a snapshot, refreshed on demand).
+    ///
+    /// The call never waits for index work. It is `nonisolated`, thus it does not wait for this
+    /// actor, which the index loop uses. The `ProjectDetector` reads only the file tree, on a GCD
+    /// queue of its own, thus the call does not use the index store, the embedder or the LSP
+    /// supervisor, and it does not wait for a free thread of the cooperative pool. The update of
+    /// `state.projects` goes onto the main actor, and the call does not wait for it to land.
     /// - Returns: The freshly detected projects (also published into `state.projects`).
-    /// - Throws: Rethrows `ProjectDetection.detectProjects(rootDirectory:)`'s filesystem errors.
+    /// - Throws: Rethrows `ProjectDetector.detectProjects(rootDirectory:)`'s filesystem errors.
     @discardableResult
-    public func detectProjects() async throws -> [DetectedProject] {
-        let projects = try ProjectDetection.detectProjects(rootDirectory: rootDirectory)
-        await state.publishProjects(projects)
+    public nonisolated func detectProjects() async throws -> [DetectedProject] {
+        let projects = try await ProjectDetector.languageModules.detectProjectsOffCooperativePool(
+            rootDirectory: rootDirectory
+        )
+        state.beginPublishingProjects(projects)
         return projects
     }
 

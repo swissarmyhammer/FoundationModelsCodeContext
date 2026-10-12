@@ -151,6 +151,21 @@ public final class CodeContextState {
         }
     }
 
+    /// Starts the publish of a freshly detected project list on the main actor, and returns at
+    /// once, before the publish lands.
+    ///
+    /// `CodeContext.detectProjects()` uses this method, because that call must not wait for the
+    /// main actor: a host can keep the main actor busy for a long time. The publish job goes onto
+    /// the main actor when this method runs, thus a later main-actor read of the same caller
+    /// (for example `await state.projects`) sees the new list. The task is short and has no
+    /// result, thus no caller keeps or cancels it.
+    /// - Parameter projects: The newly detected project list.
+    nonisolated func beginPublishingProjects(_ projects: [DetectedProject]) {
+        Task { @MainActor in
+            self.projects = projects
+        }
+    }
+
     /// Publishes a fresh managed-server status snapshot, replacing `servers` wholesale, and
     /// recomputes `isReady`.
     ///
