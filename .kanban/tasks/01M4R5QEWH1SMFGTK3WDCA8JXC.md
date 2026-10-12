@@ -158,8 +158,24 @@ comments:
     - note: The only warning is "missing creator ... mlx-swift_Cmlx.bundle". It comes from a dependency.
     - next: review
   timestamp: 2026-10-12T15:08:02.073287+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m4ramtv1k9swweh7ww5dcwmf
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (c8f69dc). 0 findings, 0 confirmed, 0 refuted. 7 validator runs, 0 failed. 6 files reviewed. All 3 items in the prior section "Review Findings (2026-10-12 09:51)" are checked.
+    - next: The task is in done. Send the commit sha c8f69dc to the FoundationModelsACPAgent session.
+  timestamp: 2026-10-12T15:10:37.409628+00:00
+- actor: claude-code
+  id: 01m4ran2jf8ceryhhrp79krd20
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 6 files
+    - test: green — swift test 839 passed; IntegrationTests 12 passed
+    - commit: c8f69dc
+    - review: clean — 0 findings; 3 of 3 prior findings checked
+  timestamp: 2026-10-12T15:10:45.327321+00:00
+position_column: done
+position_ordinal: dd80
 title: detectProjects must never wait for index work
 ---
 ## Problem
