@@ -119,6 +119,33 @@ struct CodeContextStateTests {
         #expect(projects == [project])
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func anOlderProjectListDoesNotLandAfterANewerPublishStarts() async throws {
+        let state = await CodeContextState(rootDirectory: Self.workspaceRoot)
+        let olderProjects = [DetectedProject(language: "python", directory: Self.workspaceRoot)]
+        let newerProjects = [DetectedProject(language: "swift", directory: Self.workspaceRoot)]
+        let mainActorGate = ThreadGate()
+        let mainActorHold = Task { @MainActor in mainActorGate.holdMainActor() }
+        await mainActorGate.waitUntilHeld()
+
+        // The main actor is held, thus each job below waits in its queue. The probe
+        // runs after the older publish and before the newer publish.
+        let (probe, newerPublish) = try await withAsyncCleanup {
+            state.beginPublishingProjects(olderProjects)
+            let probe = Task { @MainActor in state.projects }
+            let newerPublish = state.beginPublishingProjects(newerProjects)
+            return (probe, newerPublish)
+        } cleanup: {
+            mainActorGate.open()
+            await mainActorHold.value
+        }
+        await newerPublish.value
+
+        #expect(await probe.value == [])
+        let projects = await state.projects
+        #expect(projects == newerProjects)
+    }
+
     @Test
     func publishingIndexingMutatesOnMainActor() async {
         let state = await CodeContextState(rootDirectory: Self.workspaceRoot)

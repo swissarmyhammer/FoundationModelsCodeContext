@@ -90,17 +90,15 @@ extension ScaleBenchmarks {
                 )
                 let (projects, wallTime, isPassRunning) = try await withAsyncCleanup {
                     try await context.start()
-                    let firstPass = FirstPassProgress()
-                    let passWatch = Task {
-                        await context.waitForFirstIndexPass()
-                        await firstPass.markComplete()
-                    }
                     let clock = ContinuousClock()
                     let start = clock.now
                     let projects = try await context.detectProjects()
                     let wallTime = start.duration(to: clock.now)
-                    let isPassRunning = await !firstPass.isComplete
-                    passWatch.cancel()
+                    // The first pass embeds each walked file before it ends. Thus while a
+                    // file is not embedded, the first pass still runs. The test starts no
+                    // task to watch the pass, thus no task can stay after the test.
+                    let progress = await context.indexStatus()
+                    let isPassRunning = progress.filesEmbedded < progress.filesWalked
                     return (projects, wallTime, isPassRunning)
                 } cleanup: {
                     await context.stop()
@@ -142,17 +140,6 @@ extension ScaleBenchmarks {
             let subPackage = (fileIndex / packageCount) % subPackageCount
             return "django/package\(package)/sub\(subPackage)/module\(fileIndex).py"
         }
-    }
-}
-
-/// Whether the first index pass of a context is complete.
-private actor FirstPassProgress {
-    /// `true` after the first index pass is complete.
-    private(set) var isComplete = false
-
-    /// Records that the first index pass is complete.
-    func markComplete() {
-        isComplete = true
     }
 }
 

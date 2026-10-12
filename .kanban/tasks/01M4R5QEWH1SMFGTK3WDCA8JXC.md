@@ -115,6 +115,49 @@ comments:
     - note: SwiftPM prints one line, "missing creator for mutated node ... mlx-swift_Cmlx.bundle". It comes from the Cmlx dependency bundle in the build system. This change did not cause it. No source file in this package can remove it.
     - next: review
   timestamp: 2026-10-12T14:50:33.301673+00:00
+- actor: claude-code
+  id: 01m4r9r2ymj88rbpc58kjff7xb
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (1d13754). 3 findings (3 confirmed, 2 refuted). IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/GrepCodeScaleTests.swift:82, Sources/FoundationModelsCodeContext/CodeContextState.swift:164, Tests/FoundationModelsCodeContextTests/DetectProjectsIsolationTests.swift:58
+    - next: Correct the 3 open items in "Review Findings (2026-10-12 09:51)". Then run the review again.
+  timestamp: 2026-10-12T14:54:55.444092+00:00
+- actor: claude-code
+  id: 01m4r9rdhsx1nw3j739rnfmnx1
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 15 files (8 changed, 7 new)
+    - test: green — swift test 838 passed; IntegrationTests 12 passed
+    - commit: 1d13754
+    - review: findings — IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/GrepCodeScaleTests.swift:82, Sources/FoundationModelsCodeContext/CodeContextState.swift:164, Tests/FoundationModelsCodeContextTests/DetectProjectsIsolationTests.swift:58
+  timestamp: 2026-10-12T14:55:06.297684+00:00
+- actor: claude-code
+  id: 01m4raa81p4a75myemx0ztng1t
+  text: |-
+    ## Review findings fixed (iteration 2)
+
+    1. GrepCodeScaleTests: the search during the index pass now runs in `withAsyncCleanup`. The cleanup cancels `indexPass` and awaits its result on each path. DetectProjectsScaleTests had the same cause (the `passWatch` task was cancelled but never awaited, and `waitForFirstIndexPass()` does not stop on a cancel). The test now has no watch task: it reads `context.indexStatus()` after the call, and the pass is running while `filesEmbedded < filesWalked`. The `FirstPassProgress` actor is deleted.
+    2. CodeContextState: a `Mutex<Task<Void, Never>?>` (`latestProjectsPublish`) keeps the newest publish task. `beginPublishingProjects(_:)` cancels the previous task under the lock and starts a new one; the main-actor job does not change `projects` when it is cancelled. The method returns the task (`@discardableResult`), so a caller can await or cancel it. `publishProjects(_:)` (awaited, used by `start()`) now awaits `beginPublishingProjects(_:).value`, thus both paths follow the same order rule.
+       - What did not work: a first RED test used two publishes at different task priorities while the main actor was held. It passed on the old code: the main-actor queue ran the jobs in FIFO order, not by priority. The kept test puts a probe job between the two publishes on the held main actor; on the old code the probe saw the older list (RED confirmed by a run with the cancel guard removed).
+    3. DetectProjectsIsolationTests: `start()` and the held section run in `withAsyncCleanup` (cleanup: open the embed gate, stop the context). The new helper `detectProjectsWhileTheActorsAreHeld(context:)` opens `actorGate` and `mainActorGate` and awaits `actorHold`, `mainActorHold` and `detection` in a cleanup that runs on each path, also when `waitForAnswer` throws. The detection task waits until both executors are held before it calls `detectProjects()`.
+    - New shared helper `withAsyncCleanup` in Tests/FoundationModelsCodeContextTests/TestSupport.swift (the same shape as the one in IntegrationTests/.../IntegrationSupport.swift; the unit target cannot import that package).
+    - New unit test `CodeContextStateTests.anOlderProjectListDoesNotLandAfterANewerPublishStarts`.
+  timestamp: 2026-10-12T15:04:50.486148+00:00
+- actor: claude-code
+  id: 01m4raab83thtx5cq7wfye33ah
+  text: |-
+    ### implement — changed
+    - evidence: 6 files — Sources/FoundationModelsCodeContext/CodeContextState.swift, Tests/FoundationModelsCodeContextTests/CodeContextStateTests.swift, Tests/FoundationModelsCodeContextTests/DetectProjectsIsolationTests.swift, Tests/FoundationModelsCodeContextTests/TestSupport.swift, IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/GrepCodeScaleTests.swift, IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/DetectProjectsScaleTests.swift. swift build clean; swift format lint clean on the 6 files; swift test 839 passed in 78 suites; swift test --package-path IntegrationTests --filter ScaleBenchmarks 3 passed. 3 of 3 review findings checked.
+    - next: /review
+  timestamp: 2026-10-12T15:04:53.763866+00:00
+- actor: claude-code
+  id: 01m4rag34sz9b1ctb9pmk4wpwr
+  text: |-
+    ### test - green
+    - evidence: swift build - complete, no warning from this change. swift test - 839 tests in 78 suites passed, 0 failed, 0 skipped. swift test --package-path IntegrationTests - 12 tests in 10 suites passed, 0 failed, 0 skipped.
+    - note: The only warning is "missing creator ... mlx-swift_Cmlx.bundle". It comes from a dependency.
+    - next: review
+  timestamp: 2026-10-12T15:08:02.073287+00:00
 position_column: doing
 position_ordinal: '80'
 title: detectProjects must never wait for index work
@@ -186,3 +229,17 @@ The CodeContext session decides the final design. Record the design and the rese
 The FoundationModelsACPAgent session. When the task is done, send the commit sha to that session.
 
 #bug #performance
+
+## Review Findings (2026-10-12 09:51)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 14 file(s) reviewed, 5 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `plan.md` — no validator matches this file
+
+- [x] `IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/GrepCodeScaleTests.swift:82` `swift/concurrency` — The `indexPass` task is cancelled and awaited only after `measureSearch` returns. If `measureSearch` throws, the index pass keeps running on its own after the test ends. Cancel and await `indexPass` in a `defer` block, or in the cleanup of `withAsyncCleanup`, so the task ends on every path.
+- [x] `Sources/FoundationModelsCodeContext/CodeContextState.swift:164` `swift/concurrency` — The new method starts an unstructured Task that nothing keeps. The task cannot be cancelled or awaited. If two detections finish close together, their publishes can land in any order, so an older project list can replace a newer one. The doc comment justifies the fire-and-forget shape, but the task still has no owner. Store the latest publish task in a private property of CodeContextState. Cancel or replace the previous handle before you start a new one, so that only the newest detection publishes. Keep the call non-blocking. If the fire-and-forget shape is kept on purpose, state in the doc comment why no ordering guarantee is needed.
+- [x] `Tests/FoundationModelsCodeContextTests/DetectProjectsIsolationTests.swift:58` `swift/concurrency` — If `waitForAnswer` throws, the test exits before it opens the gates or awaits `actorHold`, `mainActorHold` and `detection`. The held actor executor and the held main actor stay blocked, and the unawaited tasks leak. Wrap the held section in `defer` or in `withAsyncCleanup`. Open `actorGate` and `mainActorGate`, and await `actorHold`, `mainActorHold` and `detection`, on every path, including a throw from `waitForAnswer`.

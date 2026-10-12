@@ -40,34 +40,58 @@ struct DetectProjectsIsolationTests {
             let log = EmbedCallLog()
             await log.closeGate()
             let context = try await Self.makeCodeContext(rootDirectory: root, log: log)
-            try await context.start()
-            await log.waitForFirstCall()
-
-            let actorGate = ThreadGate()
-            let mainActorGate = ThreadGate()
-            let actorHold = Task { await context.blockExecutor(until: actorGate) }
-            let mainActorHold = Task { @MainActor in mainActorGate.holdMainActor() }
-            await actorGate.waitUntilHeld()
-            await mainActorGate.waitUntilHeld()
-
-            let answer = DetectionAnswer()
-            let detection = Task {
-                let projects = try await context.detectProjects()
-                await answer.record(projects)
+            let projectsWhileHeld = try await withAsyncCleanup {
+                try await context.start()
+                await log.waitForFirstCall()
+                return try await Self.detectProjectsWhileTheActorsAreHeld(context: context)
+            } cleanup: {
+                await log.openGate()
+                await context.stop()
             }
-            let projectsWhileHeld = try await Self.waitForAnswer(answer)
-
-            actorGate.open()
-            mainActorGate.open()
-            await actorHold.value
-            await mainActorHold.value
-            try await detection.value
-            await log.openGate()
-            await context.stop()
 
             let projects = try #require(projectsWhileHeld, "detectProjects() did not answer while the index pass and the actors were held")
             #expect(projects.contains { $0.language == Self.swiftLanguageName })
         }
+    }
+
+    /// Holds the executor of the `CodeContext` actor and the main actor, calls
+    /// `detectProjects()`, and waits at most `answerBudget` for the answer.
+    ///
+    /// On each path, also when the wait throws, the method opens the two gates
+    /// and then awaits the two hold tasks and the detection task. Thus no held
+    /// executor and no task stays after the method.
+    ///
+    /// - Parameter context: The started context.
+    /// - Returns: The detected projects, or `nil` when no answer came in the
+    ///   budget.
+    /// - Throws: The error of `detectProjects()`, or `CancellationError` when the
+    ///   task of the test is cancelled.
+    private static func detectProjectsWhileTheActorsAreHeld(
+        context: CodeContext<FakeLanguageServerConnection>
+    ) async throws -> [DetectedProject]? {
+        let actorGate = ThreadGate()
+        let mainActorGate = ThreadGate()
+        let actorHold = Task { await context.blockExecutor(until: actorGate) }
+        let mainActorHold = Task { @MainActor in mainActorGate.holdMainActor() }
+        let answer = DetectionAnswer()
+        // The detection starts only after both executors are held.
+        let detection = Task {
+            await actorGate.waitUntilHeld()
+            await mainActorGate.waitUntilHeld()
+            let projects = try await context.detectProjects()
+            await answer.record(projects)
+        }
+        let projectsWhileHeld = try await withAsyncCleanup {
+            try await waitForAnswer(answer)
+        } cleanup: {
+            actorGate.open()
+            mainActorGate.open()
+            await actorHold.value
+            await mainActorHold.value
+            _ = await detection.result
+        }
+        try await detection.value
+        return projectsWhileHeld
     }
 
     /// Reads `answer` again and again until it holds the projects, or until

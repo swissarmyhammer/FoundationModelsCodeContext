@@ -83,9 +83,13 @@ extension ScaleBenchmarks {
                     try await TreeSitterWorker.run(store: store, rootDirectory: root)
                 }
 
-                let (result, measurement) = try await Self.measureSearch(store: store)
-                indexPass.cancel()
-                _ = await indexPass.result
+                // The index pass stops on each path, also when the search throws.
+                let (result, measurement) = try await withAsyncCleanup {
+                    try await Self.measureSearch(store: store)
+                } cleanup: {
+                    indexPass.cancel()
+                    _ = await indexPass.result
+                }
                 Self.record(measurement, named: "grep-code-during-index-pass.txt")
 
                 #expect(result.matches.map(\.symbolPath) == [Self.needleSymbolPath])

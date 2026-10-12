@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Synchronization
 
 /// A snapshot of per-layer indexing progress across a workspace's tracked files.
 ///
@@ -123,6 +124,14 @@ public final class CodeContextState {
     /// been called, rather than reading this flag alone.
     public private(set) var isReady: Bool
 
+    /// The newest project-list publish task that `beginPublishingProjects(_:)` started, or `nil`
+    /// before the first publish.
+    ///
+    /// A `Mutex` and not main-actor state, because `beginPublishingProjects(_:)` is synchronous
+    /// and `nonisolated`: it must replace the task at once, without a wait for the main actor.
+    /// The property is a `let`, thus `@Observable` does not track it.
+    private nonisolated let latestProjectsPublish = Mutex<Task<Void, Never>?>(nil)
+
     /// Creates the observable state for a workspace, before any indexing or LSP activity has been
     /// published into it. `isReady` starts `true` — see its documentation for why the zero/empty
     /// initial state is vacuously ready.
@@ -142,13 +151,13 @@ public final class CodeContextState {
     ///
     /// `nonisolated` so callers on any isolation domain (worker tasks, actor-isolated
     /// subsystems) can call it directly; the mutation itself hops onto the main actor, and this
-    /// method suspends until that mutation has landed, so callers — and tests — can `await` its
-    /// visible effect rather than firing-and-forgetting it.
+    /// method suspends until that publish has landed, so callers — and tests — can `await` its
+    /// visible effect rather than firing-and-forgetting it. The publish follows the order rule of
+    /// `beginPublishingProjects(_:)`: when a newer publish starts before this one lands, this one
+    /// does not land, and this method returns.
     /// - Parameter projects: The newly detected project list.
     public nonisolated func publishProjects(_ projects: [DetectedProject]) async {
-        await MainActor.run {
-            self.projects = projects
-        }
+        await beginPublishingProjects(projects).value
     }
 
     /// Starts the publish of a freshly detected project list on the main actor, and returns at
@@ -157,12 +166,25 @@ public final class CodeContextState {
     /// `CodeContext.detectProjects()` uses this method, because that call must not wait for the
     /// main actor: a host can keep the main actor busy for a long time. The publish job goes onto
     /// the main actor when this method runs, thus a later main-actor read of the same caller
-    /// (for example `await state.projects`) sees the new list. The task is short and has no
-    /// result, thus no caller keeps or cancels it.
+    /// (for example `await state.projects`) sees the new list.
+    ///
+    /// The state keeps the newest publish task in `latestProjectsPublish`. Each call cancels the
+    /// previous task before it starts a new one, and a cancelled task does not change
+    /// `projects`. Thus an older project list never replaces a newer one, also when two
+    /// detections finish close together.
     /// - Parameter projects: The newly detected project list.
-    nonisolated func beginPublishingProjects(_ projects: [DetectedProject]) {
-        Task { @MainActor in
-            self.projects = projects
+    /// - Returns: The publish task. Await its `value` to wait until the publish lands, or until a
+    ///   newer publish cancels it. Cancel it to stop the publish before it lands.
+    @discardableResult
+    nonisolated func beginPublishingProjects(_ projects: [DetectedProject]) -> Task<Void, Never> {
+        latestProjectsPublish.withLock { latestPublish in
+            latestPublish?.cancel()
+            let publish = Task { @MainActor in
+                guard !Task.isCancelled else { return }
+                self.projects = projects
+            }
+            latestPublish = publish
+            return publish
         }
     }
 

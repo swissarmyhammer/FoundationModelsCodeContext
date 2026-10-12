@@ -15,6 +15,32 @@ func withTemporaryWorkspace<T>(_ body: (URL) async throws -> T) async throws -> 
     return try await body(root)
 }
 
+/// Runs `body`, and then runs `cleanup` on every exit path (success or
+/// throw). Use it to open a gate, stop a context or await a task that a test
+/// starts, so that nothing that the test starts outlives the test.
+///
+/// A `defer` block cannot `await`, thus this helper does the same work for
+/// an `async` cleanup. The integration package has the same helper, because
+/// that package cannot import this test target.
+/// - Parameters:
+///   - body: The work.
+///   - cleanup: The work that always runs after `body`.
+/// - Returns: `body`'s result.
+/// - Throws: Rethrows whatever `body` throws, after `cleanup` has run.
+func withAsyncCleanup<T>(
+    _ body: () async throws -> T,
+    cleanup: () async -> Void
+) async throws -> T {
+    do {
+        let result = try await body()
+        await cleanup()
+        return result
+    } catch {
+        await cleanup()
+        throw error
+    }
+}
+
 /// Writes `content` to `relativePath` under `root`, creating any missing
 /// intermediate directories. Shared across the test target by any suite
 /// that needs to materialize fixture files (`ReconcilerTests`, `WalkerTests`).
