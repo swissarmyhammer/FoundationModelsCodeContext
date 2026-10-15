@@ -99,22 +99,21 @@ extension GetDiagnosticsOperation {
 
     /// Makes the scope of the engine call from a scope kind.
     ///
+    /// The kinds `working` and `sha` use the shared scope of
+    /// `ToolScopeKind.scope(sha:)`. The kind `file` reads `file` here.
+    ///
     /// - Parameter kind: The scope kind that `scope` selects.
     /// - Returns: `.value(_:)` with the scope, or `.corrective(_:)` when the
     ///   scope kind needs a parameter that the model did not give.
     private func reportScope(of kind: ToolScopeKind) -> ChoiceParse<DiagnosticsScope> {
-        switch kind {
-        case .working:
-            return .value(.workingTree)
-        case .file:
-            guard let file else {
-                return .corrective(
-                    "Give the parameter `file` for the scope `file`. It accepts a path relative to the workspace root, an absolute path or a glob."
-                )
-            }
-            return .value(.file(file))
-        case .sha:
-            return ToolScopeKind.shaScope(sha)
+        if let shared = kind.scope(sha: sha) {
+            return shared
         }
+        guard let file else {
+            return .corrective(
+                "Give the parameter `file` for the scope `file`. It accepts a path relative to the workspace root, an absolute path or a glob."
+            )
+        }
+        return .value(.file(file))
     }
 }

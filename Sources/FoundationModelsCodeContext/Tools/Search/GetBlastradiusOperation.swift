@@ -65,7 +65,9 @@ extension GetBlastradiusOperation {
     }
 
     /// The corrective message for the scope `file` with no `file` parameter.
-    private static let missingFileMessage =
+    ///
+    /// It is internal, so the tests compare with this one copy of the text.
+    static let missingFileMessage =
         "Give the parameter `file` for the scope `file`, or give the scope `working` or `sha`. "
         + "`file` accepts a path relative to the workspace root or a glob."
 
@@ -114,18 +116,17 @@ extension GetBlastradiusOperation {
 
     /// Makes the target of the engine call from a scope kind.
     ///
+    /// The kinds `working` and `sha` use the shared scope of
+    /// `ToolScopeKind.scope(sha:)`. The kind `file` reads `file` here.
+    ///
     /// - Parameter kind: The scope kind that `scope` selects.
     /// - Returns: `.value(_:)` with the target, or `.corrective(_:)` when the
     ///   parameters do not fit the scope.
     private func target(of kind: ToolScopeKind) -> ChoiceParse<Target> {
-        switch kind {
-        case .working:
-            return scopeTarget(.value(.workingTree), owner: Self.scopeOwner(of: kind))
-        case .file:
+        guard let shared = kind.scope(sha: sha) else {
             return fileTarget()
-        case .sha:
-            return scopeTarget(ToolScopeKind.shaScope(sha), owner: Self.scopeOwner(of: kind))
         }
+        return scopeTarget(shared, owner: Self.scopeOwner(of: kind))
     }
 
     /// Makes the target of the scope `file`.
@@ -162,12 +163,22 @@ extension GetBlastradiusOperation {
             return .corrective(message)
         case .value(let scope):
             guard symbol == nil else {
-                return .corrective(
-                    "The parameter `symbol` is only for a `file` that is one path. Remove `symbol` for \(owner)."
-                )
+                return .corrective(Self.unusedSymbolMessage(for: owner))
             }
             return .value(.scope(scope))
         }
+    }
+
+    /// Gives the corrective message for a `symbol` that a call for a set of
+    /// files cannot use.
+    ///
+    /// It is internal, so the tests compare with this one copy of the text.
+    ///
+    /// - Parameter owner: The name of the scope or of the glob, for example
+    ///   "the scope `working`".
+    /// - Returns: The corrective message.
+    static func unusedSymbolMessage(for owner: String) -> String {
+        "The parameter `symbol` is only for a `file` that is one path. Remove `symbol` for \(owner)."
     }
 
     /// Gives the name of a scope for a corrective message.

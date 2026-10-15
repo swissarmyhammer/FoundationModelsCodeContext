@@ -5,7 +5,8 @@ import Testing
 
 /// Tests the shared helpers of the tool operations: `ToolOutcome`,
 /// `ToolSupport.correctiveMessage(for:)`,
-/// `ToolSupport.parseChoice(_:choices:parameter:)` and `CodeContextDefaults`.
+/// `ToolSupport.parseChoice(_:choices:parameter:)`,
+/// `ToolScopeKind.scope(sha:)` and `CodeContextDefaults`.
 struct ToolSupportTests {
     /// The values of the test choice table.
     private enum Kind: Equatable {
@@ -100,6 +101,26 @@ struct ToolSupportTests {
         let parse = ToolSupport.parseChoice(nil, choices: Self.kindChoices, parameter: "scope")
 
         #expect(parse == .corrective("Give the parameter `scope`. Use one of: working_tree, type_definition, file."))
+    }
+
+    // MARK: - ToolScopeKind
+
+    @Test
+    func theScopeKindsWorkingAndShaGiveTheScopeOfTheEngineCall() {
+        #expect(ToolScopeKind.working.scope(sha: nil) == .value(.workingTree))
+        #expect(ToolScopeKind.working.scope(sha: "HEAD~1") == .value(.workingTree))
+        #expect(ToolScopeKind.sha.scope(sha: "HEAD~1") == .value(.sha("HEAD~1")))
+    }
+
+    @Test
+    func theScopeKindShaWithNoShaGivesTheCorrectiveMessage() {
+        #expect(ToolScopeKind.sha.scope(sha: nil) == .corrective(ToolScopeKind.missingShaMessage))
+    }
+
+    @Test
+    func theScopeKindFileGivesNoScopeBecauseEachOperationReadsTheFile() {
+        #expect(ToolScopeKind.file.scope(sha: nil) == nil)
+        #expect(ToolScopeKind.file.scope(sha: "HEAD~1") == nil)
     }
 
     // MARK: - correctiveMessage

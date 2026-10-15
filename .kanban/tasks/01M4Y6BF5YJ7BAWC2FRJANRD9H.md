@@ -53,6 +53,57 @@ comments:
     - evidence: swift test — 852 tests in 78 suites passed, 0 failed, 0 skipped; only warning is the known dependency line "missing creator for mutated node ... mlx-swift_Cmlx.bundle"
     - next: review
   timestamp: 2026-10-15T08:53:00.645006+00:00
+- actor: claude-code
+  id: 01m4zc81mvnj3gtmbs0tjk55d7
+  text: |-
+    ### commit — changed
+    - evidence: d53101d feat(blast-radius): add the scopes working, file and sha to the code_search tool ^janrd9h
+    - next: review
+  timestamp: 2026-10-15T08:53:16.571694+00:00
+- actor: claude-code
+  id: 01m4zcdcn2k72mq5faqbh0evcd
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (d53101d): 3 findings (3 confirmed, 3 refuted) — Sources/FoundationModelsCodeContext/Tools/Search/GetBlastradiusOperation.swift:122, Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift:425, Tests/FoundationModelsCodeContextTests/ToolTestSupport.swift:132. docs/tools.md had no matching validator.
+    - next: Correct the 3 open items in "## Review Findings (2026-10-15 03:53)". The task stays in review.
+  timestamp: 2026-10-15T08:56:11.682587+00:00
+- actor: claude-code
+  id: 01m4zcdtp2wjbrs1m5fv9b4jnt
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 9 files
+    - test: green — swift test, 852 tests in 78 suites passed
+    - commit: d53101d
+    - review: findings — Sources/FoundationModelsCodeContext/Tools/Search/GetBlastradiusOperation.swift:122, Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift:425, Tests/FoundationModelsCodeContextTests/ToolTestSupport.swift:132
+  timestamp: 2026-10-15T08:56:26.050366+00:00
+- actor: claude-code
+  id: 01m4zcny43eray21m297snefx9
+  text: |-
+    Review findings of 2026-10-15 03:53 are corrected. TDD: three new unit tests in ToolSupportTests failed first ("value of type 'ToolScopeKind' has no member 'scope'"), then passed.
+
+    What changed:
+    - Finding 1 (duplication): `ToolScopeKind.scope(sha:) -> ChoiceParse<DiagnosticsScope>?` is the one shared map of the kinds `working` and `sha`. It gives `nil` for the kind `file`, because each operation reads `file` and gives its own corrective message. `GetDiagnosticsOperation.reportScope(of:)` and `GetBlastradiusOperation.target(of:)` call it. The `.file` branch and the `symbol` check stay in each operation. `ToolScopeKind.shaScope(_:)` is removed, because the new function holds its body and it has no other caller.
+    - Finding 2 (reuse): `GetBlastradiusOperation.missingFileMessage` is internal, and the test uses it. The same cause was in two more places in CodeSearchToolTests: the copy of the `sha` message, and three copies of the `symbol` message. The test now uses `ToolScopeKind.missingShaMessage`, and a new internal `GetBlastradiusOperation.unusedSymbolMessage(for:)` that the operation also uses.
+    - Finding 3 (reuse): `ToolTest.expectEachCall` has a `text:` conversion parameter. Its default keeps the raw output. `expectEachCorrectiveMessage` calls `expectEachCall(calls, on: tool, text: decodedString)`, so the two helpers have one loop.
+
+    Not changed: the exact-text checks of the messages from `ToolSupport.parseChoice` (`sideways`, `everything`). That text comes from a format function, not from a copied constant, and ToolSupportTests checks the format.
+
+    Full suite: `swift test` gave 855 tests in 78 suites passed, 0 failed. The only warning is the known SwiftPM line "missing creator for mutated node ... mlx-swift_Cmlx.bundle".
+  timestamp: 2026-10-15T09:00:51.715406+00:00
+- actor: claude-code
+  id: 01m4zcp0wf7nsp1rav1cncba0b
+  text: |-
+    ### implement — changed
+    - evidence: 6 files — Sources/FoundationModelsCodeContext/Tools/ToolScopeKind.swift, Sources/FoundationModelsCodeContext/Tools/Navigation/GetDiagnosticsOperation.swift, Sources/FoundationModelsCodeContext/Tools/Search/GetBlastradiusOperation.swift, Tests/FoundationModelsCodeContextTests/ToolSupportTests.swift, Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift, Tests/FoundationModelsCodeContextTests/ToolTestSupport.swift. `swift test`: 855 tests in 78 suites passed, 0 failed. The 3 findings are checked.
+    - next: /review
+  timestamp: 2026-10-15T09:00:54.543108+00:00
+- actor: claude-code
+  id: 01m4zcqka9vfexwj9b6ws19reh
+  text: |-
+    ### test — green
+    - evidence: swift test — 855 tests in 78 suites passed, 0 failed, 0 skipped. Only warning: the known dependency line "missing creator for mutated node ... mlx-swift_Cmlx.bundle". No warning in code this repository owns.
+    - next: review
+  timestamp: 2026-10-15T09:01:46.185613+00:00
 depends_on:
 - 01M4Y6B1V0P9AVNN12M4TCWCWP
 position_column: doing
@@ -103,3 +154,17 @@ Subtasks:
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass.
+
+## Review Findings (2026-10-15 03:53)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 8 file(s) reviewed, 5 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `docs/tools.md` — no validator matches this file
+
+- [x] `Sources/FoundationModelsCodeContext/Tools/Search/GetBlastradiusOperation.swift:122` `duplication/duplication` — The mapping from a scope kind to a DiagnosticsScope is written twice. The `.working` and `.sha` branches of `target(of:)` repeat the mapping that `reportScope(of:)` in GetDiagnosticsOperation.swift already holds (`.working` gives `.workingTree`, `.sha` gives `ToolScopeKind.shaScope(sha)`). If one operation changes how a scope kind maps, the other can drift out of sync. Move the kind-to-scope mapping for `.working` and `.sha` into one shared function on `ToolScopeKind`, for example `ToolScopeKind.scope(of:sha:)` that returns `ChoiceParse<DiagnosticsScope>`. Call it from both `reportScope(of:)` and `target(of:)`. Keep the `.file` branch and the `symbol` check in each operation, because their corrective messages differ.
+- [x] `Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift:425` `reuse/reuse` — The test copies the text of the private `missingFileMessage` constant from `GetBlastradiusOperation`. If the production text changes, the copy must be changed too, or the test fails for the wrong reason. If the test should check the message text, keep one exact-text check. Otherwise make the production constant visible to tests with `@testable` access (internal, not private), and use it from the test. Do not keep two copies of the same text.
+- [x] `Tests/FoundationModelsCodeContextTests/ToolTestSupport.swift:132` `reuse/reuse` — `expectEachCorrectiveMessage` repeats the loop of `expectEachCall` line for line. The only difference is that the output is decoded from one JSON string before the comparison. This is a near-match that was not extended. Give `expectEachCall` a decode step, or a second parameter that takes the output-to-text conversion. Use one loop for both helpers. The decode step can default to the raw output.

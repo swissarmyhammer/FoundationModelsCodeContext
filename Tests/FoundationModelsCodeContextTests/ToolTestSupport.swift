@@ -104,25 +104,33 @@ enum ToolTest {
         }
     }
 
-    /// Calls `tool` with the arguments of each call, and expects the JSON
-    /// text of that call.
+    /// Calls `tool` with the arguments of each call, converts the output to
+    /// text, and expects the text of that call.
     ///
     /// - Parameters:
-    ///   - calls: The tool calls and their expected JSON text.
+    ///   - calls: The tool calls and their expected text.
     ///   - tool: The tool to call.
-    /// - Throws: The error that the tool throws.
-    static func expectEachCall(_ calls: [Call], on tool: OperationTool<CodeContextToolContext>) async throws {
+    ///   - text: Converts the output of a call to the text that the call must
+    ///     give. The default keeps the raw output, which is the JSON text of
+    ///     the engine result.
+    /// - Throws: The error that the tool or `text` throws.
+    static func expectEachCall(
+        _ calls: [Call],
+        on tool: OperationTool<CodeContextToolContext>,
+        text: (String) throws -> String = { $0 }
+    ) async throws {
         for call in calls {
             let output = try await tool.call(arguments: call.arguments)
-            #expect(output == call.expected, "arguments: \(call.arguments.jsonString)")
+            #expect(try text(output) == call.expected, "arguments: \(call.arguments.jsonString)")
         }
     }
 
     /// Calls `tool` with the arguments of each call, and expects the
     /// corrective message of that call.
     ///
-    /// A corrective message is one JSON string. This helper decodes it, and
-    /// compares the decoded text with the expected text of the call.
+    /// A corrective message is one JSON string. This helper decodes it with
+    /// `decodedString(_:)`, and compares the decoded text with the expected
+    /// text of the call.
     ///
     /// - Parameters:
     ///   - calls: The tool calls and their expected corrective messages.
@@ -130,10 +138,7 @@ enum ToolTest {
     /// - Throws: The error that the tool throws, or a `DecodingError` when an
     ///   output is not one JSON string.
     static func expectEachCorrectiveMessage(_ calls: [Call], on tool: OperationTool<CodeContextToolContext>) async throws {
-        for call in calls {
-            let output = try await tool.call(arguments: call.arguments)
-            #expect(try decodedString(output) == call.expected, "arguments: \(call.arguments.jsonString)")
-        }
+        try await expectEachCall(calls, on: tool, text: decodedString)
     }
 
     /// Decodes a tool output that is one JSON string, for example a corrective

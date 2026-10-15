@@ -2,8 +2,8 @@
 ///
 /// The `get diagnostics` operation of `code_navigation` and the
 /// `get blastradius` operation of `code_search` use the same scope names.
-/// Thus this one type holds the names, the choice table and the corrective
-/// message that the two operations share.
+/// Thus this one type holds the names, the choice table, the corrective
+/// message and the scope of each kind that the two operations share.
 internal enum ToolScopeKind: String, CaseIterable {
     /// Each file that the working tree changes.
     case working
@@ -22,16 +22,29 @@ internal enum ToolScopeKind: String, CaseIterable {
     static let missingShaMessage =
         "Give the parameter `sha` for the scope `sha`. It accepts a commit name or a `<from>..<to>` range."
 
-    /// Makes the scope `sha` of an engine call from the `sha` parameter.
+    /// Makes the scope of an engine call for this kind, when the kind does not
+    /// read the `file` parameter.
+    ///
+    /// Each operation reads `file` in its own way and gives its own
+    /// corrective message for it. Thus the kind `file` has no shared scope,
+    /// and the operation makes that scope itself.
     ///
     /// - Parameter sha: The `sha` parameter that the model gave, or `nil`
     ///   when the model gave no commit.
-    /// - Returns: `.value(_:)` with the scope, or `.corrective(_:)` when
-    ///   `sha` is `nil`.
-    static func shaScope(_ sha: String?) -> ChoiceParse<DiagnosticsScope> {
-        guard let sha else {
-            return .corrective(missingShaMessage)
+    /// - Returns: `nil` for the kind `file`. For each other kind, `.value(_:)`
+    ///   with the scope, or `.corrective(_:)` for the kind `sha` when `sha` is
+    ///   `nil`.
+    func scope(sha: String?) -> ChoiceParse<DiagnosticsScope>? {
+        switch self {
+        case .working:
+            return .value(.workingTree)
+        case .file:
+            return nil
+        case .sha:
+            guard let sha else {
+                return .corrective(Self.missingShaMessage)
+            }
+            return .value(.sha(sha))
         }
-        return .value(.sha(sha))
     }
 }

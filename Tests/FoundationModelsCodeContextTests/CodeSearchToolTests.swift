@@ -420,12 +420,6 @@ struct CodeSearchToolTests {
         }
     }
 
-    /// The corrective message of a `get blastradius` call with no `file` for
-    /// the scope `file`, or with no scope and no `file`.
-    private static let missingFileMessage =
-        "Give the parameter `file` for the scope `file`, or give the scope `working` or `sha`. "
-        + "`file` accepts a path relative to the workspace root or a glob."
-
     @Test
     func getBlastradiusWithAMissingParameterGivesACorrectiveString() async throws {
         try await Self.withIndexedTool { tool, _ in
@@ -433,10 +427,16 @@ struct CodeSearchToolTests {
                 [
                     (
                         GeneratedContent(properties: ["op": "get blastradius", "scope": "sha"]),
-                        "Give the parameter `sha` for the scope `sha`. It accepts a commit name or a `<from>..<to>` range."
+                        ToolScopeKind.missingShaMessage
                     ),
-                    (GeneratedContent(properties: ["op": "get blastradius"]), Self.missingFileMessage),
-                    (GeneratedContent(properties: ["op": "get blastradius", "scope": "file"]), Self.missingFileMessage),
+                    (
+                        GeneratedContent(properties: ["op": "get blastradius"]),
+                        GetBlastradiusOperation.missingFileMessage
+                    ),
+                    (
+                        GeneratedContent(properties: ["op": "get blastradius", "scope": "file"]),
+                        GetBlastradiusOperation.missingFileMessage
+                    ),
                 ],
                 on: tool
             )
@@ -450,19 +450,19 @@ struct CodeSearchToolTests {
                 [
                     (
                         GeneratedContent(properties: ["op": "get blastradius", "scope": "working", "symbol": "helper"]),
-                        "The parameter `symbol` is only for a `file` that is one path. Remove `symbol` for the scope `working`."
+                        GetBlastradiusOperation.unusedSymbolMessage(for: "the scope `working`")
                     ),
                     (
                         GeneratedContent(properties: [
                             "op": "get blastradius", "scope": "sha", "sha": Self.lastCommitSha, "symbol": "helper",
                         ]),
-                        "The parameter `symbol` is only for a `file` that is one path. Remove `symbol` for the scope `sha`."
+                        GetBlastradiusOperation.unusedSymbolMessage(for: "the scope `sha`")
                     ),
                     (
                         GeneratedContent(properties: [
                             "op": "get blastradius", "scope": "file", "file": Self.fixtureGlob, "symbol": "helper",
                         ]),
-                        "The parameter `symbol` is only for a `file` that is one path. Remove `symbol` for a glob."
+                        GetBlastradiusOperation.unusedSymbolMessage(for: "a glob")
                     ),
                 ],
                 on: tool
