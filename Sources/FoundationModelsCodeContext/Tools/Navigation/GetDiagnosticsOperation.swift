@@ -47,25 +47,6 @@ internal struct GetDiagnosticsOperation {
 }
 
 extension GetDiagnosticsOperation {
-    /// The kind of scope that a name of `scope` selects.
-    private enum ScopeKind {
-        /// Each file that the working tree changes.
-        case working
-
-        /// The file, the absolute path or the glob of `file`.
-        case file
-
-        /// The files that the commit of `sha` changes.
-        case sha
-    }
-
-    /// The allowed names of `scope`, and the scope kind of each name.
-    private static let scopeChoices: [(name: String, value: ScopeKind)] = [
-        (name: "working", value: .working),
-        (name: "file", value: .file),
-        (name: "sha", value: .sha),
-    ]
-
     /// The allowed names of `severity`, and the severity of each name.
     private static let severityChoices: [(name: String, value: DiagnosticSeverity)] = [
         (name: "error", value: .error),
@@ -108,7 +89,7 @@ extension GetDiagnosticsOperation {
     ///   name of the scope is not valid, or when the scope has no file and no
     ///   commit.
     private func parsedScope() -> ChoiceParse<DiagnosticsScope> {
-        switch ToolSupport.parseChoice(scope, choices: Self.scopeChoices, parameter: "scope") {
+        switch ToolSupport.parseChoice(scope, choices: ToolScopeKind.choices, parameter: "scope") {
         case .corrective(let message):
             return .corrective(message)
         case .value(let kind):
@@ -121,7 +102,7 @@ extension GetDiagnosticsOperation {
     /// - Parameter kind: The scope kind that `scope` selects.
     /// - Returns: `.value(_:)` with the scope, or `.corrective(_:)` when the
     ///   scope kind needs a parameter that the model did not give.
-    private func reportScope(of kind: ScopeKind) -> ChoiceParse<DiagnosticsScope> {
+    private func reportScope(of kind: ToolScopeKind) -> ChoiceParse<DiagnosticsScope> {
         switch kind {
         case .working:
             return .value(.workingTree)
@@ -133,12 +114,7 @@ extension GetDiagnosticsOperation {
             }
             return .value(.file(file))
         case .sha:
-            guard let sha else {
-                return .corrective(
-                    "Give the parameter `sha` for the scope `sha`. It accepts a commit name or a `<from>..<to>` range."
-                )
-            }
-            return .value(.sha(sha))
+            return ToolScopeKind.shaScope(sha)
         }
     }
 }

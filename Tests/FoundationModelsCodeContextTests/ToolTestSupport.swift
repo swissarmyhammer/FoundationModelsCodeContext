@@ -118,6 +118,24 @@ enum ToolTest {
         }
     }
 
+    /// Calls `tool` with the arguments of each call, and expects the
+    /// corrective message of that call.
+    ///
+    /// A corrective message is one JSON string. This helper decodes it, and
+    /// compares the decoded text with the expected text of the call.
+    ///
+    /// - Parameters:
+    ///   - calls: The tool calls and their expected corrective messages.
+    ///   - tool: The tool to call.
+    /// - Throws: The error that the tool throws, or a `DecodingError` when an
+    ///   output is not one JSON string.
+    static func expectEachCorrectiveMessage(_ calls: [Call], on tool: OperationTool<CodeContextToolContext>) async throws {
+        for call in calls {
+            let output = try await tool.call(arguments: call.arguments)
+            #expect(try decodedString(output) == call.expected, "arguments: \(call.arguments.jsonString)")
+        }
+    }
+
     /// Decodes a tool output that is one JSON string, for example a corrective
     /// message of an operation.
     ///

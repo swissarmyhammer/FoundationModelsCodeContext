@@ -54,7 +54,8 @@ struct CodeSearchToolTests {
     /// The language of the fixture, for the `query ast` calls.
     private static let fixtureLanguage = "swift"
 
-    /// The glob of the `grep code` calls that give a glob.
+    /// The glob of the `grep code` calls that give a glob, and of the
+    /// `get blastradius` calls that give a glob. It matches the fixture file.
     private static let fixtureGlob = "*.swift"
 
     /// The regular expression of the `grep code` calls. It matches the free
@@ -229,23 +230,136 @@ struct CodeSearchToolTests {
         }
         """
 
-    @Test
-    func blastRadiusOfTheWorkingTreeGivesTheCallersOfAChangedFile() async throws {
+    /// The commit of the scope `sha` calls: the commit before `HEAD`. The
+    /// resolver reads a single commit name as `<name>..HEAD`, thus this name
+    /// selects the files of the last commit.
+    private static let lastCommitSha = "HEAD~1"
+
+    /// Makes a git repository with the scope fixture, changes the callee file
+    /// after the first commit, and gives the tool and the `CodeContext` to
+    /// `body`.
+    ///
+    /// - Parameters:
+    ///   - commitsTheChange: When `true`, a second commit holds the change of
+    ///     the callee file, and the working tree is clean. When `false`, the
+    ///     change stays in the working tree.
+    ///   - body: The test body.
+    /// - Throws: The error that the setup or `body` throws.
+    private static func withChangedScopeFixture(
+        commitsTheChange: Bool,
+        _ body: (OperationTool<CodeContextToolContext>, CodeContext<FakeLanguageServerConnection>) async throws -> Void
+    ) async throws {
         try await withTemporaryWorkspace { root in
-            try write(Self.scopeCalleeSource, to: Self.scopeCalleeFile, in: root)
-            try write(Self.scopeCallerSource, to: Self.scopeCallerFile, in: root)
+            try write(scopeCalleeSource, to: scopeCalleeFile, in: root)
+            try write(scopeCallerSource, to: scopeCallerFile, in: root)
             try await GitFixture.initRepo(at: root)
             try await GitFixture.commitAll(in: root, message: "initial")
-            try write(Self.scopeChangedCalleeSource, to: Self.scopeCalleeFile, in: root)
-
-            try await ToolTest.withStartedContext(rootDirectory: root, embeddingDimension: Self.embeddingDimension) { context in
-                let radius = try await context.blastRadius(scope: .workingTree)
-
-                #expect(!radius.roots.isEmpty, "the changed callee file has indexed symbols")
-                let affected = radius.hops.flatMap(\.symbols)
-                #expect(affected.map(\.name) == ["greet"])
-                #expect(affected.map(\.filePath) == [Self.scopeCallerFile])
+            try write(scopeChangedCalleeSource, to: scopeCalleeFile, in: root)
+            if commitsTheChange {
+                try await GitFixture.commitAll(in: root, message: "change the callee")
             }
+
+            try await ToolTest.withStartedContext(rootDirectory: root, embeddingDimension: embeddingDimension) { context in
+                try await body(try CodeSearchTool.make(context: CodeContextToolContext(operating: context)), context)
+            }
+        }
+    }
+
+    /// Expects that `radius` gives `greet()` of the caller file as the one
+    /// affected symbol.
+    ///
+    /// - Parameter radius: The blast radius of a scope that holds the callee
+    ///   file.
+    private static func expectTheCallerIsTheOneAffectedSymbol(of radius: BlastRadius) {
+        #expect(!radius.roots.isEmpty, "the changed callee file has indexed symbols")
+        let affected = radius.hops.flatMap(\.symbols)
+        #expect(affected.map(\.name) == ["greet"])
+        #expect(affected.map(\.filePath) == [scopeCallerFile])
+    }
+
+    @Test
+    func blastRadiusOfTheWorkingTreeGivesTheCallersOfAChangedFile() async throws {
+        try await Self.withChangedScopeFixture(commitsTheChange: false) { _, context in
+            Self.expectTheCallerIsTheOneAffectedSymbol(of: try await context.blastRadius(scope: .workingTree))
+        }
+    }
+
+    @Test
+    func theScopeWorkingGivesTheBlastRadiusOfTheWorkingTree() async throws {
+        try await Self.withChangedScopeFixture(commitsTheChange: false) { tool, context in
+            let radius = try await context.blastRadius(scope: .workingTree)
+            Self.expectTheCallerIsTheOneAffectedSymbol(of: radius)
+
+            try await ToolTest.expectEachCall(
+                [
+                    (GeneratedContent(properties: ["op": "get blastradius", "scope": "working"]), try TestJSON.encodedText(radius)),
+                    (GeneratedContent(properties: ["op": "get blastradius", "mode": "WORKING"]), try TestJSON.encodedText(radius)),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func theScopeShaGivesTheBlastRadiusOfTheLastCommit() async throws {
+        try await Self.withChangedScopeFixture(commitsTheChange: true) { tool, context in
+            let radius = try await context.blastRadius(scope: .sha(Self.lastCommitSha))
+            Self.expectTheCallerIsTheOneAffectedSymbol(of: radius)
+
+            try await ToolTest.expectEachCall(
+                [
+                    (
+                        GeneratedContent(properties: ["op": "get blastradius", "scope": "sha", "sha": Self.lastCommitSha]),
+                        try TestJSON.encodedText(radius)
+                    ),
+                    (
+                        GeneratedContent(properties: ["op": "get blastradius", "scope": "sha", "commit": Self.lastCommitSha]),
+                        try TestJSON.encodedText(radius)
+                    ),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func aGlobFileGivesTheBlastRadiusOfEachMatchingFile() async throws {
+        try await Self.withIndexedTool { tool, context in
+            let radius = try await context.blastRadius(scope: .file(Self.fixtureGlob))
+            #expect(!radius.roots.isEmpty, "the glob matches the fixture file")
+
+            try await ToolTest.expectEachCall(
+                [
+                    (
+                        GeneratedContent(properties: ["op": "get blastradius", "scope": "file", "file": Self.fixtureGlob]),
+                        try TestJSON.encodedText(radius)
+                    ),
+                    (
+                        GeneratedContent(properties: ["op": "get blastradius", "file": Self.fixtureGlob]),
+                        try TestJSON.encodedText(radius)
+                    ),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func theScopeFileWithAPathGivesTheBlastRadiusOfTheFile() async throws {
+        try await Self.withIndexedTool { tool, context in
+            let radius = try await context.blastRadius(file: Self.fixtureFile, symbol: "helper")
+
+            try await ToolTest.expectEachCall(
+                [
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get blastradius", "scope": "file", "file": Self.fixtureFile, "symbol": "helper",
+                        ]),
+                        try TestJSON.encodedText(radius)
+                    )
+                ],
+                on: tool
+            )
         }
     }
 
@@ -302,6 +416,70 @@ struct CodeSearchToolTests {
             #expect(
                 try ToolTest.decodedString(output)
                     == "`sideways` is not a valid value for `direction`. Use one of: inbound, outbound, both."
+            )
+        }
+    }
+
+    /// The corrective message of a `get blastradius` call with no `file` for
+    /// the scope `file`, or with no scope and no `file`.
+    private static let missingFileMessage =
+        "Give the parameter `file` for the scope `file`, or give the scope `working` or `sha`. "
+        + "`file` accepts a path relative to the workspace root or a glob."
+
+    @Test
+    func getBlastradiusWithAMissingParameterGivesACorrectiveString() async throws {
+        try await Self.withIndexedTool { tool, _ in
+            try await ToolTest.expectEachCorrectiveMessage(
+                [
+                    (
+                        GeneratedContent(properties: ["op": "get blastradius", "scope": "sha"]),
+                        "Give the parameter `sha` for the scope `sha`. It accepts a commit name or a `<from>..<to>` range."
+                    ),
+                    (GeneratedContent(properties: ["op": "get blastradius"]), Self.missingFileMessage),
+                    (GeneratedContent(properties: ["op": "get blastradius", "scope": "file"]), Self.missingFileMessage),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func getBlastradiusWithASymbolForAScopeOfFilesGivesACorrectiveString() async throws {
+        try await Self.withIndexedTool { tool, _ in
+            try await ToolTest.expectEachCorrectiveMessage(
+                [
+                    (
+                        GeneratedContent(properties: ["op": "get blastradius", "scope": "working", "symbol": "helper"]),
+                        "The parameter `symbol` is only for a `file` that is one path. Remove `symbol` for the scope `working`."
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get blastradius", "scope": "sha", "sha": Self.lastCommitSha, "symbol": "helper",
+                        ]),
+                        "The parameter `symbol` is only for a `file` that is one path. Remove `symbol` for the scope `sha`."
+                    ),
+                    (
+                        GeneratedContent(properties: [
+                            "op": "get blastradius", "scope": "file", "file": Self.fixtureGlob, "symbol": "helper",
+                        ]),
+                        "The parameter `symbol` is only for a `file` that is one path. Remove `symbol` for a glob."
+                    ),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func getBlastradiusWithAnInvalidScopeGivesACorrectiveString() async throws {
+        try await Self.withIndexedTool { tool, _ in
+            let output = try await tool.call(
+                arguments: GeneratedContent(properties: ["op": "get blastradius", "scope": "everything"])
+            )
+
+            #expect(
+                try ToolTest.decodedString(output)
+                    == "`everything` is not a valid value for `scope`. Use one of: working, file, sha."
             )
         }
     }

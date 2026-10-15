@@ -283,6 +283,20 @@ enum GitShell {
 
 /// Filesystem glob expansion backing `.file(pattern)` scope resolution.
 enum GlobExpansion {
+    /// The glob metacharacters. A pattern that has one of them is a glob.
+    private static let metacharacters: Set<Character> = ["*", "?", "["]
+
+    /// Whether `pattern` is a glob, and not a literal path.
+    ///
+    /// The test is lexical only: a pattern is a glob when it has a glob
+    /// metacharacter (`*`, `?`, `[`).
+    ///
+    /// - Parameter pattern: A literal path or a glob pattern.
+    /// - Returns: `true` when `pattern` has a glob metacharacter.
+    static func isGlob(_ pattern: String) -> Bool {
+        pattern.contains(where: metacharacters.contains)
+    }
+
     /// Expands `pattern` to the files it matches under `rootDirectory`.
     ///
     /// A pattern with no glob metacharacters (`*`, `?`, `[`) is returned
@@ -301,7 +315,7 @@ enum GlobExpansion {
     ///   - rootDirectory: The workspace root a relative pattern is resolved against.
     /// - Returns: `[pattern]` if it has no glob metacharacters; otherwise every filesystem match, as absolute paths.
     static func expand(pattern: String, rootDirectory: URL) -> [String] {
-        guard pattern.contains(where: { "*?[".contains($0) }) else {
+        guard isGlob(pattern) else {
             return [pattern]
         }
 

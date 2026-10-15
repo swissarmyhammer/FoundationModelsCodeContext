@@ -49,7 +49,8 @@ again.
 - Each parameter accepts the aliases of its row. `file` and `path` are aliases,
   thus `path` also gives the file.
 - A `file` is a path relative to the root of the workspace. `get diagnostics`
-  also accepts an absolute path or a glob.
+  also accepts an absolute path or a glob. `get blastradius` also accepts a
+  glob.
 - A `line` and a `character` are 0-based: the first line is line 0, and the
   first character is character 0. A `character` is a count of UTF-16 units.
 - `query ast` takes its S-expression in the `astQuery` parameter. The aliases
@@ -68,7 +69,7 @@ again.
 | `search symbol` | Find the symbols whose name is near the query, with a fuzzy match. |
 | `list symbol` | Give each symbol of one file, in the order of the file. |
 | `get callgraph` | Walk the call graph from one symbol. |
-| `get blastradius` | Find the symbols and the files that a change to one file, or to one symbol, can affect. |
+| `get blastradius` | Find the symbols and the files that a change can affect. The scope is file (one file, one symbol of that file, or the files of a glob), working (each file that the working tree changes) or sha (the files that a commit changes). |
 | `grep code` | Find the indexed code chunks whose text matches a regular expression. Each match is answered with the innermost indexed symbol that holds its start, for example the method and not its class. You can limit the search by language or by file glob. The search does not wait for the index. When `unindexedFiles` is more than zero, the index is partial and the answer can miss matches. |
 | `search code` | Find the code chunks that are near a free-text query. |
 | `find duplicates` | Find the code chunks that are near-duplicates of each other. |
@@ -87,8 +88,10 @@ again.
 | `get callgraph` | `symbol` | `name`, `locator` | yes | A symbol name, or a `<file>:<line>:<column>` locator. |
 | `get callgraph` | `direction` | `dir` | no (default outbound) | One of inbound (to the callers), outbound (to the callees) or both. |
 | `get callgraph` | `maxDepth` | `depth` | no (default 2) | The maximum number of call levels to walk. |
-| `get blastradius` | `file` | `path`, `filePath`, `filename` | yes | The file that changes. |
-| `get blastradius` | `symbol` | `name` | no (all the symbols) | The symbol inside the file that changes. |
+| `get blastradius` | `scope` | `mode` | no (default file) | One of working (each file that the working tree changes), file (the file or the glob of `file`) or sha (the files that the commit changes). |
+| `get blastradius` | `file` | `path`, `filePath`, `filename` | only for the scope file | The file that changes, or a glob of the files that change. |
+| `get blastradius` | `symbol` | `name` | no (all the symbols) | The symbol inside the file that changes. Only for a `file` that is one path, not a glob. |
+| `get blastradius` | `sha` | `ref`, `commit`, `revision`, `range` | only for the scope sha | A commit name, or a `<from>..<to>` range. A commit name `X` selects the files that change from `X` to `HEAD`. |
 | `get blastradius` | `maxHops` | `hops`, `depth` | no (default 3) | The maximum number of call-edge hops to walk. |
 | `grep code` | `pattern` | `regex`, `query` | yes | The regular expression to search for, in ICU syntax. |
 | `grep code` | `languages` | `extensions`, `langs` | no (all the languages) | The file extensions to search, with no dot. |

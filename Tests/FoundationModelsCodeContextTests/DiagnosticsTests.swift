@@ -398,6 +398,19 @@ struct DiagnosticsTests {
     }
 
     @Test
+    func aPatternIsAGlobOnlyWhenItHasAGlobMetacharacter() {
+        let globs = ["src/*.swift", "src/?.swift", "src/[ab].swift"]
+        let literalPaths = ["src/a.swift", "a.swift", ""]
+
+        for pattern in globs {
+            #expect(GlobExpansion.isGlob(pattern), "pattern: \(pattern)")
+        }
+        for pattern in literalPaths {
+            #expect(!GlobExpansion.isGlob(pattern), "pattern: \(pattern)")
+        }
+    }
+
+    @Test
     func shaScopeResolvesFilesChangedSinceARange() async throws {
         try await withTemporaryWorkspace { root in
             try write("let a = 1\n", to: "a.swift", in: root)

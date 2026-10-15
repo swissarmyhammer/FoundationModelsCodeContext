@@ -40,6 +40,9 @@ internal protocol CodeContextOperating: Sendable {
     /// See `CodeContext.blastRadius(file:symbol:maxHops:)`.
     func blastRadius(file: String, symbol: String?, maxHops: Int) async throws -> BlastRadius
 
+    /// See `CodeContext.blastRadius(scope:maxHops:)`.
+    func blastRadius(scope: DiagnosticsScope, maxHops: Int) async throws -> BlastRadius
+
     /// See `CodeContext.grepCode(pattern:languages:filePattern:maxResults:)`.
     func grepCode(pattern: String, languages: [String], filePattern: String?, maxResults: Int) async throws -> GrepCodeResult
 
