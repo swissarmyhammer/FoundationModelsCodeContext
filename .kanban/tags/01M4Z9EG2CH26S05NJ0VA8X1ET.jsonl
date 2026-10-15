@@ -1,0 +1,1 @@
+{"id":"01M4Z9EG2CADCXZ3Y12XR1QMJ6","timestamp":"2026-10-15T08:04:22.220569Z","op":"create","item_id":"01M4Z9EG2CH26S05NJ0VA8X1ET","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: f9c513\n+tag_name: docs\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: f9c513\n-tag_name: docs\n","transaction_id":null}

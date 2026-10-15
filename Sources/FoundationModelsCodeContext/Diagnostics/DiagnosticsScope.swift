@@ -37,14 +37,23 @@ public enum DiagnosticsScope: Sendable, Equatable {
 /// `ProcessLanguageServerConnection`'s spawn path (`/usr/bin/env <command>
 /// <args>`, wrapped errors, no ambient shell).
 enum DiagnosticsScopeResolver {
-    /// Resolves `scope` into absolutized, root-confined, diagnosable,
-    /// deduplicated (order-preserving) workspace-relative paths.
+    /// Resolves `scope` into absolutized, root-confined, deduplicated
+    /// (order-preserving) workspace-relative paths, with the extension filter
+    /// that `keepsOnlyDiagnosable` selects.
     /// - Parameters:
     ///   - scope: The scope to resolve.
     ///   - rootDirectory: The workspace root every resolved path is confined to and reported relative to.
+    ///   - keepsOnlyDiagnosable: When `true` (the default, for `get diagnostics`), keeps only the files whose
+    ///     extension has a language server. When `false` (for blast radius), keeps each file whose extension
+    ///     the index reads, because the tree-sitter layer also makes call edges.
     /// - Returns: The resolved paths, relative to `rootDirectory`, in scope-specific order (targets should be treated as already deduplicated).
     /// - Throws: Rethrows a `git` invocation failure (`CodeContextError.spawnFailed`) for `.workingTree`/`.sha`.
-    static func resolvePaths(scope: DiagnosticsScope, rootDirectory: URL) async throws -> [String] {
+    static func resolvePaths(
+        scope: DiagnosticsScope,
+        rootDirectory: URL,
+        keepsOnlyDiagnosable: Bool = true
+    ) async throws -> [String] {
+        let keptExtensions = keepsOnlyDiagnosable ? diagnosableExtensions : indexedExtensions
         let rawPaths: [String]
         switch scope {
         case .workingTree:
@@ -59,7 +68,7 @@ enum DiagnosticsScopeResolver {
         var resolved: [String] = []
         for raw in rawPaths {
             guard let relative = confinedRelativePath(raw, rootDirectory: rootDirectory) else { continue }
-            guard isDiagnosableExtension(relative) else { continue }
+            guard hasExtension(relative, in: keptExtensions) else { continue }
             guard seen.insert(relative).inserted else { continue }
             resolved.append(relative)
         }
@@ -78,35 +87,43 @@ enum DiagnosticsScopeResolver {
         return RelativePath.of(candidateURL, relativeTo: rootDirectory)
     }
 
-    /// Whether `relativePath`'s extension belongs to a language module that
-    /// actually has an LSP server to diagnose it with.
-    ///
-    /// Deliberately narrower than `Walker.enumerateFiles(rootDirectory:extensions:)`'s
-    /// indexable extension set (`Languages.all.flatMap { $0.fileExtensions }`):
-    /// indexing covers every tree-sitter-chunkable format, including
-    /// LSP-less ones like Markdown/SQL/JSON/YAML/Bash (`languageServer ==
-    /// nil`), but diagnostics can only ever come from a running language
-    /// server. Filtering `Languages.all` down to `languageServer != nil`
-    /// before flat-mapping `fileExtensions` is this module's own "does this
-    /// extension have an LSP" answer — it's the same signal each
-    /// `LanguageModule`'s `languageServer` doc comment already ties back to
-    /// `builtin/lsp/*.yaml`, without needing a second, separate lookup into
-    /// that registry.
-    /// - Parameter relativePath: The workspace-relative path to check.
-    /// - Returns: `true` if the path's extension is registered by an LSP-backed `Languages.all` module.
-    private static func isDiagnosableExtension(_ relativePath: String) -> Bool {
+    /// Whether the extension of `relativePath` is in `extensions`.
+    /// - Parameters:
+    ///   - relativePath: The workspace-relative path to check.
+    ///   - extensions: The kept extensions, lowercased, with no leading dot.
+    /// - Returns: `true` if the path has an extension and `extensions` contains it.
+    private static func hasExtension(_ relativePath: String, in extensions: Set<String>) -> Bool {
         let fileExtension = Languages.normalizedFileExtension(ofPath: relativePath)
         guard !fileExtension.isEmpty else { return false }
-        return knownExtensions.contains(fileExtension)
+        return extensions.contains(fileExtension)
     }
 
     /// Every file extension (lowercased, no leading dot) registered by an
     /// LSP-backed `Languages.all` module (`languageServer != nil`).
-    private static let knownExtensions: Set<String> = Set(
-        Languages.all
-            .filter { module in module.languageServer != nil }
-            .flatMap { module in module.fileExtensions.map { $0.lowercased() } }
-    )
+    ///
+    /// Deliberately narrower than `indexedExtensions`: indexing covers every
+    /// tree-sitter-chunkable format, including LSP-less ones like
+    /// Markdown/SQL/JSON/YAML/Bash (`languageServer == nil`), but diagnostics
+    /// can only ever come from a running language server. Filtering
+    /// `Languages.all` down to `languageServer != nil` before flat-mapping
+    /// `fileExtensions` is this module's own "does this extension have an
+    /// LSP" answer — it's the same signal each `LanguageModule`'s
+    /// `languageServer` doc comment already ties back to `builtin/lsp/*.yaml`,
+    /// without needing a second, separate lookup into that registry.
+    private static let diagnosableExtensions = extensions(of: Languages.all.filter { module in module.languageServer != nil })
+
+    /// Every file extension (lowercased, no leading dot) that the index reads:
+    /// the same set as the indexable extensions of
+    /// `Walker.enumerateFiles(rootDirectory:extensions:)`
+    /// (`Languages.all.flatMap { $0.fileExtensions }`).
+    private static let indexedExtensions = extensions(of: Languages.all)
+
+    /// The file extensions of `modules`, lowercased, with no leading dot.
+    /// - Parameter modules: The language modules to read.
+    /// - Returns: The union of the `fileExtensions` of `modules`.
+    private static func extensions(of modules: [any LanguageModule.Type]) -> Set<String> {
+        Set(modules.flatMap { module in module.fileExtensions.map { $0.lowercased() } })
+    }
 }
 
 /// One-shot `git` invocations backing `.workingTree`/`.sha` scope resolution.

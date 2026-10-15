@@ -549,6 +549,35 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         try await BlastRadiusOps.blastRadius(store: store, file: file, symbol: symbol, maxHops: maxHops)
     }
 
+    /// Finds the impact of a set of changed files: the inbound callers of each
+    /// symbol in the files of `scope`, in one walk.
+    ///
+    /// The scope is the same scope as the scope of
+    /// `diagnostics(scope:severity:includeDependents:settleWindow:hardTimeout:perReportCap:)`:
+    /// the working tree, a file or a glob, or the files that a commit changes.
+    /// The resolution keeps each file whose extension the index reads, not
+    /// only the files that a language server diagnoses, because the
+    /// tree-sitter layer also makes call edges. See
+    /// `BlastRadiusOps.blastRadius(store:files:maxHops:)` for the walk.
+    ///
+    /// - Parameters:
+    ///   - scope: The files to start from.
+    ///   - maxHops: The maximum number of hops to follow, clamped to `1...10`.
+    /// - Returns: The roots of all the files of `scope`, plus per-hop impact summaries and totals. When no
+    ///   file of `scope` has an indexed symbol, the result is empty.
+    /// - Throws: Rethrows a `git` failure for `.workingTree` and `.sha`, and the storage errors of the index.
+    public func blastRadius(
+        scope: DiagnosticsScope,
+        maxHops: Int = CodeContextDefaults.blastRadiusMaxHops
+    ) async throws -> BlastRadius {
+        let files = try await DiagnosticsScopeResolver.resolvePaths(
+            scope: scope,
+            rootDirectory: rootDirectory,
+            keepsOnlyDiagnosable: false
+        )
+        return try await BlastRadiusOps.blastRadius(store: store, files: files, maxHops: maxHops)
+    }
+
     /// See `GrepCode.run(store:pattern:languages:filePattern:maxResults:)`.
     ///
     /// The call runs in one `CodeContextTracing.SpanName.grepCode` span, which holds the limit and

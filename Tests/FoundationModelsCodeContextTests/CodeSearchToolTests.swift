@@ -198,6 +198,57 @@ struct CodeSearchToolTests {
         }
     }
 
+    // MARK: - The blast radius of a scope
+
+    /// The callee file of the scope fixture. Its name sorts before
+    /// `scopeCallerFile`, thus the index pass reads the callee first, and the
+    /// tree-sitter layer can resolve the call of the caller to it.
+    private static let scopeCalleeFile = "Callee.swift"
+
+    /// The caller file of the scope fixture.
+    private static let scopeCallerFile = "Caller.swift"
+
+    /// The committed text of the callee file.
+    private static let scopeCalleeSource = """
+        func helper() -> String {
+            "hello"
+        }
+        """
+
+    /// The text of the callee file after the change that the scope finds.
+    private static let scopeChangedCalleeSource = """
+        func helper() -> String {
+            "hello, world"
+        }
+        """
+
+    /// The text of the caller file: `greet()` calls `helper()`.
+    private static let scopeCallerSource = """
+        func greet() -> String {
+            helper()
+        }
+        """
+
+    @Test
+    func blastRadiusOfTheWorkingTreeGivesTheCallersOfAChangedFile() async throws {
+        try await withTemporaryWorkspace { root in
+            try write(Self.scopeCalleeSource, to: Self.scopeCalleeFile, in: root)
+            try write(Self.scopeCallerSource, to: Self.scopeCallerFile, in: root)
+            try await GitFixture.initRepo(at: root)
+            try await GitFixture.commitAll(in: root, message: "initial")
+            try write(Self.scopeChangedCalleeSource, to: Self.scopeCalleeFile, in: root)
+
+            try await ToolTest.withStartedContext(rootDirectory: root, embeddingDimension: Self.embeddingDimension) { context in
+                let radius = try await context.blastRadius(scope: .workingTree)
+
+                #expect(!radius.roots.isEmpty, "the changed callee file has indexed symbols")
+                let affected = radius.hops.flatMap(\.symbols)
+                #expect(affected.map(\.name) == ["greet"])
+                #expect(affected.map(\.filePath) == [Self.scopeCallerFile])
+            }
+        }
+    }
+
     // MARK: - The aliases
 
     @Test

@@ -59,7 +59,7 @@ public struct HopLevel: Codable, Sendable, Equatable {
 }
 
 /// The result of a `BlastRadiusOps.blastRadius(store:file:symbol:maxHops:)`
-/// analysis.
+/// or `BlastRadiusOps.blastRadius(store:files:maxHops:)` analysis.
 public struct BlastRadius: Codable, Sendable, Equatable {
     /// The starting symbols' `lsp_symbols.id` values.
     public let roots: [Int64]
@@ -149,6 +149,56 @@ public enum BlastRadiusOps {
                 return try emptyResultOrThrow(symbol: symbol, filePath: file)
             }
             return try traverseInbound(db: db, roots: roots, maxHops: clampedMaxHops)
+        }
+    }
+
+    /// Finds every symbol in each file of `files`, then follows inbound call
+    /// edges from all of these roots in one walk, up to `maxHops` levels.
+    ///
+    /// Use this function to find the impact of a set of changed files, for
+    /// example the files of a working tree or of a commit. The walk starts
+    /// with all the roots as visited, thus a root that a different root calls
+    /// is not an affected symbol. Each affected symbol and each affected file
+    /// counts one time only, also when it calls roots in more than one file.
+    ///
+    /// - Parameters:
+    ///   - store: The workspace's index store to analyze.
+    ///   - files: The workspace-relative files to find starting symbols in. A
+    ///     file that is in the list more than one time gives its roots one
+    ///     time only.
+    ///   - maxHops: The maximum number of hops to follow, clamped to
+    ///     `1...10`. Defaults to `3`.
+    /// - Returns: The starting roots of all the files, plus per-hop impact
+    ///   summaries and totals. A file with no indexed symbols adds no roots,
+    ///   and when no file has an indexed symbol the result is empty.
+    /// - Throws: Rethrows `Store`'s storage errors.
+    public static func blastRadius(
+        store: Store,
+        files: [String],
+        maxHops: Int = CodeContextDefaults.blastRadiusMaxHops
+    ) async throws -> BlastRadius {
+        let clampedMaxHops = min(max(maxHops, minHops), maxHopsLimit)
+
+        return try await store.read { db in
+            let roots = try findRoots(db: db, filePaths: files)
+            return try traverseInbound(db: db, roots: roots, maxHops: clampedMaxHops)
+        }
+    }
+
+    /// Finds the roots of each file in `filePaths`, in the order of the
+    /// files, with each symbol one time only.
+    ///
+    /// - Parameters:
+    ///   - db: The database connection to query.
+    ///   - filePaths: The files to search within.
+    /// - Returns: The deduplicated roots of all the files.
+    /// - Throws: Rethrows any error the query throws.
+    private static func findRoots(db: Database, filePaths: [String]) throws -> [RootSymbol] {
+        var seen: Set<Int64> = []
+        return try filePaths.flatMap { filePath in
+            try findRoots(db: db, filePath: filePath, symbolName: nil)
+        }.filter { root in
+            seen.insert(root.symbolID).inserted
         }
     }
 

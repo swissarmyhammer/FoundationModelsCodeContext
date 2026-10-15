@@ -22,36 +22,6 @@ struct DiagnosticsTests {
         )
     }
 
-    /// Runs `git` in `directory`, failing the test on a non-zero exit code —
-    /// the shared fixture helper every scope-resolution test uses to build a
-    /// real temp git repo.
-    ///
-    /// Delegates to the production `GitShell.run(arguments:in:)` rather than
-    /// spawning its own `Process`, both to avoid duplicating that logic and
-    /// so every `git` invocation in this test file — fixture setup and the
-    /// `DiagnosticsScopeResolver` calls under test alike — funnels through
-    /// `GitShell`'s single serial dispatch queue (see its doc comment).
-    @discardableResult
-    private static func runGit(_ arguments: [String], in directory: URL) async throws -> String {
-        do {
-            return try await GitShell.run(arguments: arguments, in: directory)
-        } catch {
-            Issue.record("git \(arguments) failed: \(error.localizedDescription)")
-            return ""
-        }
-    }
-
-    private static func initRepo(at root: URL) async throws {
-        try await runGit(["init"], in: root)
-        try await runGit(["config", "user.email", "test@example.com"], in: root)
-        try await runGit(["config", "user.name", "Test"], in: root)
-    }
-
-    private static func commitAll(in root: URL, message: String) async throws {
-        try await runGit(["add", "-A"], in: root)
-        try await runGit(["commit", "-m", message], in: root)
-    }
-
     /// Inserts an `indexed_files` row (via `Reconciler.reconcile`) for every
     /// path in `paths`, satisfying `lsp_symbols`/`lsp_call_edges`' foreign
     /// keys, mirroring `CallGraphOpsTests`' identical fixture helper.
@@ -381,8 +351,8 @@ struct DiagnosticsTests {
         try await withTemporaryWorkspace { root in
             try write("let a = 1\n", to: "tracked.swift", in: root)
             try write("let b = 1\n", to: "untouched.swift", in: root)
-            try await Self.initRepo(at: root)
-            try await Self.commitAll(in: root, message: "initial")
+            try await GitFixture.initRepo(at: root)
+            try await GitFixture.commitAll(in: root, message: "initial")
 
             // Unstaged modification.
             try write("let a = 2\n", to: "tracked.swift", in: root)
@@ -390,7 +360,7 @@ struct DiagnosticsTests {
             try write("let c = 1\n", to: "new.swift", in: root)
             // Staged new file.
             try write("let d = 1\n", to: "staged.swift", in: root)
-            try await Self.runGit(["add", "staged.swift"], in: root)
+            try await GitFixture.run(["add", "staged.swift"], in: root)
 
             let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .workingTree, rootDirectory: root)
 
@@ -405,8 +375,8 @@ struct DiagnosticsTests {
             try write("// a\n", to: "src/a.swift", in: root)
             try write("// b\n", to: "src/b.swift", in: root)
             try write("// c\n", to: "src/c.txt", in: root)
-            try await Self.initRepo(at: root)
-            try await Self.commitAll(in: root, message: "initial")
+            try await GitFixture.initRepo(at: root)
+            try await GitFixture.commitAll(in: root, message: "initial")
 
             let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .file("src/*.swift"), rootDirectory: root)
 
@@ -418,8 +388,8 @@ struct DiagnosticsTests {
     func fileScopeWithLiteralPathReturnsThatOnePath() async throws {
         try await withTemporaryWorkspace { root in
             try write("// a\n", to: "src/a.swift", in: root)
-            try await Self.initRepo(at: root)
-            try await Self.commitAll(in: root, message: "initial")
+            try await GitFixture.initRepo(at: root)
+            try await GitFixture.commitAll(in: root, message: "initial")
 
             let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .file("src/a.swift"), rootDirectory: root)
 
@@ -431,12 +401,12 @@ struct DiagnosticsTests {
     func shaScopeResolvesFilesChangedSinceARange() async throws {
         try await withTemporaryWorkspace { root in
             try write("let a = 1\n", to: "a.swift", in: root)
-            try await Self.initRepo(at: root)
-            try await Self.commitAll(in: root, message: "first")
-            let firstSHA = try await Self.runGit(["rev-parse", "HEAD"], in: root).trimmingCharacters(in: .whitespacesAndNewlines)
+            try await GitFixture.initRepo(at: root)
+            try await GitFixture.commitAll(in: root, message: "first")
+            let firstSHA = try await GitFixture.run(["rev-parse", "HEAD"], in: root).trimmingCharacters(in: .whitespacesAndNewlines)
 
             try write("let b = 1\n", to: "b.swift", in: root)
-            try await Self.commitAll(in: root, message: "second")
+            try await GitFixture.commitAll(in: root, message: "second")
 
             let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .sha(firstSHA), rootDirectory: root)
 
@@ -448,13 +418,37 @@ struct DiagnosticsTests {
     func scopeResolutionExcludesNonDiagnosableExtensions() async throws {
         try await withTemporaryWorkspace { root in
             try write("hello", to: "README.md", in: root)
-            try await Self.initRepo(at: root)
-            try await Self.commitAll(in: root, message: "initial")
+            try await GitFixture.initRepo(at: root)
+            try await GitFixture.commitAll(in: root, message: "initial")
             try write("hello world", to: "README.md", in: root)
 
             let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .workingTree, rootDirectory: root)
 
             #expect(resolved.isEmpty)
+        }
+    }
+
+    @Test
+    func scopeResolutionKeepsEachIndexedExtensionWhenItDoesNotKeepOnlyDiagnosableFiles() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("hello", to: "README.md", in: root)
+            try write("let a = 1\n", to: "a.swift", in: root)
+            try write("notes", to: "notes.txt", in: root)
+            try await GitFixture.initRepo(at: root)
+            try await GitFixture.commitAll(in: root, message: "initial")
+            try write("hello world", to: "README.md", in: root)
+            try write("let a = 2\n", to: "a.swift", in: root)
+            try write("more notes", to: "notes.txt", in: root)
+
+            let indexed = try await DiagnosticsScopeResolver.resolvePaths(
+                scope: .workingTree,
+                rootDirectory: root,
+                keepsOnlyDiagnosable: false
+            )
+            let diagnosable = try await DiagnosticsScopeResolver.resolvePaths(scope: .workingTree, rootDirectory: root)
+
+            #expect(Set(indexed) == ["README.md", "a.swift"], "Markdown is indexed; a .txt file is not indexed")
+            #expect(diagnosable == ["a.swift"], "the default call keeps only the files that a language server diagnoses")
         }
     }
 

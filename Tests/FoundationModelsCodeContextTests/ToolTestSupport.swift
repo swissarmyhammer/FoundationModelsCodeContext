@@ -42,21 +42,40 @@ enum ToolTest {
     ) async throws {
         try await withTemporaryWorkspace { root in
             try write(source, to: file, in: root)
-            let context = try await CodeContext<FakeLanguageServerConnection>(
-                rootDirectory: root,
-                embedder: FakeEmbedder(vectorLength: embeddingDimension),
-                eventSource: FakeFileEventSource(),
-                autoInstall: LspAutoInstall(isEnabled: false),
-                connectionFactory: fakeConnectionFactory(pid: fakeProcessIdentifier, processState: ProcessState())
-            )
-            try await context.start()
-            await context.waitForFirstIndexPass()
-            do {
-                try await body(context)
-            } catch {
-                await context.stop()
-                throw error
-            }
+            try await withStartedContext(rootDirectory: root, embeddingDimension: embeddingDimension, body)
+        }
+    }
+
+    /// Starts a `CodeContext` on a workspace that the test prepared, and
+    /// gives the `CodeContext` to `body` after its first index pass.
+    ///
+    /// Use this helper when a test must write more than one file, or must make
+    /// a git repository, before the index pass. The workspace must have no
+    /// project marker, so no LSP daemon starts. The `CodeContext` stops after
+    /// `body`, also when `body` throws.
+    ///
+    /// - Parameters:
+    ///   - root: The workspace root, with the files of the test in it.
+    ///   - embeddingDimension: The dimension of the fake embedding vectors.
+    ///   - body: The test body.
+    /// - Throws: The error that the setup or `body` throws.
+    static func withStartedContext(
+        rootDirectory root: URL,
+        embeddingDimension: Int,
+        _ body: (CodeContext<FakeLanguageServerConnection>) async throws -> Void
+    ) async throws {
+        let context = try await CodeContext<FakeLanguageServerConnection>(
+            rootDirectory: root,
+            embedder: FakeEmbedder(vectorLength: embeddingDimension),
+            eventSource: FakeFileEventSource(),
+            autoInstall: LspAutoInstall(isEnabled: false),
+            connectionFactory: fakeConnectionFactory(pid: fakeProcessIdentifier, processState: ProcessState())
+        )
+        try await context.start()
+        await context.waitForFirstIndexPass()
+        try await withAsyncCleanup {
+            try await body(context)
+        } cleanup: {
             await context.stop()
         }
     }

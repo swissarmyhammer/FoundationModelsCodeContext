@@ -1,0 +1,1 @@
+{"id":"01M4Y6B1V28QJBHY0X7262GXXF","timestamp":"2026-10-14T21:50:49.186051Z","op":"create","item_id":"01M4Y6B1V1ZMMQE5EWMCDX1WTP","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: b60205\n+tag_name: blastradius\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: b60205\n-tag_name: blastradius\n","transaction_id":null}

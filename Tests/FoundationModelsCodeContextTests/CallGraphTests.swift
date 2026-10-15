@@ -451,4 +451,81 @@ struct BlastRadiusOpsTests {
             #expect(radius.totalAffectedFiles == 2, "caller.swift and y.swift, each counted once across all hops")
         }
     }
+
+    // MARK: - Blast radius of a list of files
+
+    @Test
+    func twoFilesMergeTheirRootsAndCallersIntoOneWalk() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            // Root r1 is in r1.swift and root r2 is in r2.swift. Caller c1
+            // calls the two roots, and caller c2 calls r2 only. The two
+            // callers are in caller.swift. Caller y in y.swift calls c1.
+            try await seedIndexedFiles(
+                store: store,
+                root: root,
+                paths: ["src/r1.swift", "src/r2.swift", "src/caller.swift", "src/y.swift"]
+            )
+            try await insertSymbol(store: store, id: 1, name: "r1", filePath: "src/r1.swift")
+            try await insertSymbol(store: store, id: 2, name: "r2", filePath: "src/r2.swift")
+            try await insertSymbol(store: store, id: 3, name: "c1", filePath: "src/caller.swift", startLine: 0, endLine: 5)
+            try await insertSymbol(store: store, id: 4, name: "c2", filePath: "src/caller.swift", startLine: 6, endLine: 10)
+            try await insertSymbol(store: store, id: 5, name: "y", filePath: "src/y.swift")
+            try await insertEdge(store: store, callerID: 3, calleeID: 1, filePath: "src/caller.swift")
+            try await insertEdge(store: store, callerID: 3, calleeID: 2, filePath: "src/caller.swift")
+            try await insertEdge(store: store, callerID: 4, calleeID: 2, filePath: "src/caller.swift")
+            try await insertEdge(store: store, callerID: 5, calleeID: 3, filePath: "src/y.swift")
+
+            let radius = try await BlastRadiusOps.blastRadius(
+                store: store,
+                files: ["src/r1.swift", "src/r2.swift", "src/r1.swift"],
+                maxHops: 3
+            )
+
+            #expect(radius.roots.sorted() == [1, 2], "each root counts one time, also when its file is in the list two times")
+            #expect(radius.hops.count == 2)
+            #expect(radius.hops[0].symbols.map(\.name).sorted() == ["c1", "c2"], "c1 calls the two roots, but it counts one time")
+            #expect(radius.hops[0].affectedFiles == 1, "c1 and c2 are in caller.swift, so it counts one time")
+            #expect(radius.hops[1].symbols.map(\.name) == ["y"])
+            #expect(radius.totalAffectedSymbols == 3)
+            #expect(radius.totalAffectedFiles == 2)
+        }
+    }
+
+    @Test
+    func aRootThatCallsADifferentRootIsNotAnAffectedSymbol() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            // In the chain, func_a calls func_b and func_b calls func_c.
+            try await seedChain(store: store, root: root)
+
+            let radius = try await BlastRadiusOps.blastRadius(
+                store: store,
+                files: ["src/b.swift", "src/c.swift"],
+                maxHops: 3
+            )
+
+            #expect(radius.roots.sorted() == [2, 3])
+            #expect(radius.hops.count == 1)
+            #expect(radius.hops[0].symbols.map(\.name) == ["func_a"], "func_b calls func_c, but func_b is a root")
+            #expect(radius.totalAffectedSymbols == 1)
+            #expect(radius.totalAffectedFiles == 1)
+        }
+    }
+
+    @Test
+    func filesWithNoIndexedSymbolsGiveAnEmptyResult() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedIndexedFiles(store: store, root: root, paths: ["src/empty.swift"])
+
+            let radius = try await BlastRadiusOps.blastRadius(
+                store: store,
+                files: ["src/empty.swift", "src/not-indexed.swift"],
+                maxHops: 3
+            )
+
+            #expect(radius == BlastRadius(roots: [], hops: [], totalAffectedSymbols: 0, totalAffectedFiles: 0))
+        }
+    }
 }
