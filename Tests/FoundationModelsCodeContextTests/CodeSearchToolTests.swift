@@ -427,15 +427,15 @@ struct CodeSearchToolTests {
                 [
                     (
                         GeneratedContent(properties: ["op": "get blastradius", "scope": "sha"]),
-                        ToolScopeKind.missingShaMessage
+                        ["parameter `sha`", "scope `sha`"]
                     ),
                     (
                         GeneratedContent(properties: ["op": "get blastradius"]),
-                        GetBlastradiusOperation.missingFileMessage
+                        ["parameter `file`", "scope `file`"]
                     ),
                     (
                         GeneratedContent(properties: ["op": "get blastradius", "scope": "file"]),
-                        GetBlastradiusOperation.missingFileMessage
+                        ["parameter `file`", "scope `file`"]
                     ),
                 ],
                 on: tool
@@ -450,19 +450,19 @@ struct CodeSearchToolTests {
                 [
                     (
                         GeneratedContent(properties: ["op": "get blastradius", "scope": "working", "symbol": "helper"]),
-                        GetBlastradiusOperation.unusedSymbolMessage(for: "the scope `working`")
+                        ["parameter `symbol`", "scope `working`"]
                     ),
                     (
                         GeneratedContent(properties: [
                             "op": "get blastradius", "scope": "sha", "sha": Self.lastCommitSha, "symbol": "helper",
                         ]),
-                        GetBlastradiusOperation.unusedSymbolMessage(for: "the scope `sha`")
+                        ["parameter `symbol`", "scope `sha`"]
                     ),
                     (
                         GeneratedContent(properties: [
                             "op": "get blastradius", "scope": "file", "file": Self.fixtureGlob, "symbol": "helper",
                         ]),
-                        GetBlastradiusOperation.unusedSymbolMessage(for: "a glob")
+                        ["parameter `symbol`", "a glob"]
                     ),
                 ],
                 on: tool

@@ -104,6 +104,78 @@ comments:
     - evidence: swift test — 855 tests in 78 suites passed, 0 failed, 0 skipped. Only warning: the known dependency line "missing creator for mutated node ... mlx-swift_Cmlx.bundle". No warning in code this repository owns.
     - next: review
   timestamp: 2026-10-15T09:01:46.185613+00:00
+- actor: claude-code
+  id: 01m4zcqz4r0qgh6wt3tjdbrjvj
+  text: |-
+    ### commit — changed
+    - evidence: 2bf2a3b refactor(blast-radius): share one scope mapping and one copy of each message ^janrd9h
+    - next: review iteration 2
+  timestamp: 2026-10-15T09:01:58.296817+00:00
+- actor: claude-code
+  id: 01m4zcxcxe8bv8pd4s38d5sm42
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (2bf2a3b), 2 findings (2 confirmed, 2 refuted) — Sources/FoundationModelsCodeContext/Tools/Navigation/GetDiagnosticsOperation.swift:114, Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift:453. All 3 items of "Review Findings (2026-10-15 03:53)" are checked.
+    - next: fix the 2 open items of "Review Findings (2026-10-15 04:02)". The task stays in review.
+
+    ```
+    step: review
+    outcome: findings
+    evidence: 2 findings — Sources/FoundationModelsCodeContext/Tools/Navigation/GetDiagnosticsOperation.swift:114, Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift:453
+    task: ^janrd9h
+    ```
+  timestamp: 2026-10-15T09:04:56.238058+00:00
+- actor: claude-code
+  id: 01m4zcxt4k2cw7wxqbyd5rm6e8
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 6 files
+    - test: green — swift test, 855 tests in 78 suites passed
+    - commit: 2bf2a3b
+    - review: findings — Sources/FoundationModelsCodeContext/Tools/Navigation/GetDiagnosticsOperation.swift:114, Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift:453
+  timestamp: 2026-10-15T09:05:09.779344+00:00
+- actor: claude-code
+  id: 01m4zd7fzej0m3wnsb3z5x92st
+  text: |-
+    Review findings of 2026-10-15 04:02 are corrected. TDD: the new test `theDiagnosticsAndTheBlastRadiusGiveOneMessageForTheScopeFileWithNoFile` failed first (the two texts were different), then passed after the change.
+
+    What changed:
+    - Finding 1 (invariant-propagation): `ToolScopeKind.missingFileMessage` is the one copy of the `file` message, next to `missingShaMessage`. `GetDiagnosticsOperation.reportScope(of:)` and `GetBlastradiusOperation.fileTarget()` use it. `GetBlastradiusOperation.missingFileMessage` and the inline diagnostics text are removed.
+      - The one wording: "Give the parameter `file` for the scope `file`. It accepts a path relative to the workspace root or a glob. For a different set of files, give the scope `working` or `sha`."
+      - Why this wording: `blastRadius(file:)` does not accept an absolute path (the store keys are relative paths). Thus the shared text does not say "an absolute path". The `@Guide` text and `docs/tools.md` still tell the model that `get diagnostics` accepts an absolute path. The first sentence did not change, so the old `hasPrefix` check in `theDiagnosticsScopeAndSeverityGiveTheCorrectiveOutput` still passes.
+      - New tests in CodeNavigationToolTests: `theDiagnosticsScopeFileWithNoFileNamesTheParameterAndTheScope` (key words) and `theDiagnosticsAndTheBlastRadiusGiveOneMessageForTheScopeFileWithNoFile` (the two operations give the same text).
+    - Finding 2 (no-test-cheating): no test in this change compares an output with a production constant now. The tests assert the key words of each message: the parameter name and the scope name, for example "parameter `symbol`" and "scope `working`".
+      - `ToolTest.CorrectiveCall` holds the arguments and the key words. `ToolTest.expectEachCorrectiveMessage` decodes the message and calls the new `ToolTest.expectKeyWords(_:in:context:sourceLocation:)`.
+      - `expectEachCall` and `expectEachCorrectiveMessage` share one loop: the private generic `checkEachOutput(of:on:_:)`. The `text:` parameter of `expectEachCall` is removed, because no caller used it after this change.
+      - Same cause, fixed in the whole change: `ToolSupportTests.theScopeKindShaWithNoShaGivesTheCorrectiveMessage` compared with `ToolScopeKind.missingShaMessage`. It now asserts the key words.
+      - `GetBlastradiusOperation.unusedSymbolMessage(for:)` is private again, because no test uses it.
+    - Finding 1 also says "use it ... in the tests". The user instruction for finding 2 says the tests must not compare with a production constant. I followed the user instruction: the tests assert key words, and no test reads `missingFileMessage`.
+
+    Not changed: `anUnknownSymbolForGetCallgraphGivesACorrectiveString` compares with `ToolSupport.correctiveMessage(for:)`. That test is older than this change.
+
+    Full suite: `swift test` gave 857 tests in 78 suites passed, 0 failed. The only warning is the known SwiftPM line "missing creator for mutated node ... mlx-swift_Cmlx.bundle".
+  timestamp: 2026-10-15T09:10:27.054516+00:00
+- actor: claude-code
+  id: 01m4zd7km8em3n5k1qe9dd2pme
+  text: |-
+    ### implement — changed
+    - evidence: 7 files — Sources/FoundationModelsCodeContext/Tools/ToolScopeKind.swift, Sources/FoundationModelsCodeContext/Tools/Navigation/GetDiagnosticsOperation.swift, Sources/FoundationModelsCodeContext/Tools/Search/GetBlastradiusOperation.swift, Tests/FoundationModelsCodeContextTests/ToolTestSupport.swift, Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift, Tests/FoundationModelsCodeContextTests/CodeNavigationToolTests.swift, Tests/FoundationModelsCodeContextTests/ToolSupportTests.swift. `swift test`: 857 tests in 78 suites passed, 0 failed. The 2 findings of 2026-10-15 04:02 are checked.
+    - next: /review
+
+    ```
+    step: implement
+    outcome: changed
+    evidence: 7 files (3 Sources, 4 Tests); swift test — 857 tests in 78 suites passed, 0 failed
+    task: ^janrd9h
+    ```
+  timestamp: 2026-10-15T09:10:30.792892+00:00
+- actor: claude-code
+  id: 01m4zd94e92pw202h5aq81mx1n
+  text: |-
+    ### test — green
+    - evidence: swift test — 857 tests in 78 suites passed, 0 failed, 0 skipped. The only warning is the known dependency line about mlx-swift_Cmlx.bundle. No warning from code that this repository owns.
+    - next: review
+  timestamp: 2026-10-15T09:11:20.777528+00:00
 depends_on:
 - 01M4Y6B1V0P9AVNN12M4TCWCWP
 position_column: doing
@@ -168,3 +240,13 @@ Subtasks:
 - [x] `Sources/FoundationModelsCodeContext/Tools/Search/GetBlastradiusOperation.swift:122` `duplication/duplication` — The mapping from a scope kind to a DiagnosticsScope is written twice. The `.working` and `.sha` branches of `target(of:)` repeat the mapping that `reportScope(of:)` in GetDiagnosticsOperation.swift already holds (`.working` gives `.workingTree`, `.sha` gives `ToolScopeKind.shaScope(sha)`). If one operation changes how a scope kind maps, the other can drift out of sync. Move the kind-to-scope mapping for `.working` and `.sha` into one shared function on `ToolScopeKind`, for example `ToolScopeKind.scope(of:sha:)` that returns `ChoiceParse<DiagnosticsScope>`. Call it from both `reportScope(of:)` and `target(of:)`. Keep the `.file` branch and the `symbol` check in each operation, because their corrective messages differ.
 - [x] `Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift:425` `reuse/reuse` — The test copies the text of the private `missingFileMessage` constant from `GetBlastradiusOperation`. If the production text changes, the copy must be changed too, or the test fails for the wrong reason. If the test should check the message text, keep one exact-text check. Otherwise make the production constant visible to tests with `@testable` access (internal, not private), and use it from the test. Do not keep two copies of the same text.
 - [x] `Tests/FoundationModelsCodeContextTests/ToolTestSupport.swift:132` `reuse/reuse` — `expectEachCorrectiveMessage` repeats the loop of `expectEachCall` line for line. The only difference is that the output is decoded from one JSON string before the comparison. This is a near-match that was not extended. Give `expectEachCall` a decode step, or a second parameter that takes the output-to-text conversion. Use one loop for both helpers. The decode step can default to the raw output.
+
+## Review Findings (2026-10-15 04:02)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 6 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Sources/FoundationModelsCodeContext/Tools/Navigation/GetDiagnosticsOperation.swift:114` `completeness/invariant-propagation` — The corrective message for scope `file` with no `file` parameter is still written inline in `reportScope(of:)`. The commit states that each corrective message keeps one copy. The sibling copy in `GetBlastradiusOperation.missingFileMessage` is a separate text, and the two texts already differ. The diagnostics copy says 'an absolute path or a glob'. The blast-radius copy says 'or a glob' only. A later edit to one copy does not reach the other. Move the `file` corrective message into one shared place, for example a static on `ToolScopeKind` next to `missingShaMessage`. Use it in both operations and in the tests. Choose one wording first, because the two copies disagree. Add a test for the diagnostics `file` message, because no test in this change asserts it.
+- [x] `Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift:453` `test-integrity/no-test-cheating` — The expected text is taken from the production function `GetBlastradiusOperation.unusedSymbolMessage(for:)`, so the assertion compares the function output with itself. The test cannot fail if the wording of the message changes or breaks. The same pattern is used at lines 430, 434, 438, 459 and 465. Keep one literal copy of each corrective message in the test, as the earlier version of this test did, and compare the tool output with that literal. Keep the shared constant only for production use. Another option is to assert the key words of each message, such as the parameter name and the scope name, so that a change in wording still fails.

@@ -11,8 +11,21 @@ import Testing
 /// as the model calls it. These helpers hold that shared work, so each suite
 /// gives only its own fixture and its own tool factory.
 enum ToolTest {
+    /// One tool call, and the expectation that its output must meet.
+    typealias ExpectedCall<Expected> = (arguments: GeneratedContent, expected: Expected)
+
     /// One tool call, and the JSON text that the call must give.
-    typealias Call = (arguments: GeneratedContent, expected: String)
+    typealias Call = ExpectedCall<String>
+
+    /// One tool call that gives a corrective message, and the key words that
+    /// the message must hold.
+    ///
+    /// The key words are the parameter names and the scope names that the
+    /// message must tell the model. A test that compares the message with the
+    /// production text cannot fail, and a full copy of the text is a second
+    /// copy to keep in sync. The key words fail the test when the message is
+    /// broken or when it names a different parameter or scope.
+    typealias CorrectiveCall = ExpectedCall<[String]>
 
     /// The process identifier of the fake language-server connection.
     private static let fakeProcessIdentifier: Int32 = 1
@@ -104,41 +117,89 @@ enum ToolTest {
         }
     }
 
-    /// Calls `tool` with the arguments of each call, converts the output to
-    /// text, and expects the text of that call.
+    /// Calls `tool` with the arguments of each call, and expects the JSON text
+    /// of that call.
     ///
     /// - Parameters:
-    ///   - calls: The tool calls and their expected text.
+    ///   - calls: The tool calls and their expected JSON text.
     ///   - tool: The tool to call.
-    ///   - text: Converts the output of a call to the text that the call must
-    ///     give. The default keeps the raw output, which is the JSON text of
-    ///     the engine result.
-    /// - Throws: The error that the tool or `text` throws.
-    static func expectEachCall(
-        _ calls: [Call],
-        on tool: OperationTool<CodeContextToolContext>,
-        text: (String) throws -> String = { $0 }
-    ) async throws {
-        for call in calls {
-            let output = try await tool.call(arguments: call.arguments)
-            #expect(try text(output) == call.expected, "arguments: \(call.arguments.jsonString)")
+    /// - Throws: The error that the tool throws.
+    static func expectEachCall(_ calls: [Call], on tool: OperationTool<CodeContextToolContext>) async throws {
+        try await checkEachOutput(of: calls, on: tool) { output, expected, arguments in
+            #expect(output == expected, "arguments: \(arguments.jsonString)")
         }
     }
 
-    /// Calls `tool` with the arguments of each call, and expects the
-    /// corrective message of that call.
+    /// Calls `tool` with the arguments of each call, and expects a corrective
+    /// message that holds each key word of that call.
     ///
     /// A corrective message is one JSON string. This helper decodes it with
-    /// `decodedString(_:)`, and compares the decoded text with the expected
-    /// text of the call.
+    /// `decodedString(_:)`, and then checks the key words with
+    /// `expectKeyWords(_:in:context:sourceLocation:)`.
     ///
     /// - Parameters:
-    ///   - calls: The tool calls and their expected corrective messages.
+    ///   - calls: The tool calls and the key words of their corrective
+    ///     messages.
     ///   - tool: The tool to call.
+    ///   - sourceLocation: The location of the caller, for a failure.
     /// - Throws: The error that the tool throws, or a `DecodingError` when an
     ///   output is not one JSON string.
-    static func expectEachCorrectiveMessage(_ calls: [Call], on tool: OperationTool<CodeContextToolContext>) async throws {
-        try await expectEachCall(calls, on: tool, text: decodedString)
+    static func expectEachCorrectiveMessage(
+        _ calls: [CorrectiveCall],
+        on tool: OperationTool<CodeContextToolContext>,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws {
+        try await checkEachOutput(of: calls, on: tool) { output, keyWords, arguments in
+            expectKeyWords(
+                keyWords,
+                in: try decodedString(output),
+                context: "arguments: \(arguments.jsonString)",
+                sourceLocation: sourceLocation
+            )
+        }
+    }
+
+    /// Expects that `message` holds each key word.
+    ///
+    /// - Parameters:
+    ///   - keyWords: The words that `message` must hold, for example
+    ///     "parameter `file`" and "scope `file`".
+    ///   - message: The corrective message to examine.
+    ///   - context: More text for a failure, for example the tool arguments.
+    ///   - sourceLocation: The location of the caller, for a failure.
+    static func expectKeyWords(
+        _ keyWords: [String],
+        in message: String,
+        context: String = "",
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        for keyWord in keyWords {
+            #expect(
+                message.contains(keyWord),
+                "key word: \(keyWord), message: \(message) \(context)",
+                sourceLocation: sourceLocation
+            )
+        }
+    }
+
+    /// Calls `tool` with the arguments of each call, and gives each raw
+    /// output to `check` with the expectation of its call.
+    ///
+    /// - Parameters:
+    ///   - calls: The tool calls and their expectations.
+    ///   - tool: The tool to call.
+    ///   - check: Examines one output. It receives the raw output, the
+    ///     expectation and the arguments of the call.
+    /// - Throws: The error that the tool or `check` throws.
+    private static func checkEachOutput<Expected>(
+        of calls: [ExpectedCall<Expected>],
+        on tool: OperationTool<CodeContextToolContext>,
+        _ check: (String, Expected, GeneratedContent) throws -> Void
+    ) async throws {
+        for call in calls {
+            let output = try await tool.call(arguments: call.arguments)
+            try check(output, call.expected, call.arguments)
+        }
     }
 
     /// Decodes a tool output that is one JSON string, for example a corrective

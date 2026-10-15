@@ -503,6 +503,36 @@ struct CodeNavigationToolTests {
     }
 
     @Test
+    func theDiagnosticsScopeFileWithNoFileNamesTheParameterAndTheScope() async throws {
+        try await Self.withIndexedTool { tool, _ in
+            try await ToolTest.expectEachCorrectiveMessage(
+                [
+                    (
+                        GeneratedContent(properties: ["op": "get diagnostics", "scope": "file"]),
+                        ["parameter `file`", "scope `file`"]
+                    )
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func theDiagnosticsAndTheBlastRadiusGiveOneMessageForTheScopeFileWithNoFile() async throws {
+        try await Self.withIndexedTool { tool, context in
+            let search = try CodeSearchTool.make(context: CodeContextToolContext(operating: context))
+            let diagnostics = try await tool.call(
+                arguments: GeneratedContent(properties: ["op": "get diagnostics", "scope": "file"])
+            )
+            let blastRadius = try await search.call(
+                arguments: GeneratedContent(properties: ["op": "get blastradius", "scope": "file"])
+            )
+
+            #expect(try ToolTest.decodedString(diagnostics) == (try ToolTest.decodedString(blastRadius)))
+        }
+    }
+
+    @Test
     func aGitFailureGivesTheCorrectiveOutput() async throws {
         try await Self.withIndexedTool { tool, _ in
             let workingTree = try await tool.call(

@@ -113,8 +113,12 @@ struct ToolSupportTests {
     }
 
     @Test
-    func theScopeKindShaWithNoShaGivesTheCorrectiveMessage() {
-        #expect(ToolScopeKind.sha.scope(sha: nil) == .corrective(ToolScopeKind.missingShaMessage))
+    func theScopeKindShaWithNoShaGivesTheCorrectiveMessage() throws {
+        guard case .corrective(let message) = try #require(ToolScopeKind.sha.scope(sha: nil)) else {
+            Issue.record("the scope `sha` with no `sha` must give a corrective message")
+            return
+        }
+        ToolTest.expectKeyWords(["parameter `sha`", "scope `sha`"], in: message)
     }
 
     @Test

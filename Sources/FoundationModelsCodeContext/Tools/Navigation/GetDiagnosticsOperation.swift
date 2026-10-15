@@ -110,9 +110,7 @@ extension GetDiagnosticsOperation {
             return shared
         }
         guard let file else {
-            return .corrective(
-                "Give the parameter `file` for the scope `file`. It accepts a path relative to the workspace root, an absolute path or a glob."
-            )
+            return .corrective(ToolScopeKind.missingFileMessage)
         }
         return .value(.file(file))
     }

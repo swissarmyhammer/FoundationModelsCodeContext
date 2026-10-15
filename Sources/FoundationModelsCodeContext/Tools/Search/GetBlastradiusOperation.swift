@@ -64,13 +64,6 @@ extension GetBlastradiusOperation {
         case scope(DiagnosticsScope)
     }
 
-    /// The corrective message for the scope `file` with no `file` parameter.
-    ///
-    /// It is internal, so the tests compare with this one copy of the text.
-    static let missingFileMessage =
-        "Give the parameter `file` for the scope `file`, or give the scope `working` or `sha`. "
-        + "`file` accepts a path relative to the workspace root or a glob."
-
     /// The name of a glob in the corrective message for a `symbol` that the
     /// call cannot use.
     private static let globOwner = "a glob"
@@ -136,7 +129,7 @@ extension GetBlastradiusOperation {
     ///   glob has a `symbol`.
     private func fileTarget() -> ChoiceParse<Target> {
         guard let file else {
-            return .corrective(Self.missingFileMessage)
+            return .corrective(ToolScopeKind.missingFileMessage)
         }
         guard GlobExpansion.isGlob(file) else {
             return .value(.file(file, symbol: symbol))
@@ -172,12 +165,10 @@ extension GetBlastradiusOperation {
     /// Gives the corrective message for a `symbol` that a call for a set of
     /// files cannot use.
     ///
-    /// It is internal, so the tests compare with this one copy of the text.
-    ///
     /// - Parameter owner: The name of the scope or of the glob, for example
     ///   "the scope `working`".
     /// - Returns: The corrective message.
-    static func unusedSymbolMessage(for owner: String) -> String {
+    private static func unusedSymbolMessage(for owner: String) -> String {
         "The parameter `symbol` is only for a `file` that is one path. Remove `symbol` for \(owner)."
     }
 
