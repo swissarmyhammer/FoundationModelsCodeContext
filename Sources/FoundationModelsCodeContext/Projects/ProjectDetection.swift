@@ -89,3 +89,10 @@ public enum ProjectDetection {
         return specs
     }
 }
+
+/// Gives the language server specs for a set of detected projects.
+///
+/// `CodeContext` and `LspSupervisor` get one of these functions. Production code uses
+/// `ProjectDetection.serverSpecs(for:)`. A test gives a function that changes each spec, for
+/// example so that the binary lookup of `LSPDaemon.start()` finds a fake binary.
+typealias ServerSpecsForProjects = @Sendable ([DetectedProject]) -> [ServerSpec]

@@ -81,6 +81,9 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// Goes to each daemon this supervisor creates, which records its restarts in it.
     private let metrics: CodeContextMetrics
 
+    /// Gives the server specs of the projects that `start()` detects.
+    private let serverSpecs: ServerSpecsForProjects
+
     /// Every daemon this supervisor manages, keyed by `ServerSpec.command`.
     private var managedDaemons: [String: ManagedDaemon] = [:]
 
@@ -116,6 +119,8 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     ///     `ProcessInstallRunner()`; tests inject a scripted `FakeInstallRunner`.
     ///   - metrics: Goes to each daemon this supervisor creates, which records its restarts in it.
     ///     Defaults to `CodeContextMetrics()`.
+    ///   - serverSpecs: Gives the server specs of the projects that `start()` detects. Defaults
+    ///     to `ProjectDetection.serverSpecs(for:)`; tests give a function that changes the specs.
     ///   - connectionFactory: Spawns a fresh connection for every daemon this supervisor creates.
     init(
         workspaceRoot: URL,
@@ -123,6 +128,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         autoInstall: LspAutoInstall = LspAutoInstall(),
         installRunner: any InstallRunner = ProcessInstallRunner(),
         metrics: CodeContextMetrics = CodeContextMetrics(),
+        serverSpecs: @escaping ServerSpecsForProjects = ProjectDetection.serverSpecs(for:),
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) {
         self.workspaceRoot = workspaceRoot
@@ -130,6 +136,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         self.autoInstall = autoInstall
         self.installer = ServerInstaller(policy: autoInstall, runner: installRunner)
         self.metrics = metrics
+        self.serverSpecs = serverSpecs
         self.connectionFactory = connectionFactory
     }
 
@@ -139,7 +146,8 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// not already managed.
     ///
     /// Ports `swissarmyhammer-lsp`'s `start`: runs `ProjectDetection.detectProjects`, collects
-    /// `ServerSpec`s deduped by command via `ProjectDetection.serverSpecs(for:)`, skips any command
+    /// `ServerSpec`s deduped by command via `serverSpecs` (by default
+    /// `ProjectDetection.serverSpecs(for:)`), skips any command
     /// already managed (so a repeated `start()` call is additive, never duplicating a daemon), then
     /// builds and starts every new daemon concurrently. Each daemon's own `start()` failure (a
     /// missing binary, a failed handshake) is logged and left visible via that daemon's state
@@ -192,8 +200,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// - Throws: Rethrows `ProjectDetection.detectProjects(rootDirectory:)`'s errors.
     private func performStart() async throws {
         let detectedProjects = try ProjectDetection.detectProjects(rootDirectory: workspaceRoot)
-        let specs = ProjectDetection.serverSpecs(for: detectedProjects)
-        await spawnAndRegister(specs: specs)
+        await spawnAndRegister(specs: serverSpecs(detectedProjects))
     }
 
     /// Spawns and registers a daemon for every spec in `specs` that is not managed or that is

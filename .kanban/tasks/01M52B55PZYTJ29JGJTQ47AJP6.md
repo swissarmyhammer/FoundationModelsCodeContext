@@ -32,6 +32,65 @@ comments:
     - evidence: swift test — 861 tests in 78 suites passed, 0 failed, 0 skipped; 0 warnings from this package (only the mlx-swift dependency warning `missing creator for mutated node`)
     - next: review
   timestamp: 2026-10-16T12:48:37.076237+00:00
+- actor: claude-code
+  id: 01m52c7y0waxf775fja1zxwj0d
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (4839d45): 1 finding (1 confirmed, 0 refuted) — Sources/FoundationModelsCodeContext/CodeContext.swift:522 `completeness/inverse-operation-coverage`
+    - next: add a CodeContext test that calls start(), stopLanguageServers(), then startLanguageServers(), and asserts that the result and state.servers show rust-analyzer as running. Then review again.
+  timestamp: 2026-10-16T12:50:56.156852+00:00
+- actor: claude-code
+  id: 01m52c8erxev62bfers9p45wmv
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 5 files
+    - test: green — swift test, 861 passed
+    - commit: 4839d45
+    - review: findings — Sources/FoundationModelsCodeContext/CodeContext.swift:522
+  timestamp: 2026-10-16T12:51:13.309757+00:00
+- actor: claude-code
+  id: 01m52cq6w0qj3ej8p5ebghenp8
+  text: |-
+    Finding `completeness/inverse-operation-coverage` (CodeContext.swift `startLanguageServers()`) is fixed (TDD).
+
+    Cause: the CodeContext tests used the real `rust-analyzer` spec. `LSPDaemon.start()` does `BinaryLookup.resolve` before it calls the connection factory, thus on a machine without `rust-analyzer` the server is `.notFound`. No CodeContext test could then see a running server, and the restart path of the wrapper had no test.
+
+    Fix:
+    - New internal seam `ServerSpecsForProjects` (`@Sendable ([DetectedProject]) -> [ServerSpec]`, in `Projects/ProjectDetection.swift`). `LspSupervisor.init` and the internal `CodeContext.init` take `serverSpecs:` with the default `ProjectDetection.serverSpecs(for:)`. `LspSupervisor.performStart()` and `CodeContext.start()` both use the same function, thus the supervisor and the LSP index tasks agree on the servers. The public init does not change.
+    - `CodeContextStartTests`: the real project detection and the real Rust spec stay in use. The test mapping only sets the extra search directory of the installer to a temp directory with a fake executable `rust-analyzer`. The fake connection factory does not run that file.
+    - Cause removed in the whole file: all three LSP tests now use `makeRustContext(root:binaryDirectory:processState:)`. `stopLanguageServersStopsEachServerAndPublishesTheResult` now also asserts that the server is `.running` before the stop, and it asserts the exact `.notStarted` status.
+    - New test `startLanguageServersAfterAStopStartsEachServerAgainAndPublishesTheResult`: start(), stopLanguageServers(), `processState.setAlive(true)`, startLanguageServers(); it asserts the result and `state.servers` equal `[rust-analyzer .running(pid: 1)]`.
+
+    Evidence:
+    - RED: compile error, `cannot find type 'ServerSpecsForProjects'` and `extra argument 'serverSpecs'`.
+    - GREEN: `swift test --filter CodeContextStartTests` 14 tests passed.
+    - The new test can fail: with `publishServersStatus()` removed from `startLanguageServers()`, it failed at `servers == [Self.runningRustServer]`. The line is restored.
+    - Determinism: with `PATH=/usr/bin:/bin:/usr/sbin:/sbin` (no `rust-analyzer` on PATH), the 14 tests passed.
+    - `swift test`: 862 tests in 78 suites passed. The only warning is the known mlx-swift `missing creator for mutated node` from the dependency bundle.
+
+    Change outside the card file list: `Sources/FoundationModelsCodeContext/Projects/ProjectDetection.swift` (the typealias).
+  timestamp: 2026-10-16T12:59:16.736268+00:00
+- actor: claude-code
+  id: 01m52cqa80abg4nc63bh1zt90k
+  text: |-
+    ### implement — changed
+    - evidence: 4 files — Sources/FoundationModelsCodeContext/Projects/ProjectDetection.swift, Sources/FoundationModelsCodeContext/LSP/LspSupervisor.swift, Sources/FoundationModelsCodeContext/CodeContext.swift, Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift; `swift test --filter CodeContextStartTests` 14 passed (also with no rust-analyzer on PATH); `swift test` 862 tests in 78 suites passed, 0 failed
+    - next: /review
+
+    ```
+    step: implement
+    outcome: changed
+    evidence: 4 files — Sources/FoundationModelsCodeContext/Projects/ProjectDetection.swift, Sources/FoundationModelsCodeContext/LSP/LspSupervisor.swift, Sources/FoundationModelsCodeContext/CodeContext.swift, Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift; swift test --filter CodeContextStartTests 14 passed; swift test 862 tests in 78 suites passed, 0 failed
+    task: ^q47ajp6
+    ```
+  timestamp: 2026-10-16T12:59:20.192986+00:00
+- actor: claude-code
+  id: 01m52cry099m41weja72crtc2p
+  text: |-
+    ### test — green
+    - evidence: swift test — 862 tests in 78 suites passed, 0 failed, 0 skipped; no warnings from this package (only the mlx-swift dependency warning)
+    - next: review
+  timestamp: 2026-10-16T13:00:13.193804+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'LSP stop and start: stop the language servers and start them again (engine)'
@@ -75,3 +134,12 @@ Files: `Sources/FoundationModelsCodeContext/LSP/LspSupervisor.swift`, `Sources/F
 
 ## Workflow
 - Use `/tdd` — write failing tests first, then implement to make them pass. #lsp #feature
+
+## Review Findings (2026-10-16 07:49)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 5 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Sources/FoundationModelsCodeContext/CodeContext.swift:522` `completeness/inverse-operation-coverage` — The new public startLanguageServers() restarts servers after stopLanguageServers(), but no CodeContext-level test runs that pair. The start wrapper is never checked while it has a running server. Only the supervisor is tested for a restart, so a bug in this wrapper (for example, a missing publish) would pass the tests. Add one CodeContext test: write the Cargo marker, call start(), call stopLanguageServers(), then call startLanguageServers(). Assert that the returned statuses and context.state.servers show rust-analyzer as running. Then call stop().

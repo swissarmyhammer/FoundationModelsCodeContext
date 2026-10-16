@@ -60,6 +60,11 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// Manages the fleet of LSP daemons for this workspace's detected projects.
     private let supervisor: LspSupervisor<Connection>
 
+    /// Gives the server specs of the detected projects. `start()` uses it to find the LSP file
+    /// extensions and the LSP index tasks, and the supervisor uses the same function, thus the
+    /// two agree on the servers.
+    private let serverSpecs: ServerSpecsForProjects
+
     /// The clock the index loop's idle sleep and the watcher's debounce timer wait against.
     /// Defaults to `ContinuousClock()`; tests inject a fake or a fast interval.
     private let clock: any Clock<Duration>
@@ -206,6 +211,9 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///   - tracer: The tracer of the spans of this context. Defaults to `nil`, which reads the
     ///     bootstrapped tracer at the time of each span; tests give an `InMemoryTracer`. The LSP
     ///     request spans use the tracer of each connection, which `connectionFactory` makes.
+    ///   - serverSpecs: Gives the server specs of the detected projects, to this context and to
+    ///     its supervisor. Defaults to `ProjectDetection.serverSpecs(for:)`; tests give a function
+    ///     that changes the specs, for example so that the binary lookup finds a fake binary.
     ///   - connectionFactory: Spawns a fresh connection for every LSP daemon the supervisor
     ///     creates. Production code passes `LSPDaemon.processConnectionFactory()`; tests pass one
     ///     backed by `FakeLanguageServerConnection`.
@@ -219,6 +227,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         installRunner: any InstallRunner = ProcessInstallRunner(),
         metrics: CodeContextMetrics = CodeContextMetrics(),
         tracer: (any Tracer)? = nil,
+        serverSpecs: @escaping ServerSpecsForProjects = ProjectDetection.serverSpecs(for:),
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) async throws {
         self.rootDirectory = rootDirectory
@@ -227,6 +236,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         self.eventSource = eventSource
         self.metrics = metrics
         self.tracer = tracer
+        self.serverSpecs = serverSpecs
 
         let store = try Store(rootDirectory: rootDirectory)
         self.store = store
@@ -238,6 +248,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             autoInstall: autoInstall,
             installRunner: installRunner,
             metrics: metrics,
+            serverSpecs: serverSpecs,
             connectionFactory: connectionFactory
         )
     }
@@ -289,7 +300,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             try await supervisor.start()
             await publishServersStatus()
 
-            let specs = ProjectDetection.serverSpecs(for: projects)
+            let specs = serverSpecs(projects)
             coveredLspExtensions = Self.coveredExtensions(for: specs)
 
             // The reconcile found the files that wait for a layer. Publish that status now, so

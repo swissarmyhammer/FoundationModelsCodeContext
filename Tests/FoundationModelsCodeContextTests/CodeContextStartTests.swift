@@ -11,8 +11,23 @@ import Testing
 ///
 /// Most fixtures have no project marker, thus no LSP daemon starts. The tests
 /// of `stopLanguageServers()` and `startLanguageServers()` write a Cargo
-/// manifest, thus the context manages one server. The auto install is off.
+/// manifest, thus the context manages one server. These tests also write a
+/// fake server binary, thus the server runs also on a machine that does not
+/// have the real server. The auto install is off.
 struct CodeContextStartTests {
+    /// The pid that each fake server process reports.
+    private static let fakeServerPid: Int32 = 1
+
+    /// The command of the server that a Cargo manifest gets.
+    private static let rustServerCommand = "rust-analyzer"
+
+    /// The status of the Rust server while it runs on the fake connection.
+    private static let runningRustServer = ServerStatus(command: rustServerCommand, state: .running(pid: fakeServerPid))
+
+    /// The file permissions of the fake server binary: the owner can read, write and run it,
+    /// and all other users can read and run it.
+    private static let executablePermissions = 0o755
+
     /// The dimension of the fake embedding vectors.
     private static let dimension = 8
 
@@ -58,12 +73,22 @@ struct CodeContextStartTests {
     /// a fake LSP connection factory.
     ///
     /// A test that sends file events gives its own `clock` and `eventSource`,
-    /// and then controls the debounce timer of the watcher.
+    /// and then controls the debounce timer of the watcher. A test that starts
+    /// a language server again gives its own `processState` and `serverSpecs`.
+    /// - Parameters:
+    ///   - rootDirectory: The workspace root of the context.
+    ///   - embedder: The embedder of the context, or `nil` to turn the embedding layer off.
+    ///   - clock: The clock of the index loop and of the watcher.
+    ///   - eventSource: The file event source of the watcher.
+    ///   - processState: The liveness of each fake server process.
+    ///   - serverSpecs: Gives the server specs of the detected projects.
     private static func makeCodeContext(
         rootDirectory: URL,
         embedder: PooledEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
-        eventSource: FakeFileEventSource = FakeFileEventSource()
+        eventSource: FakeFileEventSource = FakeFileEventSource(),
+        processState: ProcessState = ProcessState(),
+        serverSpecs: @escaping ServerSpecsForProjects = ProjectDetection.serverSpecs(for:)
     ) async throws -> CodeContext<FakeLanguageServerConnection> {
         try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: rootDirectory,
@@ -71,7 +96,8 @@ struct CodeContextStartTests {
             clock: clock,
             eventSource: eventSource,
             autoInstall: LspAutoInstall(isEnabled: false),
-            connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
+            serverSpecs: serverSpecs,
+            connectionFactory: fakeConnectionFactory(pid: Self.fakeServerPid, processState: processState)
         )
     }
 
@@ -360,21 +386,87 @@ struct CodeContextStartTests {
         try write("[package]\nname = \"fixture\"", to: "Cargo.toml", in: root)
     }
 
+    /// Writes an executable file with the name of the Rust server into `directory`.
+    ///
+    /// `LSPDaemon.start()` looks for the binary of the server before it calls the connection
+    /// factory. This file makes that lookup succeed on each machine, also when the real server
+    /// is not installed. The fake connection factory does not run the file.
+    /// - Parameter directory: The directory to write the file into.
+    private static func writeFakeRustServerBinary(in directory: URL) throws {
+        try write("#!/bin/sh\n", to: rustServerCommand, in: directory)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: executablePermissions],
+            ofItemAtPath: directory.appendingPathComponent(rustServerCommand).path
+        )
+    }
+
+    /// Gives the server specs that project detection gives, but each installer of a spec has
+    /// `directory` as its only extra search directory.
+    ///
+    /// The real project detection and the real Rust spec stay in use. Only the place where the
+    /// binary lookup finds the binary changes. The auto install is off, thus no installer runs.
+    /// - Parameter directory: The directory that holds the fake binary of each server.
+    /// - Returns: The spec mapping that the context gives to its supervisor.
+    private static func serverSpecs(searching directory: URL) -> ServerSpecsForProjects {
+        { projects in
+            ProjectDetection.serverSpecs(for: projects).map { spec in
+                ServerSpec(
+                    command: spec.command,
+                    arguments: spec.arguments,
+                    languageIDs: spec.languageIDs,
+                    startupTimeout: spec.startupTimeout,
+                    healthCheckInterval: spec.healthCheckInterval,
+                    installHint: spec.installHint,
+                    installer: spec.installer.map { installer in
+                        ServerSpec.InstallSpec(
+                            tool: installer.tool,
+                            arguments: installer.arguments,
+                            extraSearchDirectories: [directory.path]
+                        )
+                    }
+                )
+            }
+        }
+    }
+
+    /// Makes a context for `root` that manages one Rust server. The binary lookup of that server
+    /// finds the fake binary in `binaryDirectory`, thus the server runs on each machine.
+    /// - Parameters:
+    ///   - root: The workspace root of the context.
+    ///   - binaryDirectory: The directory that gets the fake binary of the Rust server.
+    ///   - processState: The liveness of the fake server process.
+    /// - Returns: The context. The caller starts it and stops it.
+    private static func makeRustContext(
+        root: URL,
+        binaryDirectory: URL,
+        processState: ProcessState = ProcessState()
+    ) async throws -> CodeContext<FakeLanguageServerConnection> {
+        try writeRustProjectMarker(in: root)
+        try writeFakeRustServerBinary(in: binaryDirectory)
+        return try await makeCodeContext(
+            rootDirectory: root,
+            embedder: nil,
+            processState: processState,
+            serverSpecs: serverSpecs(searching: binaryDirectory)
+        )
+    }
+
     /// Before `start()` and after `stop()`, the two calls do nothing and give `lspStatus()`.
     @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
     func stopAndStartLanguageServersOutsideTheLifecycleGiveTheLspStatus() async throws {
         try await withTemporaryWorkspace { root in
-            try Self.writeRustProjectMarker(in: root)
-            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: nil)
+            try await withTemporaryWorkspace { binaryDirectory in
+                let context = try await Self.makeRustContext(root: root, binaryDirectory: binaryDirectory)
 
-            #expect(await context.stopLanguageServers() == context.lspStatus())
-            #expect(try await context.startLanguageServers() == context.lspStatus())
+                #expect(await context.stopLanguageServers() == context.lspStatus())
+                #expect(try await context.startLanguageServers() == context.lspStatus())
 
-            try await context.start()
-            await context.stop()
+                try await context.start()
+                await context.stop()
 
-            #expect(await context.stopLanguageServers() == context.lspStatus())
-            #expect(try await context.startLanguageServers() == context.lspStatus())
+                #expect(await context.stopLanguageServers() == context.lspStatus())
+                #expect(try await context.startLanguageServers() == context.lspStatus())
+            }
         }
     }
 
@@ -382,17 +474,46 @@ struct CodeContextStartTests {
     @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
     func stopLanguageServersStopsEachServerAndPublishesTheResult() async throws {
         try await withTemporaryWorkspace { root in
-            try Self.writeRustProjectMarker(in: root)
-            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: nil)
-            try await context.start()
+            try await withTemporaryWorkspace { binaryDirectory in
+                let context = try await Self.makeRustContext(root: root, binaryDirectory: binaryDirectory)
+                try await context.start()
+                let serversBeforeTheStop = await context.lspStatus()
 
-            let servers = await context.stopLanguageServers()
-            let published = await context.state.servers
-            await context.stop()
+                let servers = await context.stopLanguageServers()
+                let published = await context.state.servers
+                await context.stop()
 
-            #expect(servers.map(\.command) == ["rust-analyzer"])
-            #expect(servers.allSatisfy { $0.state == .notStarted })
-            #expect(published == servers)
+                #expect(serversBeforeTheStop == [Self.runningRustServer])
+                #expect(servers == [ServerStatus(command: Self.rustServerCommand, state: .notStarted)])
+                #expect(published == servers)
+            }
+        }
+    }
+
+    /// After `stopLanguageServers()`, `startLanguageServers()` starts each server again and
+    /// publishes the result.
+    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    func startLanguageServersAfterAStopStartsEachServerAgainAndPublishesTheResult() async throws {
+        try await withTemporaryWorkspace { root in
+            try await withTemporaryWorkspace { binaryDirectory in
+                let processState = ProcessState()
+                let context = try await Self.makeRustContext(
+                    root: root,
+                    binaryDirectory: binaryDirectory,
+                    processState: processState
+                )
+                try await context.start()
+                await context.stopLanguageServers()
+
+                // A graceful stop makes the fake process exit. The new start gets a new process.
+                await processState.setAlive(true)
+                let servers = try await context.startLanguageServers()
+                let published = await context.state.servers
+                await context.stop()
+
+                #expect(servers == [Self.runningRustServer])
+                #expect(published == servers)
+            }
         }
     }
 }
