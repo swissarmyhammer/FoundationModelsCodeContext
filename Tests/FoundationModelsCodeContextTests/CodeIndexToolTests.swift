@@ -5,7 +5,7 @@ import Testing
 
 @testable import FoundationModelsCodeContext
 
-/// Tests the four operations of the `code_index` tool.
+/// Tests the six operations of the `code_index` tool.
 ///
 /// Each test indexes a small Swift fixture and calls the tool as the model
 /// calls it: with a `GeneratedContent` payload. The workspace has no project
@@ -28,9 +28,9 @@ struct CodeIndexToolTests {
         }
         """
 
-    /// The op strings of the four operations, in the order of the fused schema.
+    /// The op strings of the six operations, in the order of the fused schema.
     private static let operationStrings = [
-        "get status", "get lsp_status", "rebuild index", "detect projects",
+        "get status", "get lsp_status", "stop lsp", "start lsp", "rebuild index", "detect projects",
     ]
 
     /// The marker file that makes the workspace a Swift project.
@@ -76,7 +76,7 @@ struct CodeIndexToolTests {
     // MARK: - The tool
 
     @Test
-    func toolExposesFourOperations() async throws {
+    func toolExposesSixOperations() async throws {
         try await Self.withIndexedTool { tool, _ in
             #expect(tool.name == "code_index")
             #expect(tool.operations.map(\.opString) == Self.operationStrings)
@@ -102,6 +102,31 @@ struct CodeIndexToolTests {
                     (
                         GeneratedContent(properties: ["op": "get lsp_status"]),
                         try TestJSON.encodedText(servers)
+                    ),
+                ],
+                on: tool
+            )
+        }
+    }
+
+    @Test
+    func stopAndStartLspReturnTheJSONOfTheEngineResult() async throws {
+        try await Self.withIndexedTool { tool, context in
+            let stopped = await context.stopLanguageServers()
+            let started = try await context.startLanguageServers()
+
+            #expect(stopped.isEmpty)
+            #expect(started.isEmpty)
+
+            try await ToolTest.expectEachCall(
+                [
+                    (
+                        GeneratedContent(properties: ["op": "stop lsp"]),
+                        try TestJSON.encodedText(stopped)
+                    ),
+                    (
+                        GeneratedContent(properties: ["op": "start lsp"]),
+                        try TestJSON.encodedText(started)
                     ),
                 ],
                 on: tool
@@ -148,6 +173,21 @@ struct CodeIndexToolTests {
     @Test
     func aliasesDispatchToTheCanonicalOperation() async throws {
         try await Self.withIndexedTool { tool, context in
+            // The `stop lsp` and `start lsp` rows run before the marker file is
+            // written. Thus `start lsp` detects no project and starts no daemon,
+            // and its output does not change with time.
+            let stopped = try TestJSON.encodedText(await context.stopLanguageServers())
+            let started = try TestJSON.encodedText(try await context.startLanguageServers())
+
+            try await ToolTest.expectEachCall(
+                [
+                    (GeneratedContent(properties: ["op": "shutdown lsp"]), stopped),
+                    (GeneratedContent(properties: ["op": "kill lsp"]), stopped),
+                    (GeneratedContent(properties: ["op": "launch lsp"]), started),
+                ],
+                on: tool
+            )
+
             try write(Self.swiftProjectMarkerSource, to: Self.swiftProjectMarker, in: context.rootDirectory)
             let status = try TestJSON.encodedText(await context.indexStatus())
             let servers = try TestJSON.encodedText(await context.lspStatus())
@@ -157,7 +197,6 @@ struct CodeIndexToolTests {
             try await ToolTest.expectEachCall(
                 [
                     (GeneratedContent(properties: ["op": "get lspstatus"]), servers),
-                    (GeneratedContent(properties: ["op": "get lsp"]), servers),
                     (GeneratedContent(properties: ["op": "get servers"]), servers),
                     (GeneratedContent(properties: ["op": "check state"]), status),
                     (GeneratedContent(properties: ["op": "get progress"]), status),

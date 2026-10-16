@@ -2,7 +2,8 @@ import FoundationModels
 import Operations
 
 /// The `code_index` tool: it reports the state of the index and of the
-/// language servers, and it rebuilds the index.
+/// language servers, it stops and starts the language servers, and it
+/// rebuilds the index.
 ///
 /// The tool fuses its operations into one `OperationTool`. The model selects
 /// an operation with the `op` parameter, for example `get status`.
@@ -13,7 +14,8 @@ internal enum CodeIndexTool {
     /// The model-facing description of the tool.
     static let description =
         "Report and control the index of the workspace: `get status` gives the progress of the index, "
-        + "`get lsp_status` gives the state of each language server, `rebuild index` marks the files of one "
+        + "`get lsp_status` gives the state of each language server, `stop lsp` stops the language servers so "
+        + "that they release their file locks, `start lsp` starts them again, `rebuild index` marks the files of one "
         + "layer dirty so that the workspace indexes them again, and `detect projects` finds the language of "
         + "each project of the workspace."
 
@@ -24,6 +26,9 @@ internal enum CodeIndexTool {
     /// operation.
     static let verbAliases: [String: String] = [
         "check": "get",
+        "shutdown": "stop",
+        "kill": "stop",
+        "launch": "start",
         "refresh": "rebuild",
         "scan": "detect",
         "discover": "detect",
@@ -40,7 +45,6 @@ internal enum CodeIndexTool {
         "state": "status",
         "progress": "status",
         "index_status": "status",
-        "lsp": "lsp_status",
         "servers": "lsp_status",
         "server_status": "lsp_status",
         "language_servers": "lsp_status",
@@ -58,6 +62,8 @@ internal enum CodeIndexTool {
         [
             AnyOperation(GetStatusOperation.self),
             AnyOperation(GetLspStatusOperation.self),
+            AnyOperation(StopLspOperation.self),
+            AnyOperation(StartLspOperation.self),
             AnyOperation(RebuildIndexOperation.self),
             AnyOperation(DetectProjectsOperation.self),
         ]

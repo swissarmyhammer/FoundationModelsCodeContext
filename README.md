@@ -53,7 +53,7 @@ is missing, `CodeContext` installs it automatically by default; see
 
 `CodeContextTools.make(context:)` gives the three FoundationModels tools of one
 `CodeContext`: `code_search` (9 operations), `code_navigation` (10) and
-`code_index` (4). Give them to a `LanguageModelSession`:
+`code_index` (6). Give them to a `LanguageModelSession`:
 
 ```swift
 import FoundationModels

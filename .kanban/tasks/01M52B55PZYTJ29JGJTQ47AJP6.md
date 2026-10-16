@@ -91,8 +91,24 @@ comments:
     - evidence: swift test — 862 tests in 78 suites passed, 0 failed, 0 skipped; no warnings from this package (only the mlx-swift dependency warning)
     - next: review
   timestamp: 2026-10-16T13:00:13.193804+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m52cw6m1brdb5ekhserd336w
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (62c9e8b). 0 findings, 0 confirmed, 1 refuted, 7 attempted, 0 failed. 4 files reviewed. All prior findings are checked.
+    - next: The task is in done. The dependent task ^q47ajp6 blocks (01M52B64C34G046TK8PJQ27DXP) can start.
+  timestamp: 2026-10-16T13:02:00.321913+00:00
+- actor: claude-code
+  id: 01m52cwh0vvx3v5tm0vxs6grkz
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 4 files
+    - test: green — swift test, 862 passed
+    - commit: 62c9e8b
+    - review: clean — 0 findings, prior 1/1 checked
+  timestamp: 2026-10-16T13:02:10.971435+00:00
+position_column: done
+position_ordinal: e180
 title: 'LSP stop and start: stop the language servers and start them again (engine)'
 ---
 ## What

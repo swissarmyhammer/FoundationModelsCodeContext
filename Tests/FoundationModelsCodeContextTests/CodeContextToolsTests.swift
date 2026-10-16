@@ -33,7 +33,7 @@ struct CodeContextToolsTests {
     private static let navigationOperationCount = 10
 
     /// The number of operations of the `code_index` tool.
-    private static let indexOperationCount = 4
+    private static let indexOperationCount = 6
 
     /// The instructions of the session of
     /// `toolsCanBeRegisteredOnALanguageModelSession`.

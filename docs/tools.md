@@ -21,7 +21,7 @@ host needs no other import.
 |---|---|---|
 | `code_search` | 9 | Find symbols, walk the call graph, and search the text and the syntax tree of the workspace. |
 | `code_navigation` | 10 | Move through the code from a position in a file. |
-| `code_index` | 4 | Report the state of the index and of the language servers, and rebuild the index. |
+| `code_index` | 6 | Report the state of the index and of the language servers, stop and start the language servers, and rebuild the index. |
 
 `make` also takes `includesSchemaInInstructions`. It is `true` by default. Make
 it `false` when the host gives the operations to the model in its own
@@ -224,12 +224,15 @@ Each other parameter belongs to one operation:
 |---|---|
 | `get status` | Give the progress of the index: the number of files that the walk found, and the number of files that each layer indexed. |
 | `get lsp_status` | Give the state of each language server that the workspace manages. |
+| `stop lsp` | Stop each language server of the workspace, so that it releases its file locks, for example before a build cleanup. The index continues to answer. |
+| `start lsp` | Start the language servers again after `stop lsp`. The workspace detects its projects again and installs a missing server when the auto install is on. |
 | `rebuild index` | Mark the files of one layer dirty, so that the workspace indexes them again. |
 | `detect projects` | Find the marker file of each language, for example `Package.swift`, and give one project for each language. |
 
 ### The parameters of `code_index`
 
-`get status`, `get lsp_status` and `detect projects` have no parameter.
+`get status`, `get lsp_status`, `stop lsp`, `start lsp` and `detect projects`
+have no parameter.
 
 | Op string | Parameter | Aliases | Necessary | What it is |
 |---|---|---|---|---|
@@ -240,6 +243,9 @@ Each other parameter belongs to one operation:
 | Verb alias | Real verb |
 |---|---|
 | `check` | `get` |
+| `shutdown` | `stop` |
+| `kill` | `stop` |
+| `launch` | `start` |
 | `refresh` | `rebuild` |
 | `scan` | `detect` |
 | `discover` | `detect` |
@@ -251,7 +257,6 @@ Each other parameter belongs to one operation:
 | `state` | `status` |
 | `progress` | `status` |
 | `index_status` | `status` |
-| `lsp` | `lsp_status` |
 | `servers` | `lsp_status` |
 | `server_status` | `lsp_status` |
 | `language_servers` | `lsp_status` |

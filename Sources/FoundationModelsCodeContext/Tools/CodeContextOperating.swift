@@ -21,6 +21,14 @@ internal protocol CodeContextOperating: Sendable {
     /// See `CodeContext.lspStatus()`.
     func lspStatus() async -> [ServerStatus]
 
+    /// See `CodeContext.stopLanguageServers()`.
+    @discardableResult
+    func stopLanguageServers() async -> [ServerStatus]
+
+    /// See `CodeContext.startLanguageServers()`.
+    @discardableResult
+    func startLanguageServers() async throws -> [ServerStatus]
+
     /// See `CodeContext.rebuildIndex(layer:)`.
     @discardableResult
     func rebuildIndex(layer: RebuildLayer) async throws -> RebuildIndexResult
