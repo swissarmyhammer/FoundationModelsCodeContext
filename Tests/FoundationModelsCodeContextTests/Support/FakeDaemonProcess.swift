@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 @testable import FoundationModelsCodeContext
 
@@ -32,6 +33,27 @@ actor Counter {
     func increment() -> Int {
         value += 1
         return value
+    }
+}
+
+/// A counter that a synchronous `@Sendable` hook can increment, for example the daemon
+/// constructed hook of `LspSupervisor`.
+///
+/// `Counter` is an actor, thus a synchronous hook must increment it in a new `Task`, and a test
+/// cannot know when that increment lands. This counter uses a `Mutex`, thus the increment is
+/// complete when the hook returns, and a test can read the count immediately.
+final class ConstructionLog: Sendable {
+    /// The lock that holds the number of recorded events.
+    private let recorded = Mutex(0)
+
+    /// The number of recorded events.
+    var count: Int {
+        recorded.withLock { $0 }
+    }
+
+    /// Records one event.
+    func record() {
+        recorded.withLock { $0 += 1 }
     }
 }
 

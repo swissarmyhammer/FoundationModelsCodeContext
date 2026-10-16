@@ -194,6 +194,67 @@ struct LspSupervisorTests {
         }
     }
 
+    // MARK: - start after shutdown
+
+    /// Makes a supervisor with a fake connection factory on `processState`, and a hook that
+    /// records each daemon that the supervisor constructs in `constructions`.
+    /// - Parameters:
+    ///   - processState: The liveness of the fake process of each daemon.
+    ///   - constructions: Records each daemon construction.
+    /// - Returns: The supervisor.
+    private static func makeCountingSupervisor(
+        processState: ProcessState,
+        constructions: ConstructionLog
+    ) async -> LspSupervisor<FakeLanguageServerConnection> {
+        let supervisor = LspSupervisor<FakeLanguageServerConnection>(
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            autoInstall: LspAutoInstall(isEnabled: false),
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState)
+        )
+        await supervisor.setDaemonConstructedHookForTesting { _ in
+            constructions.record()
+        }
+        return supervisor
+    }
+
+    @Test
+    func startAfterShutdownStartsTheStoppedDaemonsAgain() async throws {
+        let processState = ProcessState()
+        let constructions = ConstructionLog()
+        let supervisor = await Self.makeCountingSupervisor(processState: processState, constructions: constructions)
+        let specs = [Self.serverSpec(command: "true")]
+
+        await supervisor.startForTesting(specs: specs)
+        #expect(await supervisor.status() == [ServerStatus(command: "true", state: .running(pid: 1))])
+
+        await supervisor.shutdown()
+        #expect(await supervisor.status() == [ServerStatus(command: "true", state: .notStarted)])
+
+        // A graceful shutdown makes the fake process exit. The second start gets a new process.
+        await processState.setAlive(true)
+        await supervisor.startForTesting(specs: specs)
+        #expect(await supervisor.status() == [ServerStatus(command: "true", state: .running(pid: 1))])
+        #expect(constructions.count == 2, "a start after shutdown must construct a new daemon")
+
+        await supervisor.shutdown()
+    }
+
+    @Test
+    func startWhileRunningDoesNotSpawnASecondDaemon() async throws {
+        let constructions = ConstructionLog()
+        let supervisor = await Self.makeCountingSupervisor(processState: ProcessState(), constructions: constructions)
+        let specs = [Self.serverSpec(command: "true")]
+
+        await supervisor.startForTesting(specs: specs)
+        await supervisor.startForTesting(specs: specs)
+
+        #expect(await supervisor.status() == [ServerStatus(command: "true", state: .running(pid: 1))])
+        #expect(constructions.count == 1, "a start while the daemon runs must not construct a second daemon")
+
+        await supervisor.shutdown()
+    }
+
     // MARK: - session(forFileExtension:) / anySession()
 
     @Test

@@ -490,6 +490,42 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         await state.servers
     }
 
+    /// Stops each language server of this workspace and keeps all other work of the context.
+    ///
+    /// A stopped server releases its file locks, thus a build cleanup (for example
+    /// `swift package clean`) can run. The index loop, the watcher and the store continue to
+    /// operate. The LSP index tasks also continue: each task sleeps while its server has no
+    /// session, and it continues when `startLanguageServers()` starts the server again.
+    ///
+    /// The method publishes the new server states into `state.servers` before it returns.
+    /// Before `start()` and after `stop()`, the method does nothing.
+    /// - Returns: The statuses that `lspStatus()` gives after the call.
+    @discardableResult
+    public func stopLanguageServers() async -> [ServerStatus] {
+        guard isStarted else { return await lspStatus() }
+        await supervisor.shutdown()
+        await publishServersStatus()
+        return await lspStatus()
+    }
+
+    /// Starts the language servers of this workspace again after `stopLanguageServers()`.
+    ///
+    /// The method runs a new project detection, thus a project marker that was added after
+    /// `start()` also gets its server. A server whose binary is missing gets the auto install
+    /// that `start()` gives. A server that runs is not started a second time.
+    ///
+    /// The method publishes the new server states into `state.servers` before it returns.
+    /// Before `start()` and after `stop()`, the method does nothing.
+    /// - Returns: The statuses that `lspStatus()` gives after the call.
+    /// - Throws: Rethrows the project detection errors of `LspSupervisor.start()`.
+    @discardableResult
+    public func startLanguageServers() async throws -> [ServerStatus] {
+        guard isStarted else { return await lspStatus() }
+        try await supervisor.start()
+        await publishServersStatus()
+        return await lspStatus()
+    }
+
     /// Marks `layer` dirty across the whole workspace (via `IndexAdmin.rebuildIndex`), then
     /// immediately re-drains so `indexStatus()` reflects the rebuild rather than staying stale
     /// until the background index loop's next tick.

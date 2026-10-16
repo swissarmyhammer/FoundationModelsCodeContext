@@ -6,10 +6,12 @@ import Testing
 
 /// Tests for the bounded `start()` of `CodeContext`, for `stop()` during the
 /// first index pass, for the rule that one index pass runs at a time, for the
-/// embedding layer that a host turns off, and for the watcher that a host turns
-/// off.
+/// embedding layer that a host turns off, for the watcher that a host turns
+/// off, and for the calls that stop the language servers and start them again.
 ///
-/// The fixtures have no project marker, thus no LSP daemon starts.
+/// Most fixtures have no project marker, thus no LSP daemon starts. The tests
+/// of `stopLanguageServers()` and `startLanguageServers()` write a Cargo
+/// manifest, thus the context manages one server. The auto install is off.
 struct CodeContextStartTests {
     /// The dimension of the fake embedding vectors.
     private static let dimension = 8
@@ -346,6 +348,51 @@ struct CodeContextStartTests {
             await context.stop()
 
             #expect(isWatching)
+        }
+    }
+
+    // MARK: - stopLanguageServers() / startLanguageServers()
+
+    /// Writes a Cargo manifest into `root`. The manifest is a project marker, thus `start()`
+    /// manages one server for it.
+    /// - Parameter root: The workspace root to write the manifest into.
+    private static func writeRustProjectMarker(in root: URL) throws {
+        try write("[package]\nname = \"fixture\"", to: "Cargo.toml", in: root)
+    }
+
+    /// Before `start()` and after `stop()`, the two calls do nothing and give `lspStatus()`.
+    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    func stopAndStartLanguageServersOutsideTheLifecycleGiveTheLspStatus() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writeRustProjectMarker(in: root)
+            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: nil)
+
+            #expect(await context.stopLanguageServers() == context.lspStatus())
+            #expect(try await context.startLanguageServers() == context.lspStatus())
+
+            try await context.start()
+            await context.stop()
+
+            #expect(await context.stopLanguageServers() == context.lspStatus())
+            #expect(try await context.startLanguageServers() == context.lspStatus())
+        }
+    }
+
+    /// After `start()`, `stopLanguageServers()` stops each server and publishes the result.
+    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    func stopLanguageServersStopsEachServerAndPublishesTheResult() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writeRustProjectMarker(in: root)
+            let context = try await Self.makeCodeContext(rootDirectory: root, embedder: nil)
+            try await context.start()
+
+            let servers = await context.stopLanguageServers()
+            let published = await context.state.servers
+            await context.stop()
+
+            #expect(servers.map(\.command) == ["rust-analyzer"])
+            #expect(servers.allSatisfy { $0.state == .notStarted })
+            #expect(published == servers)
         }
     }
 }

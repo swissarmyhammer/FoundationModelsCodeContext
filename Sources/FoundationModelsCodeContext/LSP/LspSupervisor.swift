@@ -35,7 +35,7 @@ public struct ServerStatus: Sendable, Equatable, Codable, Identifiable {
 /// this Swift port (see plan.md's LSP subsystem). `start()` runs
 /// `ProjectDetection.detectProjects(rootDirectory:)` against the workspace root, collects
 /// `ServerSpec`s deduped by command via `ProjectDetection.serverSpecs(for:)`, and spawns one
-/// `LSPDaemon<Connection>` per spec not already managed, all sharing this supervisor's
+/// `LSPDaemon<Connection>` per spec not already managed or stopped, all sharing this supervisor's
 /// `connectionFactory` and `clock` and all bound to the same workspace root as `rootUri`. Every
 /// newly started daemon also gets its own repeating health-check task, paced by that daemon's own
 /// `ServerSpec.healthCheckInterval`, that calls `healthCheck()` and — mirroring
@@ -147,6 +147,11 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// started daemon also gets a repeating health-check task, paced by its own
     /// `ServerSpec.healthCheckInterval`.
     ///
+    /// A `start()` after `shutdown()` starts the stopped servers again. Each stopped command gets
+    /// a new daemon, a new health-check task and, for a missing binary, a new auto-install
+    /// attempt. A new project detection runs, thus a project marker that was added after the
+    /// first `start()` also gets its server.
+    ///
     /// Concurrent callers coalesce onto the same spawn round via `inFlightStart` rather than each
     /// independently detecting the same "new" command and racing to insert a daemon for it — see
     /// `inFlightStart`'s documentation.
@@ -191,18 +196,35 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         await spawnAndRegister(specs: specs)
     }
 
-    /// Spawns and registers a daemon for every spec in `specs` not already managed, triggering an
-    /// auto-install attempt for any that land in `.notFound`. Shared by `performStart` (specs from
-    /// real project detection) and `startForTesting(specs:)` (specs supplied directly by a test).
-    /// - Parameter specs: The candidate specs; any already managed by `spec.command` are skipped.
+    /// Spawns and registers a daemon for every spec in `specs` that is not managed or that is
+    /// stopped, triggering an auto-install attempt for any that land in `.notFound`. Shared by
+    /// `performStart` (specs from real project detection) and `startForTesting(specs:)` (specs
+    /// supplied directly by a test).
+    ///
+    /// A new daemon replaces the entry of a stopped command. The old install task of that entry
+    /// is cancelled first, as `insertDaemonForTesting(spec:daemon:)` does. A stopped entry has no
+    /// health loop task, thus there is no health loop task to cancel.
+    /// - Parameter specs: The candidate specs; any whose command is managed and not stopped are
+    ///   skipped.
     private func spawnAndRegister(specs: [ServerSpec]) async {
-        let newSpecs = specs.filter { managedDaemons[$0.command] == nil }
-        guard !newSpecs.isEmpty else { return }
+        let specsToSpawn = specs.filter { managedDaemons[$0.command].map(Self.isStopped) ?? true }
+        guard !specsToSpawn.isEmpty else { return }
 
-        for (spec, daemon) in await spawnDaemons(for: newSpecs) {
+        for (spec, daemon) in await spawnDaemons(for: specsToSpawn) {
+            managedDaemons[spec.command]?.installTask?.cancel()
             registerManagedDaemon(spec: spec, daemon: daemon)
             await triggerAutoInstallIfNeeded(spec: spec, daemon: daemon)
         }
+    }
+
+    /// Whether `managed` is stopped: `shutdown()` stopped it, and no `start()` started it again.
+    ///
+    /// Only `shutdown()` sets `healthLoopTask` to `nil`. Each registered daemon gets a health loop
+    /// task, thus a `nil` task identifies a stopped entry.
+    /// - Parameter managed: The managed entry to examine.
+    /// - Returns: `true` when the entry has no health loop task.
+    private static func isStopped(_ managed: ManagedDaemon) -> Bool {
+        managed.healthLoopTask == nil
     }
 
     /// Starts an auto-install attempt for `daemon` if its initial spawn attempt landed it in
@@ -361,6 +383,9 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// handling) torn down quickly rather than run to completion. Managed daemon entries are
     /// preserved — `status()` still reports them, now `.notStarted` — matching
     /// `swissarmyhammer-lsp`'s `shutdown` (a fleet shutdown never removes daemon entries).
+    ///
+    /// Each preserved entry is stopped: it has no health-check task. A later `start()` starts the
+    /// stopped servers again (see `start()`).
     func shutdown() async {
         let healthLoopTasks = managedDaemons.values.compactMap(\.healthLoopTask)
         let installTasks = managedDaemons.values.compactMap(\.installTask)
