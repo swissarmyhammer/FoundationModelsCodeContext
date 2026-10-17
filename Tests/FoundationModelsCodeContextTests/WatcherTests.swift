@@ -394,6 +394,208 @@ struct WatcherTests {
         }
     }
 
+    // MARK: - Path filter
+
+    /// Starts a watcher on `rootDirectory`, gives one `.created` event for
+    /// each URL of `urls` in order, flushes one debounce window, and gives the
+    /// paths that the flush marked dirty.
+    ///
+    /// The flush waits for a debounce timer, and only an accepted event starts
+    /// the timer. Thus `urls` must hold at least one URL that the watcher
+    /// accepts.
+    /// - Parameters:
+    ///   - urls: The URLs of the events.
+    ///   - store: The index store of the watcher.
+    ///   - rootDirectory: The root of the watcher.
+    /// - Returns: The paths that the flush marked dirty for the tree-sitter layer.
+    private static func dirtyPaths(afterCreatedEventsFor urls: [URL], store: Store, rootDirectory: URL) async throws -> Set<String> {
+        let clock = ManualClock()
+        let (watcher, eventSource) = await Self.makeStartedWatcher(store: store, rootDirectory: rootDirectory, clock: clock)
+        for url in urls {
+            await eventSource.emit(RawFileEvent(url: url, kind: .created))
+        }
+        await Self.flushOneWindow(watcher: watcher, clock: clock)
+        await watcher.stop()
+        return Set(try await store.drainTsDirty())
+    }
+
+    /// Writes `paths` under `root` and gives the URL of each path under `root`.
+    /// - Parameters:
+    ///   - paths: The relative paths of the files to write.
+    ///   - root: The workspace root.
+    /// - Returns: The URL of each path, in the order of `paths`.
+    private static func writeSourceFiles(_ paths: [String], in root: URL) throws -> [URL] {
+        try paths.map { path in
+            try write("// \(path)\n", to: path, in: root)
+            return root.appendingPathComponent(path)
+        }
+    }
+
+    @Test
+    func eventUnderAGitignoredDirectoryMakesNoRow() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("node_modules/\n", to: ".gitignore", in: root)
+            let urls = try Self.writeSourceFiles(["node_modules/x/a.ts", "kept.rs"], in: root)
+
+            let dirty = try await Self.dirtyPaths(afterCreatedEventsFor: urls, store: store, rootDirectory: root)
+
+            #expect(dirty == ["kept.rs"])
+        }
+    }
+
+    @Test
+    func eventUnderAGitignoredBuildOutputDirectoryMakesNoRow() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("build-out/\n", to: ".gitignore", in: root)
+            let urls = try Self.writeSourceFiles(["build-out/a/b.swift", "kept.rs"], in: root)
+
+            let dirty = try await Self.dirtyPaths(afterCreatedEventsFor: urls, store: store, rootDirectory: root)
+
+            #expect(dirty == ["kept.rs"])
+        }
+    }
+
+    @Test
+    func eventUnderTargetMakesNoRowWhenThereIsNoGitignore() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let urls = try Self.writeSourceFiles(["target/debug/a.rs", "kept.rs"], in: root)
+
+            let dirty = try await Self.dirtyPaths(afterCreatedEventsFor: urls, store: store, rootDirectory: root)
+
+            #expect(dirty == ["kept.rs"])
+        }
+    }
+
+    @Test
+    func eventWithTheRealPathOfASymlinkedRootMakesARow() async throws {
+        try await withSymlinkedWorkspace { link, target in
+            let store = try Store(rootDirectory: link)
+            try write("fn a() {}", to: "a.rs", in: target)
+            let realFileURL = try realPath(of: target.appendingPathComponent("a.rs"))
+
+            let dirty = try await Self.dirtyPaths(afterCreatedEventsFor: [realFileURL], store: store, rootDirectory: link)
+
+            #expect(dirty == ["a.rs"])
+        }
+    }
+
+    @Test
+    func eventOutsideTheRootAndTheCanonicalRootMakesNoRow() async throws {
+        try await withSymlinkedWorkspace { link, target in
+            try await withTemporaryWorkspace { outside in
+                let store = try Store(rootDirectory: link)
+                try write("fn kept() {}", to: "kept.rs", in: target)
+                try write("fn outside() {}", to: "outside.rs", in: outside)
+                let urls = [
+                    try realPath(of: outside.appendingPathComponent("outside.rs")),
+                    link.appendingPathComponent("kept.rs"),
+                ]
+
+                let dirty = try await Self.dirtyPaths(afterCreatedEventsFor: urls, store: store, rootDirectory: link)
+
+                #expect(dirty == ["kept.rs"])
+            }
+        }
+    }
+
+    @Test
+    func theWalkAndAWatcherEventGiveOneRowWithOneKeyForASymlinkedRoot() async throws {
+        try await withSymlinkedWorkspace { link, target in
+            let store = try Store(rootDirectory: link)
+            try write("fn a() {}", to: "a.rs", in: target)
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: link)
+            #expect(try await store.drainTsDirty() == ["a.rs"])
+            try await store.markIndexed(filePath: "a.rs", layer: .treeSitter)
+            try write("fn a_modified() {}", to: "a.rs", in: target)
+            let realFileURL = try realPath(of: target.appendingPathComponent("a.rs"))
+
+            let dirty = try await Self.dirtyPaths(afterCreatedEventsFor: [realFileURL], store: store, rootDirectory: link)
+
+            #expect(dirty == ["a.rs"])
+            let rowKeys = try await store.read { db in
+                try String.fetchAll(db, sql: "SELECT file_path FROM indexed_files")
+            }
+            #expect(rowKeys == ["a.rs"])
+        }
+    }
+
+    @Test
+    func aGitignoreChangeLoadsTheRulesAgainForTheNextEvent() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let urls = try Self.writeSourceFiles(["late.rs", "kept.rs"], in: root)
+            let clock = ManualClock()
+            let (watcher, eventSource) = await Self.makeStartedWatcher(store: store, rootDirectory: root, clock: clock)
+
+            try write("late.rs\n", to: ".gitignore", in: root)
+            await eventSource.emit(RawFileEvent(url: root.appendingPathComponent(".gitignore"), kind: .modified))
+            for url in urls {
+                await eventSource.emit(RawFileEvent(url: url, kind: .created))
+            }
+            await Self.flushOneWindow(watcher: watcher, clock: clock)
+
+            #expect(try await store.drainTsDirty() == ["kept.rs"])
+        }
+    }
+
+    @Test
+    func aGitInfoExcludeChangeLoadsTheRulesAgainForTheNextEvent() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let urls = try Self.writeSourceFiles(["late.rs", "kept.rs"], in: root)
+            let clock = ManualClock()
+            let (watcher, eventSource) = await Self.makeStartedWatcher(store: store, rootDirectory: root, clock: clock)
+
+            try write("late.rs\n", to: ".git/info/exclude", in: root)
+            await eventSource.emit(RawFileEvent(url: root.appendingPathComponent(".git/info/exclude"), kind: .modified))
+            for url in urls {
+                await eventSource.emit(RawFileEvent(url: url, kind: .created))
+            }
+            await Self.flushOneWindow(watcher: watcher, clock: clock)
+
+            #expect(try await store.drainTsDirty() == ["kept.rs"])
+        }
+    }
+
+    @Test
+    func anUnreadableRuleFileStartsTheWatcherWithTheHardSkipRules() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let directory = "unreadable-rules-\(UUID().uuidString)"
+            let ruleFile = "\(directory)/.gitignore"
+            try write("kept.rs\n", to: ruleFile, in: root)
+            let ruleFileURL = root.appendingPathComponent(ruleFile)
+            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: ruleFileURL.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: ruleFileURL.path) }
+            let urls = try Self.writeSourceFiles(["target/debug/a.rs", "node_modules/x/b.ts", "\(directory)/kept.rs"], in: root)
+
+            let dirty = try await Self.dirtyPaths(afterCreatedEventsFor: urls, store: store, rootDirectory: root)
+
+            #expect(dirty == ["\(directory)/kept.rs"])
+            let warnings = Self.watcherWarnings(under: directory).map(\.message.description)
+            #expect(warnings.contains("the watcher cannot load the ignore rules and uses only the hidden-path and hard-skip rules"))
+        }
+    }
+
+    @Test
+    func theWatcherAcceptsTheSamePathsAsTheWalker() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try IgnoreRulesTree.write(in: root)
+            let walked = Set(try await Walker.walk(rootDirectory: root).files.map(\.relativePath))
+            let urls = IgnoreRulesTree.sourceFiles.map { root.appendingPathComponent($0) }
+
+            let dirty = try await Self.dirtyPaths(afterCreatedEventsFor: urls, store: store, rootDirectory: root)
+
+            #expect(walked == IgnoreRulesTree.keptFiles)
+            #expect(dirty == walked)
+        }
+    }
+
     // MARK: - Bursts and failed writes
 
     /// The number of files in the burst test. A checkout or a venv build

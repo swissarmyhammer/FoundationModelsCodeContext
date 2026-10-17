@@ -1,7 +1,11 @@
 import Foundation
 
-/// A single compiled `.gitignore` pattern, scoped to the directory whose
-/// `.gitignore` file defined it.
+/// A single compiled ignore pattern from one line of a `.gitignore`, an
+/// `.ignore` or a `.git/info/exclude` file.
+///
+/// The pattern does not know its directory. `PathFilter` keeps the patterns of
+/// each directory, and it gives each pattern the path of the candidate
+/// relative to that directory.
 ///
 /// Hand-rolled rather than pulled from a package dependency: `Package.swift`
 /// had no gitignore-parsing library when `Walker` was written, so this
@@ -13,7 +17,7 @@ import Foundation
 /// corner case of `git`'s own matcher (e.g. escaped metacharacters beyond
 /// `\!`/`\#`, `\`-escaped trailing spaces are trimmed but not otherwise
 /// unescaped).
-struct GitignorePattern {
+struct GitignorePattern: Sendable {
     /// `true` for a `!`-prefixed pattern that re-includes a path an
     /// earlier pattern excluded.
     let isNegated: Bool
@@ -26,27 +30,30 @@ struct GitignorePattern {
     /// at any depth beneath it.
     let isAnchored: Bool
 
-    /// The path components of the standardized directory that contains the
-    /// `.gitignore` file this pattern came from, computed one time (see
-    /// `RelativePath.components(of:)`). `GitignoreStack` compares each walked
-    /// entry with each pattern, thus a standardized URL for each comparison
-    /// is too expensive for a large tree.
-    let baseDirectoryComponents: [String]
-
     /// The compiled glob-to-regex matcher for the pattern's body, with any
     /// `!` prefix, directory-only trailing `/`, and anchoring leading `/`
     /// already stripped.
     let regex: NSRegularExpression
 
+    /// Parses each line of the text of a rule file into a pattern.
+    ///
+    /// - Parameter contents: The text of a `.gitignore`, an `.ignore` or a
+    ///   `.git/info/exclude` file.
+    /// - Returns: The patterns, in the order of the lines. A blank line, a
+    ///   comment and a line that this matcher cannot compile give no pattern.
+    static func patterns(in contents: String) -> [GitignorePattern] {
+        contents.split(separator: "\n", omittingEmptySubsequences: false).compactMap { rawLine in
+            let line = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : String(rawLine)
+            return GitignorePattern(line: line)
+        }
+    }
+
     /// Parses one `.gitignore` line into a pattern, or returns `nil` for a
     /// blank line, a comment, or a pattern this matcher can't compile.
     ///
-    /// - Parameters:
-    ///   - line: One raw line from a `.gitignore` file, without its
-    ///     trailing newline.
-    ///   - baseDirectory: The directory containing the `.gitignore` file
-    ///     `line` came from.
-    init?(line: String, baseDirectory: URL) {
+    /// - Parameter line: One raw line from a rule file, without its trailing
+    ///   newline.
+    init?(line: String) {
         var pattern = line
         while pattern.hasSuffix(" "), !pattern.hasSuffix("\\ ") {
             pattern.removeLast()
@@ -90,7 +97,6 @@ struct GitignorePattern {
         isNegated = negated
         isDirectoryOnly = directoryOnly
         isAnchored = anchored
-        baseDirectoryComponents = RelativePath.components(of: baseDirectory)
         self.regex = regex
     }
 
@@ -162,81 +168,5 @@ struct GitignorePattern {
         }
         result += "$"
         return try? NSRegularExpression(pattern: result)
-    }
-}
-
-/// Accumulates `.gitignore` rules along a directory path, root-to-leaf, and
-/// evaluates ignore decisions the way `git` does for nested gitignore
-/// files: the last matching pattern wins, and a nested directory's own
-/// `.gitignore` patterns are evaluated after (so they take precedence over)
-/// its ancestors'.
-struct GitignoreStack {
-    private var patterns: [GitignorePattern]
-
-    /// An empty stack, with no accumulated `.gitignore` rules yet — used at
-    /// the root of a walk.
-    init() {
-        patterns = []
-    }
-
-    /// Returns a copy of this stack with `directory`'s own `.gitignore`
-    /// rules appended, for evaluating that directory's children.
-    ///
-    /// - Parameter directory: The directory whose `.gitignore` (if any)
-    ///   should extend this stack.
-    /// - Returns: `self` unchanged if `directory` has no readable
-    ///   `.gitignore`; otherwise a new stack with its patterns appended.
-    func appending(gitignoreAt directory: URL) -> GitignoreStack {
-        let gitignoreURL = directory.appendingPathComponent(".gitignore", isDirectory: false)
-        guard let contents = try? String(contentsOf: gitignoreURL, encoding: .utf8) else {
-            return self
-        }
-        var next = self
-        for rawLine in contents.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : String(rawLine)
-            if let pattern = GitignorePattern(line: line, baseDirectory: directory) {
-                next.patterns.append(pattern)
-            }
-        }
-        return next
-    }
-
-    /// Whether `url` should be excluded from the walk under the
-    /// accumulated rules.
-    ///
-    /// - Parameters:
-    ///   - url: The candidate entry's full filesystem URL.
-    ///   - isDirectory: Whether the candidate entry is a directory.
-    /// - Returns: `true` if the last pattern (across all accumulated
-    ///   `.gitignore` files) that applies to `url` is a non-negated match.
-    func isIgnored(_ url: URL, isDirectory: Bool) -> Bool {
-        isIgnored(pathComponents: RelativePath.components(of: url), isDirectory: isDirectory)
-    }
-
-    /// Whether the entry with the standardized path components
-    /// `urlComponents` should be excluded from the walk under the
-    /// accumulated rules.
-    ///
-    /// `Walker` calls this form for each entry of a tree. It builds the
-    /// components of a child from the components of its directory, thus it
-    /// makes no standardized URL for each entry, and no pattern makes one.
-    ///
-    /// - Parameters:
-    ///   - urlComponents: The path components of the candidate entry, as
-    ///     `RelativePath.components(of:)` gives them.
-    ///   - isDirectory: Whether the candidate entry is a directory.
-    /// - Returns: `true` if the last pattern (across all accumulated
-    ///   `.gitignore` files) that applies to the entry is a non-negated match.
-    func isIgnored(pathComponents urlComponents: [String], isDirectory: Bool) -> Bool {
-        var ignored = false
-        for pattern in patterns {
-            guard let relative = RelativePath.of(components: urlComponents, relativeTo: pattern.baseDirectoryComponents) else {
-                continue
-            }
-            if pattern.matches(relativePath: relative, isDirectory: isDirectory) {
-                ignored = !pattern.isNegated
-            }
-        }
-        return ignored
     }
 }

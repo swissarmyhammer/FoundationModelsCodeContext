@@ -1,0 +1,1 @@
+{"id":"01M53GKH8R8WMRXFWEPN9RWTHG","timestamp":"2026-10-16T23:26:25.048055Z","op":"create","item_id":"01M53GKH8QZWQHBZV5FZ0Y0ZZ5","forward_patch":"--- original\n+++ modified\n@@ -0,0 +1,2 @@\n+color: 7057ff\n+tag_name: lsp-fix\n","reverse_patch":"--- original\n+++ modified\n@@ -1,2 +0,0 @@\n-color: 7057ff\n-tag_name: lsp-fix\n","transaction_id":null}

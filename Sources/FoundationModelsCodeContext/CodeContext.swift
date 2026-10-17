@@ -90,6 +90,10 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// How long the background index loop idles between passes when nothing new triggered it.
     private static var indexLoopIdleSleep: Duration { .milliseconds(300) }
 
+    /// How long a path must go quiet before the watcher flushes its batch: one second, the
+    /// default of the public `Watcher` initializer.
+    private static var watcherDebounceInterval: Duration { .seconds(1) }
+
     /// Default `maxResults` for the bounded index-scan queries (`getSymbol(...)`,
     /// `searchSymbol(...)`, `grepCode(...)`) that don't need a caller-tunable cap most of the time.
     ///
@@ -133,6 +137,11 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// The workspace's filesystem watcher, created and started in `start()`, `nil` before that and
     /// after `stop()`.
     private var watcher: Watcher?
+
+    /// The one path filter instance of the workspace. The watcher loads its rules when it
+    /// starts and loads them again when a rule file changes. Each other user of the filter must
+    /// use this same instance, thus a rule change reaches each user.
+    private let pathFilter: SharedPathFilter
 
     /// The background task that periodically requests an index pass (the pass task drains the
     /// tree-sitter/embedding layers) and publishes fresh `state.indexing`/`state.servers`
@@ -240,6 +249,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
 
         let store = try Store(rootDirectory: rootDirectory)
         self.store = store
+        pathFilter = SharedPathFilter(rootDirectory: rootDirectory)
         corpus = SearchCorpus(store: store)
         state = await CodeContextState(rootDirectory: rootDirectory)
         supervisor = LspSupervisor(
@@ -357,8 +367,10 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         let watcher = Watcher(
             store: store,
             rootDirectory: rootDirectory,
+            pathFilter: pathFilter,
             eventSource: eventSource,
             clock: clock,
+            debounceInterval: Self.watcherDebounceInterval,
             tracer: tracer,
             nudgeWorkers: { [weak self] in
                 await self?.nudgeIndexPass()

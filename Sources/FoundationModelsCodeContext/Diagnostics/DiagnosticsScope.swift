@@ -64,10 +64,11 @@ enum DiagnosticsScopeResolver {
             rawPaths = try await GitStatus.changedFiles(sinceRange: range, rootDirectory: rootDirectory)
         }
 
+        let root = WorkspaceRoot(rootDirectory)
         var seen = Set<String>()
         var resolved: [String] = []
         for raw in rawPaths {
-            guard let relative = confinedRelativePath(raw, rootDirectory: rootDirectory) else { continue }
+            guard let relative = confinedRelativePath(raw, root: root) else { continue }
             guard hasExtension(relative, in: keptExtensions) else { continue }
             guard seen.insert(relative).inserted else { continue }
             resolved.append(relative)
@@ -75,16 +76,19 @@ enum DiagnosticsScopeResolver {
         return resolved
     }
 
-    /// Resolves `raw` (an absolute or root-relative path string) against
-    /// `rootDirectory`, returning its workspace-relative form only if it
-    /// stays confined under the root.
+    /// Resolves `raw` (an absolute or root-relative path string) against the
+    /// root, returning its workspace-relative form only if it stays confined
+    /// under the root or the canonical root.
+    ///
+    /// The key comes from `WorkspaceRoot.relativePath(of:)`, the same function
+    /// that makes the row keys of the walk and the watcher.
     /// - Parameters:
     ///   - raw: The candidate path, as reported by `git` or expanded from a glob.
-    ///   - rootDirectory: The workspace root to confine and relativize against.
-    /// - Returns: The workspace-relative path, or `nil` if `raw` escapes `rootDirectory`.
-    private static func confinedRelativePath(_ raw: String, rootDirectory: URL) -> String? {
-        let candidateURL = raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : rootDirectory.appendingPathComponent(raw)
-        return RelativePath.of(candidateURL, relativeTo: rootDirectory)
+    ///   - root: The workspace root to confine and relativize against.
+    /// - Returns: The workspace-relative path, or `nil` if `raw` escapes the root.
+    private static func confinedRelativePath(_ raw: String, root: WorkspaceRoot) -> String? {
+        let candidateURL = raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : root.url.appendingPathComponent(raw)
+        return root.relativePath(of: candidateURL)
     }
 
     /// Whether the extension of `relativePath` is in `extensions`.

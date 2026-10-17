@@ -15,6 +15,55 @@ func withTemporaryWorkspace<T>(_ body: (URL) async throws -> T) async throws -> 
     return try await body(root)
 }
 
+/// The POSIX mode `-wx------` of a directory: write and search, no read.
+///
+/// A walk cannot list a directory with this mode, but a path below the
+/// directory still opens. A test gives this mode to a workspace root to make
+/// the walk fail while the database files of the store stay reachable.
+let unlistableDirectoryPermissions = 0o300
+
+/// Creates a temporary workspace for `body` and gives `body` a symbolic link
+/// to it as the root. Both are removed afterwards.
+///
+/// The watcher tests and the reconcile tests use this to examine a root that
+/// is a symbolic link: FSEvents then sends the real path of a file, not the
+/// path through the link.
+/// - Parameter body: The work. It gets the link (the root of the workspace)
+///   and the real directory that the link points to.
+/// - Returns: `body`'s result.
+/// - Throws: Rethrows what `body` throws, or the error of the link creation.
+func withSymlinkedWorkspace<T>(_ body: (_ link: URL, _ target: URL) async throws -> T) async throws -> T {
+    try await withTemporaryWorkspace { target in
+        let link = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FoundationModelsCodeContextTests-link-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        defer { try? FileManager.default.removeItem(at: link) }
+        return try await body(link, target)
+    }
+}
+
+/// Gives the real path of `url` from `realpath(3)`: each symbolic link is
+/// resolved, and the `/private` prefix of `/var` and `/tmp` stays.
+///
+/// `URL.resolvingSymlinksInPath()` removes the `/private` prefix, thus it does
+/// not give the path that FSEvents sends.
+/// - Parameter url: A file URL of an item that exists.
+/// - Returns: The real path as a file URL.
+/// - Throws: `CocoaError(.fileNoSuchFile)` when `realpath(3)` fails.
+func realPath(of url: URL) throws -> URL {
+    let resolved = url.path.withCString { pointer -> String? in
+        guard let buffer = realpath(pointer, nil) else {
+            return nil
+        }
+        defer { free(buffer) }
+        return String(cString: buffer)
+    }
+    guard let resolved else {
+        throw CocoaError(.fileNoSuchFile)
+    }
+    return URL(fileURLWithPath: resolved)
+}
+
 /// Runs `body`, and then runs `cleanup` on every exit path (success or
 /// throw). Use it to open a gate, stop a context or await a task that a test
 /// starts, so that nothing that the test starts outlives the test.
@@ -48,6 +97,51 @@ func write(_ content: String, to relativePath: String, in root: URL) throws {
     let url = root.appendingPathComponent(relativePath)
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     try content.write(to: url, atomically: true, encoding: .utf8)
+}
+
+/// A workspace tree that holds each kind of ignore rule: a root `.gitignore`
+/// with a directory rule, an anchored rule and a negation, a nested
+/// `.gitignore`, an `.ignore` file, a `.git/info/exclude` file, the hard skip
+/// directories and a hidden directory.
+///
+/// `WalkerTests` and `WatcherTests` write this tree, so the walker and the
+/// watcher examine the same paths.
+enum IgnoreRulesTree {
+    /// Each source file of the tree, relative to the root. Each file has an
+    /// extension that the index reads.
+    static let sourceFiles = [
+        "kept.rs",
+        "src/a.swift",
+        "src/b.tmp.swift",
+        "src/dist/e.rs",
+        "dist/d.rs",
+        "generated/g.rs",
+        "x.log.rs",
+        "keep.log.rs",
+        "build-out/a/b.swift",
+        "scratch/s.rs",
+        "local-only.rs",
+        "target/debug/t.rs",
+        "node_modules/m/i.ts",
+        ".hidden/h.rs",
+        ".build/b.rs",
+    ]
+
+    /// The files of `sourceFiles` that no rule ignores.
+    static let keptFiles: Set<String> = ["kept.rs", "src/a.swift", "src/dist/e.rs", "keep.log.rs"]
+
+    /// Writes the rule files and each file of `sourceFiles` under `root`.
+    /// - Parameter root: The workspace root.
+    /// - Throws: The error of a write.
+    static func write(in root: URL) throws {
+        try FoundationModelsCodeContextTests.write("generated/\n*.log.rs\n!keep.log.rs\nbuild-out/\n/dist\n", to: ".gitignore", in: root)
+        try FoundationModelsCodeContextTests.write("*.tmp.swift\n", to: "src/.gitignore", in: root)
+        try FoundationModelsCodeContextTests.write("scratch/\n", to: ".ignore", in: root)
+        try FoundationModelsCodeContextTests.write("local-only.rs\n", to: ".git/info/exclude", in: root)
+        for path in sourceFiles {
+            try FoundationModelsCodeContextTests.write("// \(path)\n", to: path, in: root)
+        }
+    }
 }
 
 /// Writes a tree with the markers of a Django checkout and Python sources

@@ -212,6 +212,47 @@ struct ReconcilerTests {
             #expect(paths == ["visible.rs"])
         }
     }
+
+    @Test
+    func reconcileDeletesTheRowOfAFileThatIsNowIgnored() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("fn generated() {}", to: "generated/g.rs", in: root)
+            try write("fn kept() {}", to: "kept.rs", in: root)
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            try write("generated/\n", to: ".gitignore", in: root)
+            let stats = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            #expect(stats.removed == 1)
+            let rowKeys = try await store.read { db in
+                try String.fetchAll(db, sql: "SELECT file_path FROM indexed_files")
+            }
+            #expect(rowKeys == ["kept.rs"])
+        }
+    }
+
+    @Test
+    func reconcileKeepsTheRowsUnderAnUnreadableDirectory() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("fn blocked() {}", to: "blocked/inner/b.rs", in: root)
+            try write("fn kept() {}", to: "kept.rs", in: root)
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+            let blockedDirectory = root.appendingPathComponent("blocked")
+            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: blockedDirectory.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blockedDirectory.path) }
+
+            let stats = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            #expect(stats.removed == 0)
+            #expect(stats.skipped == 1)
+            let rowKeys = try await store.read { db in
+                try String.fetchAll(db, sql: "SELECT file_path FROM indexed_files ORDER BY file_path")
+            }
+            #expect(rowKeys == ["blocked/inner/b.rs", "kept.rs"])
+        }
+    }
 }
 
 /// Tests for `Walker` directly: extension filtering and content hashing,
@@ -222,7 +263,7 @@ struct WalkerTests {
         try await withTemporaryWorkspace { root in
             try write("fn a() {}", to: "a.rs", in: root)
 
-            let files = try await Walker.walk(rootDirectory: root)
+            let files = try await Walker.walk(rootDirectory: root).files
             #expect(files.count == 1)
             let file = try #require(files.first)
             #expect(file.relativePath == "a.rs")
@@ -240,8 +281,48 @@ struct WalkerTests {
             try write("fn a() {}", to: "a.rs", in: root)
             try write("not code", to: "notes.txt", in: root)
 
-            let files = try await Walker.walk(rootDirectory: root)
+            let files = try await Walker.walk(rootDirectory: root).files
             #expect(files.map(\.relativePath) == ["a.rs"])
+        }
+    }
+
+    @Test
+    func walkHonorsEachKindOfIgnoreRule() async throws {
+        try await withTemporaryWorkspace { root in
+            try IgnoreRulesTree.write(in: root)
+
+            let walk = try await Walker.walk(rootDirectory: root)
+
+            #expect(Set(walk.files.map(\.relativePath)) == IgnoreRulesTree.keptFiles)
+        }
+    }
+
+    @Test
+    func walkSkipsAnUnreadableDirectoryAndReturnsTheOtherFiles() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("fn blocked() {}", to: "blocked/b.rs", in: root)
+            try write("fn kept() {}", to: "kept.rs", in: root)
+            let blockedDirectory = root.appendingPathComponent("blocked")
+            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: blockedDirectory.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blockedDirectory.path) }
+
+            let walk = try await Walker.walk(rootDirectory: root)
+
+            #expect(walk.files.map(\.relativePath) == ["kept.rs"])
+            #expect(walk.unexaminedPaths == ["blocked"])
+        }
+    }
+
+    @Test
+    func walkThrowsWhenTheRootCannotBeListed() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("fn kept() {}", to: "kept.rs", in: root)
+            try FileManager.default.setAttributes([.posixPermissions: unlistableDirectoryPermissions], ofItemAtPath: root.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path) }
+
+            await #expect(throws: (any Error).self) {
+                try await Walker.walk(rootDirectory: root)
+            }
         }
     }
 

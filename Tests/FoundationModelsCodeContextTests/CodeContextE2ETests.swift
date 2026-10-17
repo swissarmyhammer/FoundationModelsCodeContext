@@ -95,16 +95,16 @@ struct CodeContextE2ETests {
     func startResetsIsStartedOnFailureSoARetryActuallyStarts() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
-            try write("func blocked() {}", to: "Blocked/Blocked.swift", in: root)
 
             let context = try await Self.makeCodeContext(rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8))
 
-            // Block read access to a subdirectory so `Reconciler.reconcile`'s directory walk
-            // (`start()`'s first throwing step) fails without touching the store's own already-open
-            // database file under `.code-context/`.
-            let blockedDirectory = root.appendingPathComponent("Blocked")
-            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: blockedDirectory.path)
-            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blockedDirectory.path) }
+            // Remove the read permission of the root, so that the walk of `Reconciler.reconcile`
+            // (`start()`'s first throwing step) cannot list the root and fails. The walk skips a
+            // subdirectory that it cannot read, thus only the root makes the walk fail. The root
+            // keeps the write and search permissions, thus the store's own database files under
+            // `.code-context/` stay reachable.
+            try FileManager.default.setAttributes([.posixPermissions: unlistableDirectoryPermissions], ofItemAtPath: root.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path) }
 
             await #expect(throws: (any Error).self) {
                 try await context.start()
@@ -114,7 +114,7 @@ struct CodeContextE2ETests {
             // `true` after the failure above would make this second call silently no-op (return
             // without throwing, but without ever actually starting anything) instead of genuinely
             // retrying.
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blockedDirectory.path)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
 
             try await context.start()
             await context.waitForFirstIndexPass()

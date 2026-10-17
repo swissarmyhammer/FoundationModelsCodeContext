@@ -304,15 +304,14 @@ struct CodeContextManagerTests {
     func failedStartLeavesManagerUnregisteredAndPropagatesError() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
-            try write("func blocked() {}", to: "Blocked/Blocked.swift", in: root)
             let manager = await Self.makeManager()
 
-            // Block read access to a subdirectory so `Reconciler.reconcile`'s directory walk
-            // (`start()`'s first throwing step) fails, mirroring `CodeContextE2ETests`'s own
-            // `startResetsIsStartedOnFailureSoARetryActuallyStarts` setup.
-            let blockedDirectory = root.appendingPathComponent("Blocked")
-            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: blockedDirectory.path)
-            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blockedDirectory.path) }
+            // Remove the read permission of the root, so that the walk of `Reconciler.reconcile`
+            // (`start()`'s first throwing step) cannot list the root and fails, as in the
+            // `startResetsIsStartedOnFailureSoARetryActuallyStarts` setup of `CodeContextE2ETests`.
+            // The walk skips a subdirectory that it cannot read, thus only the root makes it fail.
+            try FileManager.default.setAttributes([.posixPermissions: unlistableDirectoryPermissions], ofItemAtPath: root.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path) }
 
             await #expect(throws: (any Error).self) {
                 try await manager.context(for: root)
@@ -323,7 +322,7 @@ struct CodeContextManagerTests {
             // Restore access and retry: a buggy manager that left `root` registered (or stuck in
             // `inFlightOpens`) after the failure above would either silently no-op this second
             // call or hang it, instead of genuinely retrying.
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blockedDirectory.path)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
 
             let context = try await manager.context(for: root)
             await context.waitForFirstIndexPass()

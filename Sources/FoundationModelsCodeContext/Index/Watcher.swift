@@ -1,5 +1,4 @@
 import CoreServices
-import CryptoKit
 import Foundation
 import Logging
 import Tracing
@@ -77,10 +76,9 @@ public protocol FileEventSource: Sendable {
 /// `file_watcher.rs`/`code_context/watcher.rs`, replacing
 /// `notify`/`async-watcher` with FSEvents (see `FSEventsFileEventSource`
 /// below): every raw event that survives filtering (known `Languages.all`
-/// extension, not a hidden path segment — which also covers
-/// `.code-context/` without a special case — and not matched by the
-/// accumulated `.gitignore` rules along its path) is accumulated into a
-/// per-path pending batch. Each new event restarts a `debounceInterval`
+/// extension, and accepted by `PathFilter`, the same filter as the walk) is
+/// accumulated into a per-path pending batch. Each new event restarts a
+/// `debounceInterval`
 /// quiet-window timer — reset-on-each-event, standard debounce semantics.
 /// This is a deliberate, spelled-out design choice rather than an inherited
 /// one: the Rust reference's `async-watcher` dependency batches events
@@ -113,6 +111,15 @@ public protocol FileEventSource: Sendable {
 /// for that path is pending. After `maximumWriteAttempts` failed writes the
 /// watcher drops the change. The next reconcile finds that change, because
 /// the index still holds the old content hash of the file.
+///
+/// The watcher loads the ignore rules one time, in `start()`, off this actor
+/// (see `SharedPathFilter`). It does not read the rule files for each event.
+/// It loads the rules again when an event is for a `.gitignore` or `.ignore`
+/// file, or for `.git/info/exclude`. The watcher examines each event for these
+/// files BEFORE the filter, because the filter ignores `.git/info/exclude`
+/// (`.git` is hidden and a hard skip). The event after the load uses the new
+/// rules. An event that is already in the pending batch keeps its place; the
+/// next reconcile removes the row of a path that the new rules ignore.
 public actor Watcher {
     /// The label of the dispatch queue that calls `FileEventSource.start(rootDirectory:handler:)`.
     /// It starts with the label of the watcher logger, thus it starts with the module prefix.
@@ -125,6 +132,10 @@ public actor Watcher {
     private let debounceInterval: Duration
     private let nudgeWorkers: @Sendable () async -> Void
     private let allowedExtensions: Set<String>
+
+    /// The path filter of the workspace. `start()` loads its rules, and an
+    /// event for a rule file loads them again.
+    private let pathFilter: SharedPathFilter
 
     /// The tracer of the span of each flush. `nil` reads the bootstrapped tracer at the time of
     /// each flush.
@@ -208,8 +219,48 @@ public actor Watcher {
         tracer: (any Tracer)? = nil,
         nudgeWorkers: @escaping @Sendable () async -> Void
     ) {
+        self.init(
+            store: store,
+            rootDirectory: rootDirectory,
+            pathFilter: SharedPathFilter(rootDirectory: rootDirectory),
+            eventSource: eventSource,
+            clock: clock,
+            debounceInterval: debounceInterval,
+            tracer: tracer,
+            nudgeWorkers: nudgeWorkers
+        )
+    }
+
+    /// Creates a watcher for `rootDirectory` that uses the path filter
+    /// instance of the workspace, not yet started.
+    ///
+    /// `CodeContext` calls this form, thus the watcher and the other users of
+    /// the filter share one instance, and a rule change reaches each of them.
+    ///
+    /// - Parameters:
+    ///   - store: The workspace's index store to mark dirty or delete into.
+    ///   - rootDirectory: The workspace root to watch, recursively.
+    ///   - pathFilter: The path filter instance of the workspace.
+    ///   - eventSource: The raw event source to watch with.
+    ///   - clock: The clock used to schedule the debounce window.
+    ///   - debounceInterval: How long a path must go quiet before its batch
+    ///     is flushed.
+    ///   - tracer: The tracer of the span of each flush, or `nil` for the
+    ///     bootstrapped tracer at the time of each flush.
+    ///   - nudgeWorkers: Called once after each non-empty flush.
+    init(
+        store: Store,
+        rootDirectory: URL,
+        pathFilter: SharedPathFilter,
+        eventSource: any FileEventSource,
+        clock: any Clock<Duration>,
+        debounceInterval: Duration,
+        tracer: (any Tracer)?,
+        nudgeWorkers: @escaping @Sendable () async -> Void
+    ) {
         self.store = store
         self.rootDirectory = rootDirectory
+        self.pathFilter = pathFilter
         self.eventSource = eventSource
         self.clock = clock
         self.debounceInterval = debounceInterval
@@ -219,6 +270,10 @@ public actor Watcher {
     }
 
     /// Starts watching, if not already started.
+    ///
+    /// The method first loads the ignore rules off this actor (see
+    /// `SharedPathFilter.reload()`). When the load fails, the watcher still
+    /// starts, with only the hidden-path and hard-skip rules.
     ///
     /// The method calls `FileEventSource.start(rootDirectory:handler:)` on
     /// `eventSourceStartQueue` and waits for it. Thus a slow start does not
@@ -235,6 +290,7 @@ public actor Watcher {
         let call = startCallCount
         subscriptionState = .starting(call: call)
 
+        await pathFilter.reload()
         let subscription = await startEventSource()
 
         guard case .starting(call: call) = subscriptionState else {
@@ -285,8 +341,19 @@ public actor Watcher {
 
     // MARK: - Event handling
 
+    /// Adds one raw event to the pending batch when the filter accepts it.
+    ///
+    /// The method first examines the raw path for a rule file change, and
+    /// loads the rules again for that change. Then it filters the event with
+    /// the current rules.
+    /// - Parameter event: The raw event.
     private func handleRawEvent(_ event: RawFileEvent) async {
-        guard let relativePath = acceptedRelativePath(for: event.url) else {
+        var filter = await pathFilter.filter
+        if filter.isRuleFileChange(event.url) {
+            await pathFilter.reload()
+            filter = await pathFilter.filter
+        }
+        guard let relativePath = acceptedRelativePath(for: event.url, filter: filter) else {
             return
         }
         pendingEvents[relativePath] = event.kind
@@ -408,7 +475,7 @@ public actor Watcher {
         }
 
         let fileURL = rootDirectory.appendingPathComponent(relativePath)
-        guard let hashed = Self.hashFile(at: fileURL, relativePath: relativePath) else {
+        guard let hashed = try? Walker.hashFile(at: fileURL, relativePath: relativePath) else {
             // The file was removed again (or replaced by something
             // unreadable) between the triggering event and this debounced
             // flush; leave it as-is rather than guessing — a later event
@@ -449,77 +516,20 @@ public actor Watcher {
     /// Returns `url`'s workspace-relative path if it should be tracked, or
     /// `nil` otherwise.
     ///
-    /// Requires all of: under `rootDirectory`, a known `Languages.all`
-    /// extension, no hidden path segment (which also covers
-    /// `.code-context/` without a special case, matching `Walker`'s own
-    /// hidden-entry skip), and no match against the accumulated
-    /// `.gitignore` rules along the path.
-    private func acceptedRelativePath(for url: URL) -> String? {
-        guard let relativePath = RelativePath.of(url, relativeTo: rootDirectory) else {
-            return nil
-        }
+    /// Requires a known `Languages.all` extension and a path that `filter`
+    /// accepts: below the root or the canonical root, and not ignored by the
+    /// hidden-path, hard-skip or rule-file rules for any ancestor directory or
+    /// for the file. The key is `WorkspaceRoot.relativePath(of:)`, the same key
+    /// as the walk gives.
+    /// - Parameters:
+    ///   - url: The URL of the raw event.
+    ///   - filter: The current path filter.
+    /// - Returns: The row key of the file, or `nil` when the watcher ignores it.
+    private func acceptedRelativePath(for url: URL, filter: PathFilter) -> String? {
         guard allowedExtensions.contains(Languages.normalizedFileExtension(of: url)) else {
             return nil
         }
-        guard !relativePath.split(separator: "/").contains(where: { $0.hasPrefix(".") }) else {
-            return nil
-        }
-        guard !isIgnored(url) else {
-            return nil
-        }
-        return relativePath
-    }
-
-    /// Whether `url` is excluded by the `.gitignore` rules accumulated from
-    /// `rootDirectory` down to `url`'s containing directory.
-    ///
-    /// Rebuilt fresh on every call rather than cached: watcher events are
-    /// infrequent relative to the cost of re-reading a handful of
-    /// `.gitignore` files, and rebuilding avoids having to invalidate a
-    /// cache when a `.gitignore` file itself changes.
-    private func isIgnored(_ url: URL) -> Bool {
-        guard let directories = intermediateDirectories(to: url) else {
-            return false
-        }
-        var stack = GitignoreStack()
-        for directory in directories {
-            stack = stack.appending(gitignoreAt: directory)
-        }
-        return stack.isIgnored(url, isDirectory: false)
-    }
-
-    /// `rootDirectory`, then each directory on the path down to (but not
-    /// including) `url` itself, for `isIgnored(_:)` to accumulate
-    /// `.gitignore` rules through.
-    private func intermediateDirectories(to url: URL) -> [URL]? {
-        guard let relativePath = RelativePath.of(url, relativeTo: rootDirectory) else {
-            return nil
-        }
-        var directories = [rootDirectory]
-        var current = rootDirectory
-        let parentComponents = relativePath.split(separator: "/").dropLast()
-        for component in parentComponents {
-            current = current.appendingPathComponent(String(component))
-            directories.append(current)
-        }
-        return directories
-    }
-
-    /// Reads `fileURL` and computes its `HashedFile` the same way `Walker`
-    /// does (SHA-256, truncated to 16 bytes), so `Store.markDirty`'s
-    /// `content_hash` argument matches what a full reconcile pass would
-    /// compute for the same content. `Walker`'s own hashing helper is
-    /// `private`, so this is a small, deliberate re-implementation rather
-    /// than a shared call.
-    ///
-    /// - Returns: `nil` if `fileURL` can no longer be read (e.g. deleted or
-    ///   replaced between the triggering event and this debounced flush).
-    private static func hashFile(at fileURL: URL, relativePath: String) -> HashedFile? {
-        guard let data = try? Data(contentsOf: fileURL) else {
-            return nil
-        }
-        let digest = SHA256.hash(data: data)
-        return HashedFile(relativePath: relativePath, contentHash: Data(digest.prefix(16)), fileSize: Int64(data.count))
+        return filter.acceptedRelativePath(of: url, isDirectory: false)
     }
 
     // MARK: - Testing
