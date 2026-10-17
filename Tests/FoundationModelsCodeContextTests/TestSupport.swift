@@ -22,6 +22,39 @@ func withTemporaryWorkspace<T>(_ body: (URL) async throws -> T) async throws -> 
 /// the walk fail while the database files of the store stay reachable.
 let unlistableDirectoryPermissions = 0o300
 
+/// The POSIX mode `---------`: no read, no write and no search.
+let noAccessPermissions = 0o000
+
+/// The POSIX mode `rwxr-xr-x` that a test gives back to a directory.
+let restoredDirectoryPermissions = 0o755
+
+/// The POSIX mode `rw-r--r--` that a test gives back to a file.
+let restoredFilePermissions = 0o644
+
+/// Gives `permissions` to the item at `url` for the time of `body`, and then
+/// gives `restoredPermissions` to the item on each exit path.
+///
+/// The tests use this to make an item that the walk cannot examine. The
+/// restore lets `withTemporaryWorkspace` remove the item.
+/// - Parameters:
+///   - permissions: The POSIX mode that the item has while `body` runs.
+///   - url: The file or directory.
+///   - restoredPermissions: The POSIX mode that the item gets after `body`.
+///   - body: The work.
+/// - Returns: `body`'s result.
+/// - Throws: Rethrows what `body` throws, or the error of the first change of
+///   the mode.
+func withPermissions<T>(
+    _ permissions: Int,
+    at url: URL,
+    restoringTo restoredPermissions: Int,
+    _ body: () async throws -> T
+) async throws -> T {
+    try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: restoredPermissions], ofItemAtPath: url.path) }
+    return try await body()
+}
+
 /// Creates a temporary workspace for `body` and gives `body` a symbolic link
 /// to it as the root. Both are removed afterwards.
 ///

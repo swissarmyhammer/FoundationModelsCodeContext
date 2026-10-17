@@ -47,6 +47,54 @@ comments:
     - evidence: swift test — 885 tests in 79 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete; no compiler warning from this package (only the SwiftPM build-system note "missing creator for mutated node" for the mlx-swift_Cmlx bundle, from a dependency)
     - next: commit
   timestamp: 2026-10-17T23:16:04.904671+00:00
+- actor: claude-code
+  id: 01m562s5a99tmq54yysjb03epy
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (d31deb0). 1 finding (1 confirmed, 3 refuted, 14 files examined). Tests/FoundationModelsCodeContextTests/ReconcilerTests.swift:236 completeness/invariant-propagation.
+    - acceptance: the commit adds a test for each item in the Tests section. `PathFilter` is used in Walker, Watcher, Reconciler, RelativePath and CodeContext. This review did not run the tests.
+    - next: add a test that makes one indexed file unreadable (mode 0o000), runs reconcile, and asserts that its row stays. Then review again. The task stays in review.
+  timestamp: 2026-10-17T23:22:32.649227+00:00
+- actor: claude-code
+  id: 01m562sgdhkkkrd16n2t5h7pk4
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 13 files
+    - test: green — swift test, 885 passed
+    - commit: d31deb0
+    - review: findings — Tests/FoundationModelsCodeContextTests/ReconcilerTests.swift:236
+  timestamp: 2026-10-17T23:22:44.017295+00:00
+- actor: claude-code
+  id: 01m5638pdmhrn6qr8eqrq4y4ss
+  text: |-
+    Review finding ReconcilerTests.swift:236 is fixed (not committed).
+
+    What changed:
+    - New test `ReconcilerTests.reconcileKeepsTheRowOfAnUnreadableFile`: it indexes `blocked.rs` and `kept.rs`, gives `blocked.rs` mode 0o000, reconciles, and asserts `stats.removed == 0`, `stats.skipped == 1` and the rows `["blocked.rs", "kept.rs"]`.
+    - New test `WalkerTests.walkSkipsAnUnreadableFileAndReturnsTheOtherFiles`: the walk returns `kept.rs` and `unexaminedPaths == ["blocked.rs"]`.
+    - `TestSupport.swift`: new helper `withPermissions(_:at:restoringTo:_:)` and the mode constants `noAccessPermissions`, `restoredDirectoryPermissions`, `restoredFilePermissions`. The helper gives the mode back on each exit path. The permission tests in `ReconcilerTests.swift` use it now, not a copy of `setAttributes` and `defer`. New private helper `ReconcilerTests.rowKeys(in:)`.
+
+    Proof that the new reconcile test can fail: I removed `!walk.isUnexamined($0)` from `Reconciler.reconcile` for one run. The test failed with `stats.removed → 1`. Then I put the guard back. `Sources/` has no change.
+
+    Other unexamined-path causes in Walker.swift:
+    - A directory that the walk cannot list: the existing tests cover it.
+    - A file that the hash cannot read: the new tests cover it.
+    - An entry whose type the walk cannot read (`resourceValues` fails): no test can reach it with permissions. A directory with mode 0o444 (read, no search) does not work: `contentsOfDirectory` fails on it, so the walk records the directory as unlistable (measured: `unexaminedPaths == ["blocked"]`). For a child of the root, the type read fails only in a race (the entry is removed between the list and the read). New task ^qcvkych adds a seam and the two tests for this cause.
+  timestamp: 2026-10-17T23:31:01.684368+00:00
+- actor: claude-code
+  id: 01m5638rbr5sw9cyh8tgxd32tc
+  text: |-
+    ### implement — changed
+    - evidence: 2 files — Tests/FoundationModelsCodeContextTests/ReconcilerTests.swift, Tests/FoundationModelsCodeContextTests/TestSupport.swift. `swift test --filter 'ReconcilerTests|WalkerTests'`: 21 tests in 2 suites passed, no compiler warning from this package. Review finding ReconcilerTests.swift:236 is checked.
+    - next: /test, then /review. New task ^qcvkych for the type-read cause.
+  timestamp: 2026-10-17T23:31:03.672528+00:00
+- actor: claude-code
+  id: 01m563hewt1p0xk46812xkj7ym
+  text: |-
+    ### test — green
+    - evidence: swift test — 887 tests in 79 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete, 0 compiler warnings
+    - next: commit
+  timestamp: 2026-10-17T23:35:48.890532+00:00
 position_column: doing
 position_ordinal: '80'
 title: Use one path filter in the walker, the watcher and the reconcile
@@ -95,3 +143,12 @@ The watcher sends files in gitignored directories to `indexed_files`. Then the L
 - [ ] Directory rules in `.gitignore` apply to watcher events.
 - [ ] Watcher events with the canonical path of a symlinked root are accepted.
 - [ ] The tests above pass. #lsp-fix
+
+## Review Findings (2026-10-17 18:16)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 14 file(s) reviewed, 26 not reviewed.
+
+> 26 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 26 file(s)
+
+- [x] `Tests/FoundationModelsCodeContextTests/ReconcilerTests.swift:236` `completeness/invariant-propagation` — The new test covers only an unreadable directory. The walker has a second, separate unreadable path for files: a file that cannot be hashed is added to unexaminedPaths (Walker.swift:169), and the reconcile then keeps its row. No test runs that file-level path, so the keep-the-row behaviour for an unreadable file is unproven. Add one test, in the style of reconcileKeepsTheRowsUnderAnUnreadableDirectory, that indexes a file, makes that file unreadable (mode 0o000), reconciles, and asserts stats.removed == 0 and that the file's row is still in indexed_files.

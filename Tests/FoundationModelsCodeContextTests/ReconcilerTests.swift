@@ -225,9 +225,7 @@ struct ReconcilerTests {
             let stats = try await Reconciler.reconcile(store: store, rootDirectory: root)
 
             #expect(stats.removed == 1)
-            let rowKeys = try await store.read { db in
-                try String.fetchAll(db, sql: "SELECT file_path FROM indexed_files")
-            }
+            let rowKeys = try await Self.rowKeys(in: store)
             #expect(rowKeys == ["kept.rs"])
         }
     }
@@ -239,18 +237,52 @@ struct ReconcilerTests {
             try write("fn blocked() {}", to: "blocked/inner/b.rs", in: root)
             try write("fn kept() {}", to: "kept.rs", in: root)
             _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
-            let blockedDirectory = root.appendingPathComponent("blocked")
-            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: blockedDirectory.path)
-            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blockedDirectory.path) }
 
-            let stats = try await Reconciler.reconcile(store: store, rootDirectory: root)
+            let stats = try await withPermissions(
+                noAccessPermissions,
+                at: root.appendingPathComponent("blocked"),
+                restoringTo: restoredDirectoryPermissions
+            ) {
+                try await Reconciler.reconcile(store: store, rootDirectory: root)
+            }
 
             #expect(stats.removed == 0)
             #expect(stats.skipped == 1)
-            let rowKeys = try await store.read { db in
-                try String.fetchAll(db, sql: "SELECT file_path FROM indexed_files ORDER BY file_path")
-            }
+            let rowKeys = try await Self.rowKeys(in: store)
             #expect(rowKeys == ["blocked/inner/b.rs", "kept.rs"])
+        }
+    }
+
+    @Test
+    func reconcileKeepsTheRowOfAnUnreadableFile() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("fn blocked() {}", to: "blocked.rs", in: root)
+            try write("fn kept() {}", to: "kept.rs", in: root)
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            let stats = try await withPermissions(
+                noAccessPermissions,
+                at: root.appendingPathComponent("blocked.rs"),
+                restoringTo: restoredFilePermissions
+            ) {
+                try await Reconciler.reconcile(store: store, rootDirectory: root)
+            }
+
+            #expect(stats.removed == 0)
+            #expect(stats.skipped == 1)
+            let rowKeys = try await Self.rowKeys(in: store)
+            #expect(rowKeys == ["blocked.rs", "kept.rs"])
+        }
+    }
+
+    /// Reads the key of each row of `indexed_files`, in name order.
+    /// - Parameter store: The store to read.
+    /// - Returns: The `file_path` of each row, sorted.
+    /// - Throws: The error of the read.
+    private static func rowKeys(in store: Store) async throws -> [String] {
+        try await store.read { db in
+            try String.fetchAll(db, sql: "SELECT file_path FROM indexed_files ORDER BY file_path")
         }
     }
 }
@@ -302,11 +334,14 @@ struct WalkerTests {
         try await withTemporaryWorkspace { root in
             try write("fn blocked() {}", to: "blocked/b.rs", in: root)
             try write("fn kept() {}", to: "kept.rs", in: root)
-            let blockedDirectory = root.appendingPathComponent("blocked")
-            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: blockedDirectory.path)
-            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blockedDirectory.path) }
 
-            let walk = try await Walker.walk(rootDirectory: root)
+            let walk = try await withPermissions(
+                noAccessPermissions,
+                at: root.appendingPathComponent("blocked"),
+                restoringTo: restoredDirectoryPermissions
+            ) {
+                try await Walker.walk(rootDirectory: root)
+            }
 
             #expect(walk.files.map(\.relativePath) == ["kept.rs"])
             #expect(walk.unexaminedPaths == ["blocked"])
@@ -314,14 +349,33 @@ struct WalkerTests {
     }
 
     @Test
+    func walkSkipsAnUnreadableFileAndReturnsTheOtherFiles() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("fn blocked() {}", to: "blocked.rs", in: root)
+            try write("fn kept() {}", to: "kept.rs", in: root)
+
+            let walk = try await withPermissions(
+                noAccessPermissions,
+                at: root.appendingPathComponent("blocked.rs"),
+                restoringTo: restoredFilePermissions
+            ) {
+                try await Walker.walk(rootDirectory: root)
+            }
+
+            #expect(walk.files.map(\.relativePath) == ["kept.rs"])
+            #expect(walk.unexaminedPaths == ["blocked.rs"])
+        }
+    }
+
+    @Test
     func walkThrowsWhenTheRootCannotBeListed() async throws {
         try await withTemporaryWorkspace { root in
             try write("fn kept() {}", to: "kept.rs", in: root)
-            try FileManager.default.setAttributes([.posixPermissions: unlistableDirectoryPermissions], ofItemAtPath: root.path)
-            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path) }
 
-            await #expect(throws: (any Error).self) {
-                try await Walker.walk(rootDirectory: root)
+            _ = try await withPermissions(unlistableDirectoryPermissions, at: root, restoringTo: restoredDirectoryPermissions) {
+                await #expect(throws: (any Error).self) {
+                    try await Walker.walk(rootDirectory: root)
+                }
             }
         }
     }
