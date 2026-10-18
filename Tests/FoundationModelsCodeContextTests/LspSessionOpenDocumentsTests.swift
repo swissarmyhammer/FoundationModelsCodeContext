@@ -43,7 +43,7 @@ struct LspSessionOpenDocumentsTests {
     }
 
     @Test
-    func anOpenPastTheLimitClosesTheLeastRecentlyUsedDocument() async throws {
+    func anOpenPastTheLimitClosesTheOldestDocument() async throws {
         let connection = FakeLanguageServerConnection()
         let session = Self.makeSession(over: connection)
 
@@ -54,7 +54,7 @@ struct LspSessionOpenDocumentsTests {
         #expect(await Self.closedURIs(connection) == [Self.uri(0)])
         let open = await session.openDocuments()
         #expect(open.count == Self.limit)
-        #expect(open[Self.uri(0)] == nil, "the least recently used document must close")
+        #expect(open[Self.uri(0)] == nil, "the oldest document must close")
     }
 
     @Test

@@ -124,6 +124,48 @@ comments:
     - evidence: swift test: 985 tests in 87 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests: Build complete, exit 0. Only warning is from the mlx-swift_Cmlx bundle (dependency, not this package).
     - next: commit
   timestamp: 2026-10-18T11:14:49.799242+00:00
+- actor: claude-code
+  id: 01m57btv5fxstyf7a7wssymz02
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (a5d3399). 1 finding (1 confirmed, 0 refuted). Tests/FoundationModelsCodeContextTests/LanguageServerDocumentTests.swift:50 test-integrity/no-test-cheating. All prior findings are checked.
+    - next: Make the test theDiskReadOccursAtReadTextAndNotAtInit able to fail for a disk read in init, or rename it to match what it proves. Then commit and review again.
+  timestamp: 2026-10-18T11:19:59.407562+00:00
+- actor: claude-code
+  id: 01m57bv6kgrmfvq36dbxwa9c9t
+  text: |-
+    ### finish iteration 3 — findings
+    - implement: changed — 6 files (explicit readText, no disk read in init)
+    - test: green — swift test, 985 passed
+    - commit: a5d3399
+    - review: findings — Tests/FoundationModelsCodeContextTests/LanguageServerDocumentTests.swift:50
+  timestamp: 2026-10-18T11:20:11.120405+00:00
+- actor: claude-code
+  id: 01m57ccxmvw9s41ytmd4yqa87g
+  text: |-
+    Finding test-integrity/no-test-cheating (LanguageServerDocumentTests.swift:50) corrected. Only test files changed. No production seam.
+    - Renamed `theDiskReadOccursAtReadTextAndNotAtInit` to `readTextGivesTheDiskTextAtTheTimeOfTheCall`. The new name says what the test proves.
+    - New test `initNeedsNoReadAccessToTheFile`: it sets the file permissions to 000, then makes the document. A `#require` makes sure that the process cannot read the file. Then the test expects the document and its URI. A file that does not exist cannot be used for this test, because `PathFilter.acceptsDocument` calls `realpath(3)`, and `realpath(3)` fails for a missing file. Thus init gives `nil` for a missing file, also with no disk read.
+    - Mutation check: I added a temporary `guard readText(...) != nil else { return nil }` to `init?`. Then `initNeedsNoReadAccessToTheFile` failed (and `aFileThatIsNotUTF8GivesADocumentWithNoText` also failed). I removed the mutation. `git diff -- Sources` is empty.
+    - I examined the same cause in the other tests of this task:
+      - `theSharedFilterGivesTheSameDocument` did not compare with the `PathFilter` document. Now `theSharedFilterGivesTheSameDocumentAsThePathFilter` compares uri, relativePath and rootDirectory with the document that `PathFilter` gives. The rejected path has its own test: `theSharedFilterGivesNoDocumentForAPathThatThePathFilterDoesNotAccept`.
+      - LspSessionOpenDocumentsTests: `anOpenPastTheLimitClosesTheLeastRecentlyUsedDocument` also passes with a FIFO close, because no document is used again. Renamed to `anOpenPastTheLimitClosesTheOldestDocument` (the words of the card). `aSyncMakesADocumentTheMostRecentlyUsed` proves the LRU order.
+      - The other LspSessionOpenDocumentsTests tests, the two new LSPIndexWorkerTests tests and the new LSPIndexWorkerReferencesTests test prove what their names say. No change.
+  timestamp: 2026-10-18T11:29:51.771658+00:00
+- actor: claude-code
+  id: 01m57cd01ppx6jxmx5znxfm2t9
+  text: |-
+    ### implement — changed
+    - evidence: Tests/FoundationModelsCodeContextTests/LanguageServerDocumentTests.swift, Tests/FoundationModelsCodeContextTests/LspSessionOpenDocumentsTests.swift. `swift test --filter 'LanguageServerDocumentTests|LspSessionOpenDocumentsTests'`: 18 tests in 2 suites passed. Full `swift test`: 987 tests in 87 suites passed, 0 failed. Only warning is the mlx-swift_Cmlx bundle message from a dependency. `swiftlint lint --quiet --only-rule no_magic_numbers` on the changed files: clean. 1 of 1 open finding checked.
+    - next: /test, then /review
+  timestamp: 2026-10-18T11:29:54.230705+00:00
+- actor: claude-code
+  id: 01m57cnyc0dve669sxeh5sw3rt
+  text: |-
+    ### test — green
+    - evidence: swift test — 987 tests in 87 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete. Only warning: SwiftPM "missing creator for mutated node" for the mlx-swift_Cmlx.bundle dependency, not from this package.
+    - next: commit
+  timestamp: 2026-10-18T11:34:47.424785+00:00
 position_column: doing
 position_ordinal: '80'
 title: Close LSP documents on all paths and limit the number of open documents
@@ -174,3 +216,12 @@ title: Close LSP documents on all paths and limit the number of open documents
 > - `.kanban/ (from .reviewignore)` — 2 file(s)
 
 - [x] `Sources/FoundationModelsCodeContext/Index/LanguageServerDocument.swift:31` `swift/initialization` — The failable `init?` does disk I/O. Its `text = Self.readText(...)` reads the whole file, and the `acceptsDocument` check before it touches the filesystem. A caller that only needs the URI, or that builds the document in a loop, pays for a file read on every construction. The rule says `init` does no slow work and that reads belong in an explicit call the caller makes. Keep `init?` to the path check and the URI build, and make the disk text a lazy or explicit read. For example, store `uri` in `init?` and add `func readText() -> String?` that callers invoke where they sync the document. If the eager read is intended, say so in the type's doc comment as a documented exception to the rule.
+
+## Review Findings (2026-10-18 06:15)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 6 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsCodeContextTests/LanguageServerDocumentTests.swift:50` `test-integrity/no-test-cheating` — The test named theDiskReadOccursAtReadTextAndNotAtInit does not prove that init avoids the disk read. The assertion only checks that readText() returns the new file text. readText() reads the disk on every call, so the assertion would also pass if init read the file. The test cannot fail for the regression it names. Make the test able to fail for an init-time read. For example, record the disk text the document sees at init by reading through a seam, or assert that the init does not touch the file: remove or rename the file after init and check that init already succeeded with no read, or use a counting read seam. Otherwise rename the test to match what it proves, which is that readText() reads the current disk text.

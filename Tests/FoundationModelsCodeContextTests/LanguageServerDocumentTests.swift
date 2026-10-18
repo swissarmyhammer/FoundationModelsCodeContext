@@ -23,6 +23,12 @@ struct LanguageServerDocumentTests {
     /// Bytes that are not UTF-8 text.
     private static let notUTF8 = Data([0xFF, 0xFE, 0xFD])
 
+    /// The POSIX permissions of a file that no process can read.
+    private static let noAccess: Int16 = 0o000
+
+    /// The POSIX permissions that let the owner read and write a file.
+    private static let ownerReadWrite: Int16 = 0o600
+
     @Test
     func anAcceptedFileGivesItsURIAndItsDiskText() async throws {
         try await withTemporaryWorkspace { root in
@@ -38,7 +44,7 @@ struct LanguageServerDocumentTests {
     }
 
     @Test
-    func theDiskReadOccursAtReadTextAndNotAtInit() async throws {
+    func readTextGivesTheDiskTextAtTheTimeOfTheCall() async throws {
         try await withTemporaryWorkspace { root in
             try write(Self.swiftSource, to: Self.keptPath, in: root)
             let document = try #require(
@@ -48,6 +54,24 @@ struct LanguageServerDocumentTests {
             try write(Self.changedSource, to: Self.keptPath, in: root)
 
             #expect(document.readText() == Self.changedSource)
+        }
+    }
+
+    @Test
+    func initNeedsNoReadAccessToTheFile() async throws {
+        try await withTemporaryWorkspace { root in
+            try write(Self.swiftSource, to: Self.keptPath, in: root)
+            let filePath = root.appendingPathComponent(Self.keptPath).path
+            try FileManager.default.setAttributes([.posixPermissions: Self.noAccess], ofItemAtPath: filePath)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: Self.ownerReadWrite], ofItemAtPath: filePath) }
+
+            let document = LanguageServerDocument(relativePath: Self.keptPath, rootDirectory: root, pathFilter: PathFilter(rootDirectory: root))
+
+            try #require(
+                LanguageServerDocument.readText(relativePath: Self.keptPath, rootDirectory: root) == nil,
+                "the test needs a file that the process cannot read"
+            )
+            #expect(document?.uri == LanguageServerDocument.uri(relativePath: Self.keptPath, rootDirectory: root))
         }
     }
 
@@ -86,15 +110,30 @@ struct LanguageServerDocumentTests {
     }
 
     @Test
-    func theSharedFilterGivesTheSameDocument() async throws {
+    func theSharedFilterGivesTheSameDocumentAsThePathFilter() async throws {
         try await withTemporaryWorkspace { root in
             try write(Self.swiftSource, to: Self.keptPath, in: root)
-            let pathFilter = SharedPathFilter(rootDirectory: root)
+            let sharedFilter = SharedPathFilter(rootDirectory: root)
+            let expected = try #require(
+                LanguageServerDocument(relativePath: Self.keptPath, rootDirectory: root, pathFilter: PathFilter(rootDirectory: root))
+            )
 
-            let document = await pathFilter.acceptedDocument(relativePath: Self.keptPath, rootDirectory: root)
-            let skipped = await pathFilter.acceptedDocument(relativePath: Self.skippedPath, rootDirectory: root)
+            let document = try #require(await sharedFilter.acceptedDocument(relativePath: Self.keptPath, rootDirectory: root))
 
-            #expect(document?.readText() == Self.swiftSource)
+            #expect(document.uri == expected.uri)
+            #expect(document.relativePath == expected.relativePath)
+            #expect(document.rootDirectory == expected.rootDirectory)
+        }
+    }
+
+    @Test
+    func theSharedFilterGivesNoDocumentForAPathThatThePathFilterDoesNotAccept() async throws {
+        try await withTemporaryWorkspace { root in
+            try write(Self.swiftSource, to: Self.skippedPath, in: root)
+            let sharedFilter = SharedPathFilter(rootDirectory: root)
+
+            let skipped = await sharedFilter.acceptedDocument(relativePath: Self.skippedPath, rootDirectory: root)
+
             #expect(skipped == nil)
         }
     }
