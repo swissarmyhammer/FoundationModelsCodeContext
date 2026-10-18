@@ -7,8 +7,10 @@ import Testing
 /// End-to-end tests for `ProcessLanguageServerConnection`, driven against a
 /// real child process: `Support/scripted-lsp-server.swift`, a tiny
 /// Content-Length-framed JSON-RPC stub launched the same way a real
-/// language server is (`/usr/bin/env swift <script> <script-json>`). See
-/// that file's header comment for the scripting DSL.
+/// language server is (`/usr/bin/env swift <script> <script-json>`). The
+/// started script is that file joined with the framing code of the library
+/// (see `ScriptedLSPServerScript`). See that file's header comment for the
+/// scripting DSL.
 ///
 /// Covers the behaviors that only a real process boundary can exercise:
 /// request/response over actual pipes, responses arriving out of order,
@@ -25,9 +27,6 @@ import Testing
 /// individual test's coverage.
 @Suite(.serialized)
 struct ConnectionTests {
-    /// The absolute path to the scripted subprocess.
-    private static let scriptedServerPath = PackagePaths.scriptedLSPServer
-
     /// The real time between two checks of the state of the subprocess.
     private static let processPollInterval: Duration = .milliseconds(10)
 
@@ -54,7 +53,7 @@ struct ConnectionTests {
         let scriptJSON = String(decoding: scriptData, as: UTF8.self)
         return try ProcessLanguageServerConnection(
             command: "swift",
-            arguments: [scriptedServerPath, scriptJSON],
+            arguments: [try ScriptedLSPServerScript.path(), scriptJSON],
             requestTimeout: requestTimeout,
             clock: clock
         )
@@ -379,6 +378,30 @@ struct ConnectionTests {
             // `waitUntilExit()` is tied to stdout hitting EOF; `Process.isRunning` is updated by a
             // separate waitpid-based mechanism that can lag EOF by a few milliseconds. Poll with a
             // bounded budget rather than assuming the two are perfectly synchronized.
+            let hasStopped = try await waitUntil(timeout: Self.processReapTimeout, pollInterval: Self.processPollInterval) {
+                await !connection.isRunning()
+            }
+            #expect(hasStopped)
+        }
+    }
+
+    @Test
+    func aNegativeContentLengthFailsThePendingRequestAndStopsTheServer() async throws {
+        // A negative length tells nothing about where the body stops, thus the stream is out of
+        // step. The connection must not crash and must not wait for a body that does not come:
+        // it fails the pending request at once and stops the server. The health check of the
+        // daemon then finds a dead process and starts the server again.
+        let steps: [[String: Any]] = [
+            ["action": "read"],
+            ["action": "writeRaw", "text": "Content-Length: -5\r\n\r\n"],
+            ["action": "hang"],
+        ]
+        try await Self.withConnection(steps: steps) { connection in
+            let error = await #expect(throws: CodeContextError.self) {
+                try await connection.documentSymbols(in: DocumentURI("file:///a.swift"))
+            }
+            #expect(error?.caseName == "notRunning")
+
             let hasStopped = try await waitUntil(timeout: Self.processReapTimeout, pollInterval: Self.processPollInterval) {
                 await !connection.isRunning()
             }

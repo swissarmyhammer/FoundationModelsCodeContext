@@ -221,8 +221,24 @@ comments:
     - evidence: swift test — 922 tests in 83 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete, exit 0. The only warning is "missing creator for mutated node" for the mlx-swift_Cmlx.bundle dependency, not from this package.
     - next: commit
   timestamp: 2026-10-18T05:16:15.236588+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m56q82bkhe8waz23qep1hxjt
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (0b5fbe1): 0 findings, 0 confirmed, 0 refuted; 3 files reviewed, 7 attempts, 0 failed. All prior Review Findings items are checked. The prior finding TestSupport.swift magic number is fixed: readyAfterInstallTimeout now uses the named constant readyAfterInstallTimeoutSeconds.
+    - next: none. The task is in done.
+  timestamp: 2026-10-18T05:20:12.659316+00:00
+- actor: claude-code
+  id: 01m56q8b44qfnrysvs15s87tgs
+  text: |-
+    ### finish iteration 5 — clean
+    - implement: changed — 3 files (named constants for call-argument number literals)
+    - test: green — swift test, 922 passed
+    - commit: 0b5fbe1
+    - review: clean — 0 findings; all 4 prior items checked
+  timestamp: 2026-10-18T05:20:21.636789+00:00
+position_column: done
+position_ordinal: e580
 title: Child processes must not read the stdin of the host process
 ---
 ## Problem

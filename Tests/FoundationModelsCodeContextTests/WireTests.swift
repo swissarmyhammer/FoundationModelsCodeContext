@@ -23,18 +23,18 @@ struct WireTests {
     }
 
     @Test
-    func decoderRoundTripsASingleMessage() {
+    func decoderRoundTripsASingleMessage() throws {
         let payload = Data(#"{"jsonrpc":"2.0","id":1,"result":null}"#.utf8)
         let framed = JSONRPCFraming.frame(payload: payload)
 
         var decoder = JSONRPCMessageDecoder()
-        let messages = decoder.append(bytes: framed)
+        let messages = try decoder.append(bytes: framed)
 
         #expect(messages == [payload])
     }
 
     @Test
-    func decoderRoundTripsMultiByteUTF8Payload() {
+    func decoderRoundTripsMultiByteUTF8Payload() throws {
         // "こんにちは" (Japanese greeting) and an emoji: several bytes per
         // scalar, so a byte-count Content-Length must be used, not a
         // character count.
@@ -42,13 +42,13 @@ struct WireTests {
         let framed = JSONRPCFraming.frame(payload: payload)
 
         var decoder = JSONRPCMessageDecoder()
-        let messages = decoder.append(bytes: framed)
+        let messages = try decoder.append(bytes: framed)
 
         #expect(messages == [payload])
     }
 
     @Test
-    func decoderHandlesSplitReadsAcrossTheHeaderBoundary() {
+    func decoderHandlesSplitReadsAcrossTheHeaderBoundary() throws {
         let payload = Data(#"{"jsonrpc":"2.0","id":2,"method":"textDocument/didOpen"}"#.utf8)
         let framed = JSONRPCFraming.frame(payload: payload)
 
@@ -57,51 +57,136 @@ struct WireTests {
         // Feed one byte at a time to exercise the worst-case chunking,
         // including a split in the middle of "Content-Length:".
         for byte in framed {
-            messages.append(contentsOf: decoder.append(bytes: Data([byte])))
+            messages.append(contentsOf: try decoder.append(bytes: Data([byte])))
         }
 
         #expect(messages == [payload])
     }
 
     @Test
-    func decoderHandlesSplitReadsAcrossTheBodyBoundary() {
+    func decoderHandlesSplitReadsAcrossTheBodyBoundary() throws {
         let payload = Data(#"{"jsonrpc":"2.0","id":3,"result":{"ok":true}}"#.utf8)
         let framed = JSONRPCFraming.frame(payload: payload)
         let splitPoint = framed.count - 5
 
         var decoder = JSONRPCMessageDecoder()
         var messages: [Data] = []
-        messages.append(contentsOf: decoder.append(bytes: framed.prefix(splitPoint)))
+        messages.append(contentsOf: try decoder.append(bytes: framed.prefix(splitPoint)))
         #expect(messages.isEmpty, "must not yield a message before the full body has arrived")
-        messages.append(contentsOf: decoder.append(bytes: framed.suffix(from: splitPoint)))
+        messages.append(contentsOf: try decoder.append(bytes: framed.suffix(from: splitPoint)))
 
         #expect(messages == [payload])
     }
 
     @Test
-    func decoderYieldsMultipleMessagesFromOneChunk() {
+    func decoderYieldsMultipleMessagesFromOneChunk() throws {
         let first = Data(#"{"jsonrpc":"2.0","id":1,"result":1}"#.utf8)
         let second = Data(#"{"jsonrpc":"2.0","id":2,"result":2}"#.utf8)
         var combined = JSONRPCFraming.frame(payload: first)
         combined.append(JSONRPCFraming.frame(payload: second))
 
         var decoder = JSONRPCMessageDecoder()
-        let messages = decoder.append(bytes: combined)
+        let messages = try decoder.append(bytes: combined)
 
         #expect(messages == [first, second])
     }
 
     @Test
-    func decoderIgnoresUnknownHeadersBeforeContentLength() {
+    func decoderIgnoresUnknownHeadersBeforeContentLength() throws {
         let payload = Data(#"{"jsonrpc":"2.0","id":1,"result":null}"#.utf8)
         var framed = Data("Content-Type: application/vscode-jsonrpc; charset=utf-8\r\n".utf8)
         framed.append(Data("Content-Length: \(payload.count)\r\n\r\n".utf8))
         framed.append(payload)
 
         var decoder = JSONRPCMessageDecoder()
-        let messages = decoder.append(bytes: framed)
+        let messages = try decoder.append(bytes: framed)
 
         #expect(messages == [payload])
+    }
+
+    @Test
+    func decoderDecodesAGoodFrameThatComesAfterAGoodFrame() throws {
+        let first = Data(#"{"jsonrpc":"2.0","id":1,"result":1}"#.utf8)
+        let second = Data(#"{"jsonrpc":"2.0","id":2,"result":2}"#.utf8)
+
+        var decoder = JSONRPCMessageDecoder()
+
+        #expect(try decoder.append(bytes: JSONRPCFraming.frame(payload: first)) == [first])
+        #expect(try decoder.append(bytes: JSONRPCFraming.frame(payload: second)) == [second])
+    }
+
+    // MARK: - Bad frame headers
+
+    /// Two bytes that are not valid UTF-8: `0xFF` and `0xFE` are never part
+    /// of a UTF-8 sequence.
+    private static let invalidUTF8Bytes: [UInt8] = [0xFF, 0xFE]
+
+    /// The end of a frame header.
+    private static let headerEnd = Data("\r\n\r\n".utf8)
+
+    /// One frame header that the decoder must reject, and the error that it
+    /// must give.
+    struct BadHeader: Sendable, CustomTestStringConvertible {
+        /// The bytes of the header, with its `\r\n\r\n` end.
+        let bytes: Data
+
+        /// The error that the decoder gives for `bytes`.
+        let error: JSONRPCFrameError
+
+        /// The text that the test report shows for this argument.
+        var testDescription: String { "\(error): \(String(decoding: bytes, as: UTF8.self).debugDescription)" }
+    }
+
+    /// Each header that tells no correct body length.
+    static let badHeaders: [BadHeader] = [
+        BadHeader(bytes: Data("Content-Length: -5".utf8) + headerEnd, error: .invalidContentLength),
+        BadHeader(bytes: Data("Content-Length: abc".utf8) + headerEnd, error: .invalidContentLength),
+        BadHeader(bytes: Data("Content-Length: +5".utf8) + headerEnd, error: .invalidContentLength),
+        BadHeader(bytes: Data("Content-Length: ".utf8) + headerEnd, error: .invalidContentLength),
+        BadHeader(bytes: Data("Content-Type: application/vscode-jsonrpc".utf8) + headerEnd, error: .missingContentLength),
+        BadHeader(bytes: Data(invalidUTF8Bytes) + headerEnd, error: .headerNotUTF8),
+    ]
+
+    @Test(arguments: badHeaders)
+    func decoderRejectsABadHeaderAndKeepsNoBytesOfIt(_ badHeader: BadHeader) throws {
+        let payload = Data(#"{"jsonrpc":"2.0","id":1,"result":null}"#.utf8)
+        var decoder = JSONRPCMessageDecoder()
+
+        #expect(throws: badHeader.error) {
+            try decoder.append(bytes: badHeader.bytes)
+        }
+
+        // The decoder clears its buffer after the error. If it kept the bad
+        // header, this good frame would come after it and give the error again.
+        #expect(try decoder.append(bytes: JSONRPCFraming.frame(payload: payload)) == [payload])
+    }
+
+    @Test
+    func decoderRejectsATooLargeContentLengthBeforeTheBodyArrives() {
+        let header = Data("Content-Length: \(JSONRPCMessageDecoder.maxContentLength + 1)".utf8) + Self.headerEnd
+        var decoder = JSONRPCMessageDecoder()
+
+        #expect(throws: JSONRPCFrameError.contentLengthTooLarge) {
+            try decoder.append(bytes: header)
+        }
+    }
+
+    @Test
+    func decoderWaitsForTheBodyOfTheLargestContentLength() throws {
+        let header = Data("Content-Length: \(JSONRPCMessageDecoder.maxContentLength)".utf8) + Self.headerEnd
+        var decoder = JSONRPCMessageDecoder()
+
+        #expect(try decoder.append(bytes: header).isEmpty)
+    }
+
+    @Test
+    func decoderRejectsAHeaderThatDoesNotEndInTheLimit() {
+        let header = Data(repeating: UInt8(ascii: "a"), count: JSONRPCMessageDecoder.maxHeaderLength + 1)
+        var decoder = JSONRPCMessageDecoder()
+
+        #expect(throws: JSONRPCFrameError.headerTooLarge) {
+            try decoder.append(bytes: header)
+        }
     }
 
     // MARK: - JSON-RPC envelopes and id matching

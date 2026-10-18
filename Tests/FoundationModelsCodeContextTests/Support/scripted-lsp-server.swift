@@ -1,8 +1,7 @@
-#!/usr/bin/env swift
 //
 // scripted-lsp-server.swift
 //
-// A tiny Content-Length-framed JSON-RPC stub, run as a standalone script
+// A tiny Content-Length-framed JSON-RPC stub, run as a script
 // (via `/usr/bin/env swift`, the same launch mechanism
 // `ProcessLanguageServerConnection` uses for real language servers) so
 // `ConnectionTests.swift` can drive the connection end-to-end against a real
@@ -58,6 +57,11 @@
 //     Writes a framed JSON-RPC notification (no id), simulating a
 //     server-initiated push such as `textDocument/publishDiagnostics`.
 //
+//   {"action": "writeRaw", "text": <String>}
+//     Writes the UTF-8 bytes of `text` to stdout with no framing — used to
+//     send a bad frame header, for example `Content-Length: -5`, to the
+//     connection.
+//
 //   {"action": "hang"}
 //     Blocks forever without exiting, so the process stays alive (and the
 //     pipe doesn't hit EOF) while deliberately never answering a pending
@@ -69,48 +73,49 @@
 //
 // Deliberately does not import FoundationModelsCodeContext: this runs as an independent
 // process, not linked against the package under test.
+//
+// The framing code is not in this file. The tests join
+// `Sources/FoundationModelsCodeContext/LSP/Framing.swift` with this file into one script file
+// (see `Support/ScriptedLSPServerScript.swift`, and `ScriptedLSPServer` in the integration
+// package) and start that file. Thus `JSONRPCFraming` and `JSONRPCMessageDecoder` below are the
+// same code that the connection uses, and the package has one header parser. This file has no
+// `#!` line, because the joined file starts with `Framing.swift`. Do not start this file alone.
 
 import Foundation
 
 let standardInput = FileHandle.standardInput
 let standardOutput = FileHandle.standardOutput
 
-/// Reads exactly one byte from stdin, or `nil` at EOF.
-func readOneByte() -> UInt8? {
-    let data = standardInput.readData(ofLength: 1)
-    return data.first
-}
+/// Reads the framed JSON-RPC messages that the client writes to stdin.
+struct StandardInputMessageReader {
+    /// The shared decoder of `Framing.swift`.
+    private var decoder = JSONRPCMessageDecoder()
 
-/// Reads one `Content-Length`-framed JSON-RPC message body from stdin.
-func readMessage() -> Data? {
-    let terminator = Data("\r\n\r\n".utf8)
-    var headerBytes = Data()
-    while true {
-        guard let byte = readOneByte() else { return nil }
-        headerBytes.append(byte)
-        if headerBytes.count >= terminator.count, headerBytes.suffix(terminator.count) == terminator {
-            break
+    /// The messages that `decoder` decoded and that no "read" step took yet.
+    private var decodedMessages: [Data] = []
+
+    /// Reads one `Content-Length`-framed JSON-RPC message body from stdin.
+    ///
+    /// Exits with a stderr message when a frame header from the client is not valid.
+    /// - Returns: The body, or `nil` at EOF.
+    mutating func readMessage() -> Data? {
+        while decodedMessages.isEmpty {
+            let chunk = standardInput.availableData
+            guard !chunk.isEmpty else { return nil }
+            do {
+                decodedMessages = try decoder.append(bytes: chunk)
+            } catch {
+                FileHandle.standardError.write(Data("scripted-lsp-server: bad frame header: \(error)\n".utf8))
+                exit(1)
+            }
         }
+        return decodedMessages.removeFirst()
     }
-    guard let headerText = String(data: headerBytes, encoding: .utf8) else { return nil }
-
-    var contentLength = 0
-    for line in headerText.split(separator: "\r\n") {
-        guard let colonIndex = line.firstIndex(of: ":") else { continue }
-        let name = line[line.startIndex..<colonIndex].trimmingCharacters(in: .whitespaces)
-        guard name.caseInsensitiveCompare("Content-Length") == .orderedSame else { continue }
-        let value = line[line.index(after: colonIndex)...].trimmingCharacters(in: .whitespaces)
-        contentLength = Int(value) ?? 0
-    }
-
-    return standardInput.readData(ofLength: contentLength)
 }
 
 /// Writes one JSON payload to stdout with `Content-Length` framing.
 func writeMessage(payload: Data) {
-    var framed = Data("Content-Length: \(payload.count)\r\n\r\n".utf8)
-    framed.append(payload)
-    standardOutput.write(framed)
+    standardOutput.write(JSONRPCFraming.frame(payload: payload))
 }
 
 /// One message read from stdin: its JSON-RPC id (`nil` for a fire-and-forget
@@ -231,12 +236,13 @@ else {
 }
 
 var requestsReadSoFar: [ReadRequest] = []
+var messageReader = StandardInputMessageReader()
 
 for step in steps {
     guard let action = step["action"] as? String else { continue }
     switch action {
     case "read":
-        guard let message = readMessage() else {
+        guard let message = messageReader.readMessage() else {
             FileHandle.standardError.write(Data("scripted-lsp-server: expected a message, got EOF\n".utf8))
             exit(1)
         }
@@ -257,6 +263,10 @@ for step in steps {
         if let payload = try? JSONSerialization.data(withJSONObject: envelope) {
             writeMessage(payload: payload)
         }
+
+    case "writeRaw":
+        let text = step["text"] as? String ?? ""
+        standardOutput.write(Data(text.utf8))
 
     case "hang":
         while true {

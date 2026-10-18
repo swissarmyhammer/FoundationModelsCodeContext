@@ -240,12 +240,14 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         let pendingRequests = self.pendingRequests
         let stdoutFileDescriptor = self.stdoutHandle.fileDescriptor
         self.readerTask = ProcessUtilities.runOnDedicatedThread(name: "lsp-reader \(command)") {
-            Self.runReaderLoop(
+            let isOutOfStep = Self.runReaderLoop(
                 serverName: command,
                 stdoutFileDescriptor: stdoutFileDescriptor,
                 pendingRequests: pendingRequests,
                 notificationContinuation: continuation
             )
+            guard isOutOfStep else { return }
+            Self.closeOutOfStepConnection(process: process, notificationContinuation: continuation)
         }
 
         let stderrFileDescriptor = self.stderrHandle.fileDescriptor
@@ -307,7 +309,8 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// Waits on `readerTask` rather than polling `process.isRunning`: the reader loop's own exit
     /// condition is stdout EOF, which is exactly the child process's exit signal, so this reuses
     /// the exit-detection `ProcessLanguageServerConnection` already performs to fail pending
-    /// requests on process death instead of introducing a second detection path.
+    /// requests on process death instead of introducing a second detection path. The reader loop
+    /// also stops at a bad frame header; the connection then closes and kills the process.
     func waitUntilExit() async {
         await readerTask?.value
     }
@@ -793,20 +796,35 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// (`pendingRequests`, `notificationContinuation`) is `Sendable`, so no actor hop is needed
     /// per received message. On EOF (the process exited), fails every still-pending request with
     /// `CodeContextError.notRunning`.
+    ///
+    /// A frame header that tells no correct body length (see `JSONRPCFrameError`) puts the stream
+    /// out of step. The loop then writes one `.error` record to `Log.lspWire`, fails every
+    /// still-pending request with `CodeContextError.notRunning`, and stops. It does not read the
+    /// next bytes as a header. The caller must then close the connection.
     /// - Parameters:
     ///   - serverName: The command name of the language server, for the wire log records.
     ///   - stdoutFileDescriptor: The child process's stdout read end's raw file descriptor.
     ///   - pendingRequests: The table that gets each response.
     ///   - notificationContinuation: The stream that gets each server notification.
+    /// - Returns: `true` when the loop stopped at a bad frame header; `false` when it stopped at
+    ///   EOF.
     private static func runReaderLoop(
         serverName: String,
         stdoutFileDescriptor: Int32,
         pendingRequests: PendingRequestTable,
         notificationContinuation: AsyncStream<ServerNotification>.Continuation
-    ) {
+    ) -> Bool {
+        defer { pendingRequests.failAll(with: CodeContextError.notRunning) }
         var decoder = JSONRPCMessageDecoder()
         while let chunk = ProcessUtilities.readChunk(from: stdoutFileDescriptor, bufferSize: ProcessUtilities.defaultChunkSize) {
-            for message in decoder.append(bytes: chunk) {
+            let messages: [Data]
+            do {
+                messages = try decoder.append(bytes: chunk)
+            } catch {
+                logFrameError(error, serverName: serverName)
+                return true
+            }
+            for message in messages {
                 route(
                     message: message,
                     serverName: serverName,
@@ -815,7 +833,47 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
                 )
             }
         }
-        pendingRequests.failAll(with: CodeContextError.notRunning)
+        return false
+    }
+
+    /// Closes the connection after the reader loop stopped at a bad frame header.
+    ///
+    /// After a bad frame header no later byte can be read as a message. This kills the server
+    /// and finishes `serverNotifications`, the same as `close()` does. The reader loop already
+    /// failed every pending request. The health check of the daemon then finds a dead process and
+    /// starts the server again through its normal restart path. `close()` later closes the pipes.
+    ///
+    /// Runs on the thread of the reader loop, thus it does not wait for the actor.
+    /// - Parameters:
+    ///   - process: The child process of the language server.
+    ///   - notificationContinuation: The stream of the server notifications.
+    private static func closeOutOfStepConnection(
+        process: Process,
+        notificationContinuation: AsyncStream<ServerNotification>.Continuation
+    ) {
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+        }
+        notificationContinuation.finish()
+    }
+
+    /// Writes the one `.error` record to `Log.lspWire` for a bad frame header.
+    ///
+    /// The record holds the server name, the direction, the error type and the error case. It
+    /// never holds a byte of the header or of the payload.
+    /// - Parameters:
+    ///   - error: The framing error of the decoder.
+    ///   - serverName: The command name of the language server.
+    private static func logFrameError(_ error: JSONRPCFrameError, serverName: String) {
+        Log.lspWire.error(
+            "a frame header from the language server is not valid; the connection closes",
+            metadata: [
+                CodeContextTracing.MetadataKey.lspServer: .string(serverName),
+                CodeContextTracing.MetadataKey.lspDirection: .string(WireDirection.fromServer.rawValue),
+                CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
+                CodeContextTracing.MetadataKey.errorCase: .string(String(describing: error)),
+            ]
+        )
     }
 
     /// Routes one decoded JSON-RPC message to a pending request or a server notification.

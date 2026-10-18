@@ -26,8 +26,9 @@ enum PackagePaths {
     /// excludes it from the test target, thus the tests read it from the disk.
     static let testGoldens = packageRoot.appending(path: "Tests/FoundationModelsCodeContextTests/Goldens")
 
-    /// The absolute path of the scripted language server,
+    /// The absolute path of the source of the scripted language server,
     /// `Support/scripted-lsp-server.swift`. See the header comment of that
-    /// file for its script language.
+    /// file for its script language. Do not start this file alone: start
+    /// the file that `ScriptedLSPServerScript.path()` gives.
     static let scriptedLSPServer = packageRoot.appending(path: "Tests/FoundationModelsCodeContextTests/Support/scripted-lsp-server.swift").path
 }
