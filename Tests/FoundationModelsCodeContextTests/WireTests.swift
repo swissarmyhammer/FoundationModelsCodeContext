@@ -369,6 +369,94 @@ struct WireTests {
         #expect(object["capabilities"] as? [String: Any] != nil)
     }
 
+    /// Encodes `params` and returns the JSON object of the `initialize` params.
+    private static func encodedObject(of params: InitializeParams) throws -> NSDictionary {
+        let data = try JSONEncoder().encode(params)
+        return try #require(try JSONSerialization.jsonObject(with: data) as? NSDictionary)
+    }
+
+    /// The client capabilities that the `initialize` request must declare as `true`, as key
+    /// paths into the params object.
+    private static let declaredClientCapabilities = [
+        "capabilities.textDocument.synchronization.didSave",
+        "capabilities.textDocument.documentSymbol.hierarchicalDocumentSymbolSupport",
+        "capabilities.textDocument.rename.prepareSupport",
+        "capabilities.textDocument.codeAction.dataSupport",
+        "capabilities.workspace.workspaceFolders",
+        "capabilities.workspace.configuration",
+        "capabilities.window.workDoneProgress",
+    ]
+
+    /// The client capability objects that the `initialize` request must send, as key paths
+    /// into the params object. The client does not handle `client/registerCapability`, thus
+    /// each object declares `dynamicRegistration: false`.
+    private static let staticallyRegisteredClientCapabilities = [
+        "capabilities.textDocument.synchronization",
+        "capabilities.textDocument.publishDiagnostics",
+        "capabilities.textDocument.diagnostic",
+        "capabilities.textDocument.documentSymbol",
+        "capabilities.textDocument.callHierarchy",
+        "capabilities.textDocument.references",
+        "capabilities.textDocument.definition",
+        "capabilities.textDocument.hover",
+        "capabilities.textDocument.rename",
+        "capabilities.textDocument.codeAction",
+    ]
+
+    @Test
+    func initializeParamsDeclareTheClientCapabilitiesThatTheClientHandles() throws {
+        let object = try Self.encodedObject(of: InitializeParams(processID: nil, rootURI: DocumentURI("file:///repo")))
+
+        for keyPath in Self.declaredClientCapabilities {
+            #expect(object.value(forKeyPath: keyPath) as? Bool == true, "\(keyPath) is not true")
+        }
+        for keyPath in Self.staticallyRegisteredClientCapabilities {
+            #expect(object.value(forKeyPath: "\(keyPath).dynamicRegistration") as? Bool == false, "\(keyPath) is missing")
+        }
+    }
+
+    @Test
+    func initializeParamsDeclareCodeActionLiteralsAndResolveOfTheEdit() throws {
+        let object = try Self.encodedObject(of: InitializeParams(processID: nil, rootURI: DocumentURI("file:///repo")))
+
+        let kinds = object.value(forKeyPath: "capabilities.textDocument.codeAction.codeActionLiteralSupport.codeActionKind.valueSet")
+        #expect((kinds as? [String])?.contains("quickfix") == true)
+        let resolved = object.value(forKeyPath: "capabilities.textDocument.codeAction.resolveSupport.properties")
+        #expect(resolved as? [String] == ["edit"])
+    }
+
+    @Test
+    func initializeParamsSendTheRootAsTheOneWorkspaceFolder() throws {
+        let object = try Self.encodedObject(of: InitializeParams(processID: nil, rootURI: DocumentURI("file:///work/repo")))
+
+        let folders = try #require(object["workspaceFolders"] as? [[String: String]])
+        #expect(folders == [["uri": "file:///work/repo", "name": "repo"]])
+    }
+
+    @Test
+    func initializeParamsWithNoRootSendNoWorkspaceFolders() throws {
+        let object = try Self.encodedObject(of: InitializeParams(processID: nil, rootURI: nil))
+
+        #expect(object["workspaceFolders"] == nil)
+    }
+
+    @Test
+    func initializeParamsSendTheGivenInitializationOptions() throws {
+        let options: JSONValue = .object(["checkOnSave": .bool(false), "cargo": .object(["features": .string("all")])])
+        let params = InitializeParams(processID: nil, rootURI: DocumentURI("file:///repo"), initializationOptions: options)
+        let data = try JSONEncoder().encode(params)
+
+        let sent = try JSONDecoder().decode(InitializationOptionsOnly.self, from: data)
+        #expect(sent.initializationOptions == options)
+    }
+
+    @Test
+    func initializeParamsWithNoOptionsSendNoInitializationOptionsField() throws {
+        let object = try Self.encodedObject(of: InitializeParams(processID: nil, rootURI: DocumentURI("file:///repo")))
+
+        #expect(object["initializationOptions"] == nil)
+    }
+
     @Test
     func initializeResultIgnoresUnknownServerCapabilityFields() throws {
         // Real rust-analyzer initialize responses carry dozens of capability
@@ -1025,4 +1113,11 @@ struct WireTests {
             """#.utf8)
         #expect(DiagnosticsParsing.parseDiagnosticsFromResult(from: result).isEmpty)
     }
+}
+
+/// The `initializationOptions` field of encoded `initialize` params. The tests decode it as a
+/// `JSONValue`, thus they compare it with the options that they gave.
+private struct InitializationOptionsOnly: Decodable {
+    /// The options that the params hold, or `nil` when the field is absent.
+    let initializationOptions: JSONValue?
 }

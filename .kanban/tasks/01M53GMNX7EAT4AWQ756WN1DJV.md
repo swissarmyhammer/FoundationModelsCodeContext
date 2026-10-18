@@ -41,8 +41,24 @@ comments:
     - evidence: swift test (root) - 953 tests in 85 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests - Build complete, 0 warnings from this package (only a third-party mlx-swift_Cmlx.bundle SwiftPM warning)
     - next: commit
   timestamp: 2026-10-18T08:02:40.931756+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m570twwm8hfmm0qa44ynbmk0
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (7e5ce1e). 0 findings, 0 confirmed, 0 refuted. 14 validator runs, 0 failed. 8 files reviewed. 4 .kanban files are excluded by .reviewignore. Acceptance criteria: ConnectionTests has the three tests. They are aServerRequestWithThePendingIDGetsAReplyAndTheRequestGetsItsTrueResponse, aServerRequestWithAStringIDGetsAReplyWithTheSameStringID and anUnknownServerRequestGetsAMethodNotFoundError. The test step was green (953 tests passed).
+    - next: none. The task moved to done.
+  timestamp: 2026-10-18T08:07:46.836821+00:00
+- actor: claude-code
+  id: 01m570v80ta0nxrjkede2e43mk
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 8 files
+    - test: green — swift test, 953 passed
+    - commit: 7e5ce1e
+    - review: clean — 0 findings
+  timestamp: 2026-10-18T08:07:58.234952+00:00
+position_column: done
+position_ordinal: e980
 title: Answer server-to-client LSP requests and accept string ids
 ---
 ## Problem

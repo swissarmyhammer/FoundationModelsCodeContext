@@ -216,7 +216,8 @@ struct LSPDaemonTests {
             command: "fake-lsp-binary-in-extra-dir",
             languageIDs: ["fake"],
             installHint: "install it",
-            installer: installer
+            installer: installer,
+            initializationOptions: .object(["checkOnSave": .bool(false)])
         )
         let receivedSpec = Box<ServerSpec?>(nil)
         let processState = ProcessState()
@@ -252,6 +253,7 @@ struct LSPDaemonTests {
         #expect(spawnedSpec.arguments == spec.arguments)
         #expect(spawnedSpec.languageIDs == spec.languageIDs)
         #expect(spawnedSpec.installer == spec.installer)
+        #expect(spawnedSpec.initializationOptions == spec.initializationOptions)
     }
 
     @Test

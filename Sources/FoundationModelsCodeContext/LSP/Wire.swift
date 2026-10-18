@@ -11,7 +11,8 @@ import Foundation
 /// shared LSP value types in `LSPTypes.swift` (`Position`, `Location`,
 /// `Diagnostic`, `DiagnosticSeverity`, `CallHierarchyItem`, `DocumentURI`,
 /// `LSPRange`, `SymbolKind`) are public, because a later task's typed
-/// `LanguageServerConnection` protocol returns them directly.
+/// `LanguageServerConnection` protocol returns them directly. `JSONValue`
+/// below is also public, because `ServerSpec.initializationOptions` holds one.
 ///
 /// The `Content-Length` framing itself (`JSONRPCFraming.frame(payload:)` and
 /// `JSONRPCMessageDecoder`) is in `Framing.swift`, which the scripted test server shares.
@@ -246,24 +247,164 @@ struct JSONRPCEnvelopePeek: Decodable {
 }
 
 /// An empty JSON object (`{}`), used for payloads that carry no data on the
-/// wire — `initialized`, `shutdown`, `exit`, and the client `capabilities`
-/// of `initialize` (this package sends no client capabilities; it reads the
-/// server capabilities instead, see `InitializeResult`).
+/// wire — `initialized`, `shutdown` and `exit`.
 struct EmptyPayload: Codable {}
 
 // MARK: - initialize / initialized / shutdown / exit
 
 /// Params for the `initialize` request.
+///
+/// The synthesized encoder omits each `nil` optional, thus a spec with no
+/// options sends no `initializationOptions` field, and a handshake with no
+/// root sends no `workspaceFolders` field.
 struct InitializeParams: Encodable {
     let processID: Int?
     let rootURI: DocumentURI?
-    let capabilities = EmptyPayload()
+
+    /// The server-specific options of `ServerSpec.initializationOptions`.
+    let initializationOptions: JSONValue?
+
+    /// The features that the client handles. See `ClientCapabilities`.
+    let capabilities = ClientCapabilities()
+
+    /// The one workspace folder of the handshake: the root. `nil` when there is no root.
+    let workspaceFolders: [WorkspaceFolder]?
 
     private enum CodingKeys: String, CodingKey {
         case processID = "processId"
         case rootURI = "rootUri"
+        case initializationOptions
         case capabilities
+        case workspaceFolders
     }
+
+    /// Creates the params of an `initialize` request.
+    /// - Parameters:
+    ///   - processID: The process id of the client, or `nil`.
+    ///   - rootURI: The workspace root, or `nil`. It is also the one workspace folder.
+    ///   - initializationOptions: The server-specific options. Defaults to `nil`: the request
+    ///     then has no `initializationOptions` field.
+    init(processID: Int?, rootURI: DocumentURI?, initializationOptions: JSONValue? = nil) {
+        self.processID = processID
+        self.rootURI = rootURI
+        self.initializationOptions = initializationOptions
+        self.workspaceFolders = rootURI.map { [WorkspaceFolder(uri: $0)] }
+    }
+}
+
+/// One entry of the `workspaceFolders` of `initialize`.
+struct WorkspaceFolder: Encodable {
+    /// The URI of the folder.
+    let uri: DocumentURI
+
+    /// The name of the folder: the last path component of `uri`, or the full URI text when
+    /// the URI has no path component.
+    let name: String
+
+    /// Creates the folder at `uri`, named after its last path component.
+    /// - Parameter uri: The URI of the folder.
+    init(uri: DocumentURI) {
+        self.uri = uri
+        let lastComponent = URL(string: uri.value)?.lastPathComponent ?? ""
+        self.name = lastComponent.isEmpty || lastComponent == "/" ? uri.value : lastComponent
+    }
+}
+
+/// The client capabilities of `initialize`: the features that this client handles.
+///
+/// The client declares only what it handles. It answers `client/registerCapability` but does
+/// not use the registration, thus each feature declares `dynamicRegistration: false` and the
+/// server must advertise the feature in its `initialize` result. It answers
+/// `workspace/configuration` and `window/workDoneProgress/create` (see `ServerRequestReply`),
+/// thus it declares `workspace.configuration` and `window.workDoneProgress`.
+struct ClientCapabilities: Encodable {
+    let textDocument = TextDocumentClientCapabilities()
+    let workspace = WorkspaceClientCapabilities()
+    let window = WindowClientCapabilities()
+}
+
+/// The `textDocument` part of `ClientCapabilities`: one entry for each `textDocument`
+/// feature that `ProcessLanguageServerConnection` sends or receives.
+struct TextDocumentClientCapabilities: Encodable {
+    let synchronization = SynchronizationCapability()
+    let publishDiagnostics = StaticRegistrationCapability()
+    let diagnostic = StaticRegistrationCapability()
+    let documentSymbol = DocumentSymbolCapability()
+    let callHierarchy = StaticRegistrationCapability()
+    let references = StaticRegistrationCapability()
+    let definition = StaticRegistrationCapability()
+    let hover = HoverCapability()
+    let rename = RenameCapability()
+    let codeAction = CodeActionCapability()
+}
+
+/// A feature capability with no other field than `dynamicRegistration: false`.
+struct StaticRegistrationCapability: Encodable {
+    let dynamicRegistration = false
+}
+
+/// The `textDocument.synchronization` capability: the client sends `didOpen`, `didChange`,
+/// `didClose` and `didSave`.
+struct SynchronizationCapability: Encodable {
+    let dynamicRegistration = false
+    let didSave = true
+}
+
+/// The `textDocument.documentSymbol` capability: the client decodes the hierarchical
+/// `DocumentSymbol` shape.
+struct DocumentSymbolCapability: Encodable {
+    let dynamicRegistration = false
+    let hierarchicalDocumentSymbolSupport = true
+}
+
+/// The `textDocument.hover` capability: `Hover` decodes markdown and plain text.
+struct HoverCapability: Encodable {
+    let dynamicRegistration = false
+    let contentFormat = ["markdown", "plaintext"]
+}
+
+/// The `textDocument.rename` capability: the client sends `prepareRename` before `rename`.
+struct RenameCapability: Encodable {
+    let dynamicRegistration = false
+    let prepareSupport = true
+}
+
+/// The `textDocument.codeAction` capability: the client decodes `CodeAction` objects, keeps
+/// their `data` and sends `codeAction/resolve` to get their `edit`.
+struct CodeActionCapability: Encodable {
+    let dynamicRegistration = false
+    let codeActionLiteralSupport = CodeActionLiteralSupport()
+    let dataSupport = true
+    let resolveSupport = CodeActionResolveSupport()
+}
+
+/// The `codeActionLiteralSupport` of `CodeActionCapability`: the code action kinds of LSP 3.17.
+struct CodeActionLiteralSupport: Encodable {
+    /// The `codeActionKind` object of the capability.
+    struct Kinds: Encodable {
+        let valueSet = [
+            "", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite",
+            "source", "source.organizeImports", "source.fixAll",
+        ]
+    }
+
+    let codeActionKind = Kinds()
+}
+
+/// The `resolveSupport` of `CodeActionCapability`: `codeAction/resolve` fills in the `edit`.
+struct CodeActionResolveSupport: Encodable {
+    let properties = ["edit"]
+}
+
+/// The `workspace` part of `ClientCapabilities`.
+struct WorkspaceClientCapabilities: Encodable {
+    let workspaceFolders = true
+    let configuration = true
+}
+
+/// The `window` part of `ClientCapabilities`.
+struct WindowClientCapabilities: Encodable {
+    let workDoneProgress = true
 }
 
 /// The result of the `initialize` request.
@@ -679,15 +820,32 @@ public struct WorkspaceEdit: Codable, Equatable, Sendable {
 /// interprets — `CodeAction.data` and `Command.arguments` — losslessly
 /// between `codeAction` and `codeAction/resolve`, without modeling every
 /// server's custom payload shape.
-indirect enum JSONValue: Codable, Sendable, Equatable {
+///
+/// Public because `ServerSpec.initializationOptions` holds one: a language
+/// module gives the server-specific options of `initialize` as a `JSONValue`.
+public indirect enum JSONValue: Codable, Sendable, Equatable {
+    /// A JSON string.
     case string(String)
+
+    /// A JSON number.
     case number(Double)
+
+    /// A JSON `true` or `false`.
     case bool(Bool)
+
+    /// A JSON object.
     case object([String: JSONValue])
+
+    /// A JSON array.
     case array([JSONValue])
+
+    /// The JSON `null`.
     case null
 
-    init(from decoder: Decoder) throws {
+    /// Decodes any JSON value.
+    /// - Parameter decoder: The decoder to read the value from.
+    /// - Throws: `DecodingError.dataCorrupted` when the value is not JSON.
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {
             self = .null
@@ -706,7 +864,10 @@ indirect enum JSONValue: Codable, Sendable, Equatable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    /// Encodes the JSON value.
+    /// - Parameter encoder: The encoder to write the value to.
+    /// - Throws: Whatever the single-value container throws.
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .string(let value): try container.encode(value)

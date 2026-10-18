@@ -499,6 +499,58 @@ struct ConnectionTests {
         }
     }
 
+    // MARK: - initialize through the production connection factory
+
+    /// Starts the scripted subprocess through `LSPDaemon.processConnectionFactory()` with a spec
+    /// that holds `initializationOptions`, and sends `initialize` on the connection. The script
+    /// stops before it answers when the `initializationOptions` of the request is not
+    /// `expected`, thus the request then fails.
+    /// - Parameters:
+    ///   - initializationOptions: The options of the spec.
+    ///   - expected: The `initializationOptions` value that the request must hold, as
+    ///     `JSONSerialization` reads it. `NSNull()` accepts an absent field.
+    private static func initializeThroughTheProductionFactory(
+        initializationOptions: JSONValue?,
+        expected: Any
+    ) async throws {
+        let steps: [[String: Any]] = [
+            ["action": "read", "expectMethod": "initialize", "expectInitializationOptions": expected],
+            ["action": "respond", "which": 0, "result": ["capabilities": [String: Any]()]],
+        ]
+        let scriptJSON = String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
+        let spec = ServerSpec(
+            command: "swift",
+            arguments: [try ScriptedLSPServerScript.path(in: TemporaryItem.root), scriptJSON],
+            languageIDs: ["swift"],
+            installHint: "the scripted server needs no install",
+            initializationOptions: initializationOptions
+        )
+        let factory = LSPDaemon<ProcessLanguageServerConnection>.processConnectionFactory()
+        let handle = try await factory(spec, TemporaryItem.root)
+        do {
+            _ = try await handle.connection.initialize(rootURI: DocumentURI("file:///repo"))
+            await handle.terminate()
+        } catch {
+            await handle.terminate()
+            throw error
+        }
+    }
+
+    @Test
+    func initializeSendsTheInitializationOptionsOfTheSpec() async throws {
+        let options: JSONValue = .object(["cargo": .object(["features": .string("all")])])
+
+        try await Self.initializeThroughTheProductionFactory(
+            initializationOptions: options,
+            expected: ["cargo": ["features": "all"]]
+        )
+    }
+
+    @Test
+    func initializeSendsNoInitializationOptionsWhenTheSpecHasNone() async throws {
+        try await Self.initializeThroughTheProductionFactory(initializationOptions: nil, expected: NSNull())
+    }
+
     // MARK: - Refactored helper call sites (notifyEmpty, notifyTextDocument,
     // positionParams/requestAtPosition, arrayRequest, locationsRequest)
 

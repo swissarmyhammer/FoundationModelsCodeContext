@@ -38,6 +38,12 @@
 //     keys to read the reply of the client to a "request" step. A JSON
 //     number never equals a JSON string: the id 1 is not the id "1".
 //
+//   {"action": "read", "expectInitializationOptions": <any JSON>}
+//     Same as plain "read", but additionally asserts the
+//     `params.initializationOptions` of the message. An absent field reads
+//     as `null`, thus the value `null` accepts an absent field and a `null`
+//     field. Use this key to read the `initialize` request of the client.
+//
 //   {"action": "respond", "which": <Int>, "result": <any JSON>}
 //     Writes a framed JSON-RPC response for the `which`-th request read so
 //     far (0-based, in read order — not necessarily response order, so a
@@ -202,13 +208,16 @@ func assertJSONValue(_ actual: Any?, equals expected: Any, stepKey: String) {
 }
 
 /// Validates a "read" step's optional `expectID`/`expectResult`/
-/// `expectErrorCode` assertions against the reply that the client wrote.
+/// `expectErrorCode`/`expectInitializationOptions` assertions against the
+/// message that the client wrote.
 func validateReplyExpectations(step: [String: Any], message: Data) {
     let object = (try? JSONSerialization.jsonObject(with: message)) as? [String: Any] ?? [:]
+    let initializationOptions = (object["params"] as? [String: Any])?["initializationOptions"]
     let checks: [(stepKey: String, actual: Any?)] = [
         ("expectID", object["id"]),
         ("expectResult", object["result"]),
         ("expectErrorCode", (object["error"] as? [String: Any])?["code"]),
+        ("expectInitializationOptions", initializationOptions ?? NSNull()),
     ]
     for check in checks {
         if let expected = step[check.stepKey] {

@@ -515,7 +515,8 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
             startupTimeout: spec.startupTimeout,
             healthCheckInterval: spec.healthCheckInterval,
             installHint: spec.installHint,
-            installer: spec.installer
+            installer: spec.installer,
+            initializationOptions: spec.initializationOptions
         )
     }
 
@@ -669,7 +670,8 @@ extension LSPDaemon where Connection == ProcessLanguageServerConnection {
     ///     `CodeContextMetrics()`.
     /// - Returns: A factory that spawns `spec.command` with `spec.arguments` as a real child process,
     ///   ignoring the workspace root (the connection itself is workspace-agnostic; the daemon
-    ///   passes the root separately to the `initialize` handshake).
+    ///   passes the root separately to the `initialize` handshake). The connection sends
+    ///   `spec.initializationOptions` in its `initialize` request.
     static func processConnectionFactory(
         clock: any Clock<Duration> = ContinuousClock(),
         metrics: CodeContextMetrics = CodeContextMetrics()
@@ -678,6 +680,7 @@ extension LSPDaemon where Connection == ProcessLanguageServerConnection {
             let connection = try ProcessLanguageServerConnection(
                 command: spec.command,
                 arguments: spec.arguments,
+                initializationOptions: spec.initializationOptions,
                 clock: clock,
                 metrics: metrics
             )

@@ -463,7 +463,9 @@ state becomes actors.
   shuttingDown`, observable via `AsyncStream`. Lifecycle:
   1. Locate binary on PATH (miss → `.notFound` + install hint logged once).
   2. Spawn with piped stdio; stderr drained on a background task → `.debug` log.
-  3. `initialize` (rootUri, empty client capabilities) then `initialized`,
+  3. `initialize` (rootUri, the root as the one workspace folder, the client capabilities
+     that the client handles, and `ServerSpec.initializationOptions` when the spec has
+     them) then `initialized`,
      bounded by `startupTimeout`; on failure capture a stderr tail into the
      error and kill the child. The original stance was the Rust one: no
      capability gating, empty/null results mean "no data". That decision is

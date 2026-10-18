@@ -156,6 +156,10 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     private let requestTimeout: Duration
     private let clock: any Clock<Duration>
 
+    /// The server-specific options that `initialize(rootURI:)` sends, or `nil` to send no
+    /// `initializationOptions` field.
+    private let initializationOptions: JSONValue?
+
     /// Gets the duration of each request, with the method name, the server name and the outcome.
     private let metrics: CodeContextMetrics
 
@@ -199,6 +203,8 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// - Parameters:
     ///   - command: The executable to spawn, looked up on `$PATH`.
     ///   - arguments: Arguments passed to `command` on launch. Defaults to none.
+    ///   - initializationOptions: The server-specific options that `initialize(rootURI:)`
+    ///     sends. Defaults to `nil`: the request has no `initializationOptions` field.
     ///   - requestTimeout: How long a request waits for a response before failing with
     ///     `CodeContextError.timeout`. Defaults to 30 seconds.
     ///   - clock: The clock used to schedule the request timeout. Defaults to `ContinuousClock()`;
@@ -211,6 +217,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     init(
         command: String,
         arguments: [String] = [],
+        initializationOptions: JSONValue? = nil,
         requestTimeout: Duration = defaultRequestTimeout,
         clock: any Clock<Duration> = ContinuousClock(),
         metrics: CodeContextMetrics = CodeContextMetrics(),
@@ -241,6 +248,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         self.stdinHandle = stdinPipe.fileHandleForWriting
         self.stdoutHandle = stdoutPipe.fileHandleForReading
         self.stderrHandle = stderrPipe.fileHandleForReading
+        self.initializationOptions = initializationOptions
         self.requestTimeout = requestTimeout
         self.clock = clock
         self.metrics = metrics
@@ -366,11 +374,18 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     // MARK: - LanguageServerConnection
 
     /// Sends the LSP `initialize` request that starts the handshake.
+    ///
+    /// The request holds the client capabilities (see `ClientCapabilities`), the root as the
+    /// one workspace folder, and the `initializationOptions` of this connection.
     /// - Parameter rootURI: The workspace root to advertise to the server, if any.
     /// - Returns: The gated capabilities that the server advertises.
     /// - Throws: If the server rejects the handshake or the connection is unusable.
     public func initialize(rootURI: DocumentURI?) async throws -> ServerCapabilities {
-        let params = InitializeParams(processID: Int(ProcessInfo.processInfo.processIdentifier), rootURI: rootURI)
+        let params = InitializeParams(
+            processID: Int(ProcessInfo.processInfo.processIdentifier),
+            rootURI: rootURI,
+            initializationOptions: initializationOptions
+        )
         return try await request(method: "initialize", params: params, resultType: InitializeResult.self).capabilities
     }
 

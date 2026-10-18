@@ -37,6 +37,13 @@ public struct ServerSpec: Sendable, Equatable {
     /// attempted, and only `installHint` is shown.
     public let installer: InstallSpec?
 
+    /// The server-specific options that the client sends as `initializationOptions` in the
+    /// `initialize` request, or `nil` to send no `initializationOptions` field.
+    ///
+    /// The value is opaque to this package: each server documents the options that it
+    /// accepts.
+    public let initializationOptions: JSONValue?
+
     /// A machine-actionable installer: an executable plus the arguments that
     /// install a language server's `command`.
     public struct InstallSpec: Sendable, Equatable {
@@ -77,6 +84,22 @@ public struct ServerSpec: Sendable, Equatable {
         }
     }
 
+    /// The number of seconds in `defaultStartupTimeout`.
+    static let defaultStartupTimeoutSeconds = 30
+
+    /// The default handshake timeout: 30 seconds, the `startup_timeout_secs` of each
+    /// `builtin/lsp/*.yaml` spec. `@usableFromInline` because a default argument of the
+    /// public `init` names it.
+    @usableFromInline static let defaultStartupTimeout: Duration = .seconds(defaultStartupTimeoutSeconds)
+
+    /// The number of seconds in `defaultHealthCheckInterval`.
+    static let defaultHealthCheckIntervalSeconds = 60
+
+    /// The default liveness check interval: 60 seconds, the `health_check_interval_secs` of
+    /// each `builtin/lsp/*.yaml` spec. `@usableFromInline` because a default argument of the
+    /// public `init` names it.
+    @usableFromInline static let defaultHealthCheckInterval: Duration = .seconds(defaultHealthCheckIntervalSeconds)
+
     /// Creates a server spec.
     ///
     /// - Parameters:
@@ -91,14 +114,17 @@ public struct ServerSpec: Sendable, Equatable {
     ///   - installHint: Guidance shown when `command` isn't found on `$PATH`.
     ///   - installer: A machine-actionable installer for `command`. Defaults
     ///     to `nil` (hint-only, exactly today's behavior).
+    ///   - initializationOptions: The server-specific options of the `initialize` request.
+    ///     Defaults to `nil`: the request has no `initializationOptions` field.
     public init(
         command: String,
         arguments: [String] = [],
         languageIDs: [String],
-        startupTimeout: Duration = .seconds(30),
-        healthCheckInterval: Duration = .seconds(60),
+        startupTimeout: Duration = defaultStartupTimeout,
+        healthCheckInterval: Duration = defaultHealthCheckInterval,
         installHint: String,
-        installer: InstallSpec? = nil
+        installer: InstallSpec? = nil,
+        initializationOptions: JSONValue? = nil
     ) {
         self.command = command
         self.arguments = arguments
@@ -107,5 +133,6 @@ public struct ServerSpec: Sendable, Equatable {
         self.healthCheckInterval = healthCheckInterval
         self.installHint = installHint
         self.installer = installer
+        self.initializationOptions = initializationOptions
     }
 }
