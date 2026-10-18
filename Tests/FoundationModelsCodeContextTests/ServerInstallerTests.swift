@@ -1,4 +1,5 @@
 import Foundation
+import ScriptedLSPServerSupport
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -253,6 +254,43 @@ struct BinaryLookupTests {
 /// Integration tests for `ProcessInstallRunner` against harmless real executables (`true`,
 /// `false`, `sh`, `sleep`) — no network access, so these stay CI-safe.
 struct ProcessInstallRunnerTests {
+    /// The run timeout of a child that ends by itself. It is far above the run time of `sh`,
+    /// `true` and `false`.
+    private static let selfEndingRunTimeout: Duration = .seconds(10)
+
+    /// The run timeout that elapses before the `sleep` of the child ends.
+    private static let elapsingRunTimeout: Duration = .milliseconds(200)
+
+    /// The seconds that the `sleep` of the child runs when nothing stops it.
+    private static let childSleepSeconds = 60
+
+    /// The run timeout of the cancellation test. It is equal to the `sleep` of the child, thus
+    /// only the cancellation can stop the run before the `sleep` ends.
+    private static let cancelledRunTimeout: Duration = .seconds(childSleepSeconds)
+
+    /// The longest real time from the cancellation to the end of the run.
+    ///
+    /// It is far below `childSleepSeconds`, thus a run that waits for the `sleep` of the child to
+    /// end fails. It is far above the delay of the scheduler under load (one full run showed more
+    /// than 6 seconds), thus a busy machine does not make the test fail.
+    private static let cancelledRunLimit: Duration = .seconds(30)
+
+    /// The shell script of the cancellation test. It writes the pid of its shell and a newline to
+    /// the file `$1`, and then replaces the shell with `sleep $2`. `exec` keeps the pid, thus the
+    /// pid in the file is the pid of the `sleep`.
+    private static let writePIDThenSleepScript = #"echo $$ > "$1"; exec sleep "$2""#
+
+    /// Reads the pid that the child of the cancellation test wrote.
+    /// - Parameter file: The file that the child writes its pid to.
+    /// - Returns: The pid, or `nil` when the file does not exist yet or does not hold a complete
+    ///   line yet.
+    private static func childPID(in file: URL) -> pid_t? {
+        guard let text = try? String(contentsOf: file, encoding: .utf8), text.hasSuffix("\n") else {
+            return nil
+        }
+        return pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     @Test
     func exitZeroReportsSuccessAndCapturesCombinedOutput() async throws {
         let runner = ProcessInstallRunner()
@@ -260,7 +298,7 @@ struct ProcessInstallRunnerTests {
         let result = try await runner.run(
             tool: "sh",
             arguments: ["-c", "echo install-stdout-marker; echo install-stderr-marker 1>&2"],
-            timeout: .seconds(10)
+            timeout: Self.selfEndingRunTimeout
         )
 
         #expect(result.exitCode == 0)
@@ -272,7 +310,7 @@ struct ProcessInstallRunnerTests {
     func exitOneReportsNonzeroExitCode() async throws {
         let runner = ProcessInstallRunner()
 
-        let result = try await runner.run(tool: "false", arguments: [], timeout: .seconds(10))
+        let result = try await runner.run(tool: "false", arguments: [], timeout: Self.selfEndingRunTimeout)
 
         #expect(result.exitCode != 0)
     }
@@ -282,8 +320,10 @@ struct ProcessInstallRunnerTests {
         let runner = ProcessInstallRunner()
 
         do {
-            _ = try await runner.run(tool: "sleep", arguments: ["60"], timeout: .milliseconds(200))
-            Issue.record("expected the timeout to fire before `sleep 60` exited on its own")
+            _ = try await runner.run(
+                tool: "sleep", arguments: [String(Self.childSleepSeconds)], timeout: Self.elapsingRunTimeout
+            )
+            Issue.record("expected the timeout to fire before `sleep \(Self.childSleepSeconds)` exited on its own")
         } catch let error as CodeContextError {
             guard case .timeout = error else {
                 Issue.record("expected CodeContextError.timeout, got \(error)")
@@ -294,21 +334,39 @@ struct ProcessInstallRunnerTests {
         }
     }
 
-    @Test
-    func cancellationTerminatesTheChildPromptly() async throws {
+    /// The cancellation of the calling task kills the child with `SIGKILL`, the run reaps the
+    /// child, and the run does not wait for the `sleep` of the child to end.
+    ///
+    /// The test does not measure the speed of the scheduler. The exit code and the pid check
+    /// prove the kill. The limit `cancelledRunLimit` is far from both the scheduler delay and
+    /// `childSleepSeconds`.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func cancellationKillsAndReapsTheChildBeforeItsSleepEnds() async throws {
+        let directory = TemporaryItem.makeURL(prefix: "install-child-pid")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pidFile = directory.appendingPathComponent("pid")
         let runner = ProcessInstallRunner()
         let task = Task {
-            try await runner.run(tool: "sleep", arguments: ["60"], timeout: .seconds(60))
+            try await runner.run(
+                tool: "sh",
+                arguments: ["-c", Self.writePIDThenSleepScript, "sh", pidFile.path, String(Self.childSleepSeconds)],
+                timeout: Self.cancelledRunTimeout
+            )
         }
-        // Give the child process a moment to actually spawn before cancelling, so this genuinely
-        // exercises `withTaskCancellationHandler`'s kill rather than racing process creation.
-        try await Task.sleep(for: .milliseconds(100))
+        defer { task.cancel() }
+
+        // The child writes its pid before it sleeps, thus after this wait the child runs.
+        try await waitUntil { Self.childPID(in: pidFile) != nil }
+        let pid = try #require(Self.childPID(in: pidFile))
 
         let start = ContinuousClock.now
         task.cancel()
-        _ = try? await task.value
+        let result = try await task.value
         let elapsed = ContinuousClock.now - start
 
-        #expect(elapsed < .seconds(5), "expected prompt termination on cancellation, took \(elapsed)")
+        #expect(result.exitCode == SIGKILL, "the child must end by SIGKILL, not by itself")
+        #expect(!processExists(pid), "the run must reap the killed child")
+        #expect(elapsed < Self.cancelledRunLimit, "the run waited \(elapsed) after the cancellation")
     }
 }

@@ -72,10 +72,26 @@ comments:
     - evidence: swift test — 1009 tests in 90 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete. The only warning is a SwiftPM message about the mlx-swift_Cmlx.bundle dependency, not from this package.
     - next: commit
   timestamp: 2026-10-18T14:01:22.207032+00:00
+- actor: claude-code
+  id: 01m57n5hc9r3gv6dwp7kggee01
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (88e6b10). 0 findings, 0 confirmed, 0 refuted. 5 files reviewed. The prior finding is checked and fixed: openedURIs, openedPaths, closedURIs and pulledURIs have one definition in Support/FakeLanguageServerConnection+URIs.swift. The test suites have no private copies.
+    - next: none. The task is in done.
+  timestamp: 2026-10-18T14:03:07.017053+00:00
+- actor: claude-code
+  id: 01m57n5v6kqbr6znjqm2ct7cck
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 5 test files (shared fake-connection URI helpers)
+    - test: green — swift test, 1009 passed
+    - commit: 88e6b10
+    - review: clean — 0 findings; 1 of 1 prior item checked
+  timestamp: 2026-10-18T14:03:17.075084+00:00
 depends_on:
 - 01M53GKT21C40MET23PKN3TJYR
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: f080
 title: Load the ignore rules of the shared path filter also when CodeContext has no watcher
 ---
 ## Problem
