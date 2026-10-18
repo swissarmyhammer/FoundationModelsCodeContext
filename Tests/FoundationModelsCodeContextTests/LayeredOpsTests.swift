@@ -772,7 +772,7 @@ struct LayeredOpsTests {
 
     @Test
     func definitionRejectsAPathTraversalFilePathWithoutTouchingTheConnectionOrDiskOutsideTheWorkspace() async throws {
-        try await withTemporaryWorkspace { root in
+        try await TemporaryItem.withNestedWorkspace { root in
             let store = try Store(rootDirectory: root)
             // A real, readable file sitting just outside the workspace root —
             // if '..' components in `filePath` were resolved instead of

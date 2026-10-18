@@ -94,15 +94,23 @@ struct PathFilterTests {
 
     @Test
     func loadThrowsWhenARuleFileCannotBeRead() async throws {
+        _ = CapturedLogRecords.handler
         try await withTemporaryWorkspace { root in
-            try write("a.rs\n", to: ".gitignore", in: root)
-            let ruleFile = root.appendingPathComponent(".gitignore")
+            let ruleFilePath = "unreadable-rules-\(UUID().uuidString)/.gitignore"
+            try write("a.rs\n", to: ruleFilePath, in: root)
+            let ruleFile = root.appendingPathComponent(ruleFilePath)
             try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: ruleFile.path)
             defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: ruleFile.path) }
 
-            #expect(throws: PathFilter.LoadError.self) {
+            #expect(throws: PathFilter.LoadError(relativePath: ruleFilePath)) {
                 try PathFilter.load(rootDirectory: root)
             }
+            let warnings = CapturedLogRecords.entries(matching: [CodeContextTracing.MetadataKey.filePath: ruleFilePath])
+            #expect(
+                warnings.map(\.message.description)
+                    == ["the walk cannot read an ignore rule file and continues without its rules"]
+            )
+            #expect(warnings.allSatisfy { $0.level == .warning })
         }
     }
 

@@ -47,6 +47,14 @@ struct ConnectionTests {
     /// The JSON-RPC id of the unknown server request. It is not the id of a client request.
     private static let unknownServerRequestID = 41
 
+    /// Gives the path of the joined scripted-server file in
+    /// `TemporaryItem.scriptedLSPServerDirectory`, and writes the file if it is not there yet.
+    /// - Returns: The absolute path of the script file.
+    /// - Throws: The error of a read of a source file, or of the write of the joined file.
+    private static func scriptedServerPath() throws -> String {
+        try ScriptedLSPServerScript.path(in: TemporaryItem.scriptedLSPServerDirectory)
+    }
+
     /// Spawns a `ProcessLanguageServerConnection` against the scripted subprocess.
     /// - Parameters:
     ///   - steps: The subprocess's script, per `scripted-lsp-server.swift`'s DSL.
@@ -61,7 +69,7 @@ struct ConnectionTests {
         let scriptJSON = String(decoding: scriptData, as: UTF8.self)
         return try ProcessLanguageServerConnection(
             command: "swift",
-            arguments: [try ScriptedLSPServerScript.path(in: TemporaryItem.root), scriptJSON],
+            arguments: [try scriptedServerPath(), scriptJSON],
             requestTimeout: requestTimeout,
             clock: clock
         )
@@ -505,7 +513,7 @@ struct ConnectionTests {
         let scriptJSON = String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
         let spec = ServerSpec(
             command: "swift",
-            arguments: [try ScriptedLSPServerScript.path(in: TemporaryItem.root), scriptJSON],
+            arguments: [try scriptedServerPath(), scriptJSON],
             languageIDs: ["swift"],
             installHint: "the scripted server needs no install",
             initializationOptions: initializationOptions

@@ -480,7 +480,7 @@ struct LSPIndexWorkerTests {
 
     @Test
     func drainBatchRejectsAPathTraversalRelativePathWithoutTouchingTheConnection() async throws {
-        try await withTemporaryWorkspace { root in
+        try await TemporaryItem.withNestedWorkspace { root in
             let store = try Store(rootDirectory: root)
             // A real, readable file sitting just outside the workspace root —
             // if `..` components in `file_path` were resolved instead of

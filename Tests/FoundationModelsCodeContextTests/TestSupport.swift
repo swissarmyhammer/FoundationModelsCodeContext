@@ -35,6 +35,15 @@ enum TemporaryItem {
     /// `withIntermediateDirectories: true` also creates this directory.
     static let root = parent.appendingPathComponent("FoundationModelsCodeContextTests-\(getuid())", isDirectory: true)
 
+    /// The fixed subfolder of `root` that holds the joined script files of
+    /// `ScriptedLSPServerScript.path(in:)`.
+    ///
+    /// The script file is a cache: each test and each test run use the same
+    /// file again, thus the folder has a fixed name. The folder keeps the
+    /// cache out of `root` itself, because no test writes directly into
+    /// `root`.
+    static let scriptedLSPServerDirectory = root.appendingPathComponent("scripted-lsp-server", isDirectory: true)
+
     /// Gives a new, unique URL below `root`. No item exists at the URL.
     ///
     /// Create the item with `withIntermediateDirectories: true`, because
@@ -56,6 +65,32 @@ func withTemporaryWorkspace<T>(_ body: (URL) async throws -> T) async throws -> 
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
     return try await body(root)
+}
+
+extension TemporaryItem {
+    /// The name of the workspace root in its private parent directory.
+    private static let nestedWorkspaceName = "workspace"
+
+    /// Creates a workspace root for `body` one level below a new private
+    /// directory, and removes both after `body` on each exit path.
+    ///
+    /// Use this when a test writes a file outside the root, for example
+    /// `../secret.swift`. The parent of a root from `withTemporaryWorkspace`
+    /// is `TemporaryItem.root`, which all tests share and which no test
+    /// removes. The parent of this root is a directory of this test only,
+    /// thus a file that the test writes in it goes away with the directory,
+    /// and two parallel tests never write the same file.
+    /// - Parameter body: The work. It gets the workspace root.
+    /// - Returns: `body`'s result.
+    /// - Throws: Rethrows what `body` throws, or the error of the creation of
+    ///   a directory.
+    static func withNestedWorkspace<T>(_ body: (URL) async throws -> T) async throws -> T {
+        try await withTemporaryWorkspace { parent in
+            let root = parent.appendingPathComponent(nestedWorkspaceName, isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            return try await body(root)
+        }
+    }
 }
 
 /// The POSIX mode `-wx------` of a directory: write and search, no read.
