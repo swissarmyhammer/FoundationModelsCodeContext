@@ -216,6 +216,40 @@ struct BinaryLookupTests {
 
         #expect(location == .extraSearchDirectory(absolutePath: binaryPath.path))
     }
+
+    // MARK: - pathDiagnostics(pathVariable:)
+
+    @Test
+    func pathDiagnosticsCountEachEntryAndListEachEntryThatIsNotAbsolute() {
+        let absoluteEntries = ["/usr/bin"]
+        let nonAbsoluteEntries = ["~/.local/bin", "relative/bin", "$HOME/bin"]
+
+        let diagnostics = BinaryLookup.pathDiagnostics(pathVariable: "~/.local/bin:/usr/bin:relative/bin:$HOME/bin")
+
+        #expect(
+            diagnostics
+                == BinaryLookup.PathDiagnostics(
+                    entryCount: absoluteEntries.count + nonAbsoluteEntries.count,
+                    nonAbsoluteEntries: nonAbsoluteEntries
+                )
+        )
+    }
+
+    @Test
+    func pathDiagnosticsCountOnlyTheEntriesThatTheLookupSearches() {
+        let searchedEntries = ["/usr/bin", "/bin"]
+
+        let diagnostics = BinaryLookup.pathDiagnostics(pathVariable: "/usr/bin::/bin:")
+
+        #expect(diagnostics == BinaryLookup.PathDiagnostics(entryCount: searchedEntries.count, nonAbsoluteEntries: []))
+    }
+
+    @Test
+    func pathDiagnosticsOfAMissingPathHaveNoEntry() {
+        let diagnostics = BinaryLookup.pathDiagnostics(pathVariable: nil)
+
+        #expect(diagnostics == BinaryLookup.PathDiagnostics(entryCount: 0, nonAbsoluteEntries: []))
+    }
 }
 
 /// Integration tests for `ProcessInstallRunner` against harmless real executables (`true`,

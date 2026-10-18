@@ -1,14 +1,65 @@
 import Darwin
 import Foundation
 
-/// Shared low-level POSIX process-I/O helpers used by both `ProcessLanguageServerConnection` and
-/// `ProcessInstallRunner` (`ServerInstaller.swift`) to read from a child process's pipe file
-/// descriptors.
+/// Shared low-level POSIX process helpers. `ProcessLanguageServerConnection`,
+/// `ProcessInstallRunner` (`ServerInstaller.swift`) and `GitShell` (`DiagnosticsScope.swift`)
+/// make each child process with `makeChildProcess`, and the first two read the pipe file
+/// descriptors of the child with the read helpers.
 enum ProcessUtilities {
     /// The `env(1)` path both `ProcessLanguageServerConnection` and `ProcessInstallRunner` spawn
     /// through to resolve a bare executable name (e.g. `"rust-analyzer"`, `"npm"`) against
     /// `$PATH`, exactly as a shell would, without either caller pre-resolving a full path itself.
     static let envExecutablePath = "/usr/bin/env"
+
+    /// The standard input that a child process gets from `makeChildProcess`.
+    enum StandardInput {
+        /// The null device. A child that reads it gets the end of the file at once. Use it for
+        /// each child that does not need input from this process.
+        case nullDevice
+
+        /// A pipe that the caller owns and writes to, for example the JSON-RPC channel to a
+        /// language server.
+        case pipe(Pipe)
+    }
+
+    /// Makes a child process that shares no standard stream with this process.
+    ///
+    /// Foundation `Process` gives the child the stream of this process for each stream that the
+    /// caller does not set. The host of this library can use its own standard input and standard
+    /// output for a protocol (ACP, or MCP over stdio). A child that reads the standard input of
+    /// the host takes bytes of that protocol, and the session of the host stops. A child that
+    /// writes to the standard output of the host puts bytes into that protocol. Thus this
+    /// function sets all three streams, and each caller must give each of them.
+    /// - Parameters:
+    ///   - executableURL: The executable that the process runs.
+    ///   - arguments: The arguments of the executable.
+    ///   - standardInput: The standard input of the child: the null device, or a pipe that the
+    ///     caller owns.
+    ///   - standardOutput: The pipe that gets the standard output of the child.
+    ///   - standardError: The pipe that gets the standard error of the child. It can be the same
+    ///     pipe as `standardOutput`.
+    /// - Returns: The process, not yet started. The caller sets other properties and calls
+    ///   `run()`.
+    static func makeChildProcess(
+        executableURL: URL,
+        arguments: [String],
+        standardInput: StandardInput,
+        standardOutput: Pipe,
+        standardError: Pipe
+    ) -> Process {
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        switch standardInput {
+        case .nullDevice:
+            process.standardInput = FileHandle.nullDevice
+        case .pipe(let pipe):
+            process.standardInput = pipe
+        }
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+        return process
+    }
 
     /// The chunk size both background drain loops (`ProcessLanguageServerConnection`'s reader and
     /// stderr loops, `ProcessInstallRunner`'s combined-output loop) request by default from

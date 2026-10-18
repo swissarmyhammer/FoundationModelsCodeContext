@@ -41,10 +41,26 @@ comments:
     - evidence: swift test — 904 tests in 80 suites passed, 0 failed, 0 skipped, 0 warnings from this package (only the SwiftPM build-system note "missing creator for mutated node" on the mlx-swift_Cmlx.bundle dependency); swift build --package-path IntegrationTests --build-tests — Build complete, 0 errors. An earlier full run had 2 timing failures in LspSupervisorTests (unchanged code) while the IntegrationTests build ran at the same time and starved the host; they passed alone (22/22) and the clean full re-run passed.
     - next: commit
   timestamp: 2026-10-18T00:20:41.183507+00:00
+- actor: claude-code
+  id: 01m566jpgqznpch0m9wg0n6z2q
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (e850544): 0 findings, 0 confirmed, 1 refuted, 28 attempted, 0 failed. 18 files reviewed. 8 .kanban/ files not reviewed (.reviewignore). The task has no prior Review Findings sections. Acceptance criteria: LSPPathCheckTests.swift has tests for an ignored dirty row (no didOpen, row not selected again), a symlink out of the root (worker, live op, diagnostics) and no pull of diagnostics for a path that fails the check.
+    - next: none. The task moved to done.
+  timestamp: 2026-10-18T00:28:55.191663+00:00
+- actor: claude-code
+  id: 01m566jyjj6a88exp1x1hag31x
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 8 source files, 10 test files
+    - test: green — swift test, 904 passed
+    - commit: e850544
+    - review: clean — 0 findings
+  timestamp: 2026-10-18T00:29:03.442096+00:00
 depends_on:
 - 01M53GKH8NBN2B0MCXS2RNY171
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: e480
 title: Do not send ignored paths or paths outside the root to the LSP
 ---
 ## Problem

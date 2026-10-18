@@ -192,16 +192,18 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         metrics: CodeContextMetrics = CodeContextMetrics(),
         tracer: (any Tracer)? = nil
     ) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ProcessUtilities.envExecutablePath)
-        process.arguments = [command] + arguments
-
+        // The server gets its own three pipes. It never gets a standard stream of the host,
+        // because the host can use its standard streams for a protocol (ACP, MCP over stdio).
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        let process = ProcessUtilities.makeChildProcess(
+            executableURL: URL(fileURLWithPath: ProcessUtilities.envExecutablePath),
+            arguments: [command] + arguments,
+            standardInput: .pipe(stdinPipe),
+            standardOutput: stdoutPipe,
+            standardError: stderrPipe
+        )
 
         do {
             try process.run()

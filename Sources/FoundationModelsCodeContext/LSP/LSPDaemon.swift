@@ -292,7 +292,13 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
             )
         else {
             if !hasWarnedNotFound {
-                Log.lsp.warning("the binary of the language server is not on the PATH", metadata: serverMetadata)
+                // The PATH diagnostics show the cause when the binary is on disk but the lookup
+                // does not find it, for example a PATH entry that is the literal text `~/.local/bin`.
+                let pathDiagnostics = BinaryLookup.pathDiagnostics(pathVariable: ProcessInfo.processInfo.environment["PATH"])
+                Log.lsp.warning(
+                    "the binary of the language server is not on the PATH",
+                    metadata: serverMetadata.merging(pathDiagnostics.logMetadata) { server, _ in server }
+                )
                 hasWarnedNotFound = true
             }
             currentState = .notFound

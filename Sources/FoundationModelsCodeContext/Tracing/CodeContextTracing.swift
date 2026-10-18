@@ -229,6 +229,14 @@ public enum CodeContextTracing {
         /// The exit code of a process that the package ran.
         public static let exitCode = "process.exit_code"
 
+        /// The number of entries of the `PATH` of this process that the binary lookup searches.
+        public static let pathEntryCount = "process.path.entry_count"
+
+        /// Each entry of the `PATH` of this process that is not an absolute path, for example
+        /// `~/.local/bin`. The binary lookup does not expand `~` or `$HOME` in such an entry. The
+        /// value is a list of directory names, never the content of a file.
+        public static let pathNonAbsoluteEntries = "process.path.non_absolute_entries"
+
         /// The length of each vector that the embedder makes. The index pass gets it from the
         /// first vector that the embedder returns, not from the embedder: `PooledEmbedding`
         /// declares no vector length.

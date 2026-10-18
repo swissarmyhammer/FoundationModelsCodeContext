@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -76,6 +77,37 @@ struct LSPDaemonTests {
         }
         let state = await daemon.state()
         #expect(state == .notFound)
+    }
+
+    @Test
+    func theNotOnThePathWarningCarriesTheDiagnosticsOfThePath() async {
+        _ = CapturedLogRecords.handler
+        let command = "nonexistent-lsp-binary-\(UUID().uuidString)"
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(command: command),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: { _, _ in
+                Issue.record("the connection factory must not run when the binary isn't on PATH")
+                throw SimulatedHandshakeFailure()
+            }
+        )
+
+        await #expect(throws: CodeContextError.self) {
+            try await daemon.start()
+        }
+
+        let diagnostics = BinaryLookup.pathDiagnostics(pathVariable: ProcessInfo.processInfo.environment["PATH"])
+        let warnings = CapturedLogRecords.entries(matching: [
+            CodeContextTracing.MetadataKey.lspServer: command,
+            CodeContextTracing.MetadataKey.pathEntryCount: String(diagnostics.entryCount),
+        ])
+        #expect(warnings.count == 1)
+        let nonAbsoluteEntries = Logger.MetadataValue.array(diagnostics.nonAbsoluteEntries.map { .string($0) })
+        #expect(
+            warnings.first?.metadata[CodeContextTracing.MetadataKey.pathNonAbsoluteEntries]?.description
+                == nonAbsoluteEntries.description
+        )
     }
 
     @Test

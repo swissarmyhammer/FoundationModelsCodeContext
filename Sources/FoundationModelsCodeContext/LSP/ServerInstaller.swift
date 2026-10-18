@@ -23,13 +23,49 @@ enum BinaryLookup {
         case extraSearchDirectory(absolutePath: String)
     }
 
+    /// What the `$PATH` of this process holds, for the warning that a binary is not on the `$PATH`.
+    ///
+    /// The diagnostics do not change the lookup. They show the cause when a binary that is on
+    /// disk is not found, for example a `$PATH` entry that is the literal text `~/.local/bin`.
+    struct PathDiagnostics: Sendable, Equatable {
+        /// The number of `$PATH` entries that `isOnPath(_:)` searches.
+        let entryCount: Int
+
+        /// Each searched `$PATH` entry that is not an absolute path, in `$PATH` order.
+        /// `isOnPath(_:)` does not expand `~` or `$HOME` in such an entry.
+        let nonAbsoluteEntries: [String]
+
+        /// The log metadata of these diagnostics: the entry count and the non-absolute entries.
+        var logMetadata: Logger.Metadata {
+            [
+                CodeContextTracing.MetadataKey.pathEntryCount: .stringConvertible(entryCount),
+                CodeContextTracing.MetadataKey.pathNonAbsoluteEntries: .array(nonAbsoluteEntries.map { .string($0) }),
+            ]
+        }
+    }
+
+    /// Gives the diagnostics of `pathVariable`, with the same split that `isOnPath(_:)` uses.
+    /// - Parameter pathVariable: The value of `$PATH`, or `nil` when `$PATH` is not set.
+    /// - Returns: The number of searched entries and each searched entry that is not absolute.
+    static func pathDiagnostics(pathVariable: String?) -> PathDiagnostics {
+        let entries = pathVariable.map(searchDirectories(of:)) ?? []
+        return PathDiagnostics(entryCount: entries.count, nonAbsoluteEntries: entries.filter { !$0.hasPrefix("/") })
+    }
+
+    /// Splits `pathVariable` into the directories that the lookup searches, in order. An empty
+    /// entry is not searched.
+    /// - Parameter pathVariable: The value of `$PATH`.
+    /// - Returns: The non-empty entries of `pathVariable`.
+    private static func searchDirectories(of pathVariable: String) -> [String] {
+        pathVariable.split(separator: ":").map(String.init)
+    }
+
     /// Reports whether `command` resolves to an executable file somewhere on `$PATH`.
     /// - Parameter command: The executable name to search for (no path separators).
     /// - Returns: `true` if `command` resolves to an executable file on `$PATH`; `false` otherwise.
     static func isOnPath(_ command: String) -> Bool {
         guard let pathVariable = ProcessInfo.processInfo.environment["PATH"] else { return false }
-        let searchDirectories = pathVariable.split(separator: ":").map(String.init)
-        for directory in searchDirectories {
+        for directory in searchDirectories(of: pathVariable) {
             let candidatePath = (directory as NSString).appendingPathComponent(command)
             if FileManager.default.isExecutableFile(atPath: candidatePath) {
                 return true
@@ -152,13 +188,17 @@ struct ProcessInstallRunner: InstallRunner {
     }
 
     func run(tool: String, arguments: [String], timeout: Duration) async throws -> InstallRunResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ProcessUtilities.envExecutablePath)
-        process.arguments = [tool] + arguments
-
+        // The installer gets the null device as its standard input, not the standard input of
+        // the host. An installer such as `npm` reads its standard input while it runs, and the
+        // host can use its standard input for a protocol (ACP, MCP over stdio).
         let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        let process = ProcessUtilities.makeChildProcess(
+            executableURL: URL(fileURLWithPath: ProcessUtilities.envExecutablePath),
+            arguments: [tool] + arguments,
+            standardInput: .nullDevice,
+            standardOutput: outputPipe,
+            standardError: outputPipe
+        )
 
         do {
             try process.run()

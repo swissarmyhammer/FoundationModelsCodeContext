@@ -13,7 +13,8 @@ import Testing
 /// of `stopLanguageServers()` and `startLanguageServers()` write a Cargo
 /// manifest, thus the context manages one server. These tests also write a
 /// fake server binary, thus the server runs also on a machine that does not
-/// have the real server. The auto install is off.
+/// have the real server. The auto install is off, except in the test of a
+/// failed install, which gives a fake installer runner.
 struct CodeContextStartTests {
     /// The pid that each fake server process reports.
     private static let fakeServerPid: Int32 = 1
@@ -404,7 +405,8 @@ struct CodeContextStartTests {
     /// `directory` as its only extra search directory.
     ///
     /// The real project detection and the real Rust spec stay in use. Only the place where the
-    /// binary lookup finds the binary changes. The auto install is off, thus no installer runs.
+    /// binary lookup finds the binary changes. The lookup finds the fake binary, thus no
+    /// installer runs for a detected server.
     /// - Parameter directory: The directory that holds the fake binary of each server.
     /// - Returns: The spec mapping that the context gives to its supervisor.
     private static func serverSpecs(searching directory: URL) -> ServerSpecsForProjects {
@@ -449,6 +451,99 @@ struct CodeContextStartTests {
             processState: processState,
             serverSpecs: serverSpecs(searching: binaryDirectory)
         )
+    }
+
+    // MARK: - A failed install
+
+    /// The installer tool of the server whose install fails. `ServerInstaller` runs an installer
+    /// only when its tool is on the PATH, and `true` is on the PATH of each machine. The fake
+    /// runner does not run it.
+    private static let alwaysPresentInstallerTool = "true"
+
+    /// The exit code that the fake installer gives: a failed install.
+    private static let failedInstallExitCode: Int32 = 1
+
+    /// Gives the server specs of `serverSpecs(searching:)` and one more spec for `missingCommand`.
+    ///
+    /// The binary lookup finds `missingCommand` nowhere, and its installer tool is on the PATH.
+    /// Thus the supervisor runs the installer for that server.
+    /// - Parameters:
+    ///   - directory: The directory that holds the fake binary of each detected server.
+    ///   - missingCommand: The command of the server that is on no PATH.
+    /// - Returns: The spec mapping that the context gives to its supervisor.
+    private static func serverSpecs(searching directory: URL, missingCommand: String) -> ServerSpecsForProjects {
+        let detectedSpecs = serverSpecs(searching: directory)
+        return { projects in
+            detectedSpecs(projects) + [
+                ServerSpec(
+                    command: missingCommand,
+                    languageIDs: ["fake"],
+                    installHint: "install \(missingCommand) by hand",
+                    installer: ServerSpec.InstallSpec(tool: alwaysPresentInstallerTool)
+                )
+            ]
+        }
+    }
+
+    /// Waits until the installer of `command` ran one time and the server of `command` is
+    /// `.notFound` again.
+    ///
+    /// The time limit of the test cancels a wait that cannot end, and the wait then throws.
+    /// - Parameters:
+    ///   - context: The context that gives the server status.
+    ///   - runner: The fake installer runner of the context.
+    ///   - command: The command of the server whose install fails.
+    /// - Throws: `CancellationError` when the task of the test is cancelled.
+    private static func waitForTheFailedInstall(
+        of context: CodeContext<FakeLanguageServerConnection>,
+        runner: FakeInstallRunner,
+        command: String
+    ) async throws {
+        while true {
+            let hasRun = await !runner.invocations.isEmpty
+            let state = await context.lspStatus().first { $0.command == command }?.state
+            if hasRun && state == .notFound {
+                return
+            }
+            try await Task.sleep(for: statusPollInterval)
+        }
+    }
+
+    /// An installer that exits with 1 does not stop the session: `start()` completes, the server
+    /// of that installer stays `.notFound`, the other server runs and the index answers.
+    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    func aFailedInstallLeavesItsServerNotFoundAndTheOtherServerAndTheIndexRunning() async throws {
+        try await withTemporaryWorkspace { root in
+            try await withTemporaryWorkspace { binaryDirectory in
+                try Self.writeFixture(in: root)
+                try Self.writeRustProjectMarker(in: root)
+                try Self.writeFakeRustServerBinary(in: binaryDirectory)
+                let missingCommand = "fake-missing-language-server-\(UUID().uuidString)"
+                let runner = FakeInstallRunner()
+                await runner.updateResult(.success(InstallRunResult(exitCode: Self.failedInstallExitCode, output: "")))
+                let context = try await CodeContext<FakeLanguageServerConnection>(
+                    rootDirectory: root,
+                    embedder: nil,
+                    eventSource: FakeFileEventSource(),
+                    installRunner: runner,
+                    serverSpecs: Self.serverSpecs(searching: binaryDirectory, missingCommand: missingCommand),
+                    connectionFactory: fakeConnectionFactory(pid: Self.fakeServerPid, processState: ProcessState())
+                )
+
+                try await context.start()
+                try await Self.waitForTheFailedInstall(of: context, runner: runner, command: missingCommand)
+                await context.waitForFirstIndexPass()
+                let servers = await context.lspStatus()
+                let matches = try await context.searchSymbol(query: "greet0")
+                let invocations = await runner.invocations
+                await context.stop()
+
+                #expect(servers.contains(ServerStatus(command: missingCommand, state: .notFound)))
+                #expect(servers.contains(Self.runningRustServer))
+                #expect(matches.contains { $0.name == "greet0" })
+                #expect(invocations.count == 1)
+            }
+        }
     }
 
     /// Before `start()` and after `stop()`, the two calls do nothing and give `lspStatus()`.

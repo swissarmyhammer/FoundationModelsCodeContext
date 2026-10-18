@@ -254,15 +254,18 @@ enum GitShell {
     /// The actual blocking `git` invocation, run only from the background
     /// queue `run(arguments:in:)` dispatches onto.
     private static func runBlocking(arguments: [String], in directory: URL) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git"] + arguments
-        process.currentDirectoryURL = directory
-
+        // `git` gets the null device as its standard input, not the standard input of the host.
+        // The host can use its standard input for a protocol (ACP, MCP over stdio).
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        let process = ProcessUtilities.makeChildProcess(
+            executableURL: URL(fileURLWithPath: ProcessUtilities.envExecutablePath),
+            arguments: ["git"] + arguments,
+            standardInput: .nullDevice,
+            standardOutput: stdoutPipe,
+            standardError: stderrPipe
+        )
+        process.currentDirectoryURL = directory
 
         do {
             try process.run()
