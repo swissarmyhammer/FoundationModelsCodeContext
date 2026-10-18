@@ -40,8 +40,31 @@ comments:
     - warnings: only the SwiftPM warning "missing creator for mutated node ... mlx-swift_Cmlx.bundle". It comes from a dependency (task ^kw00hcn). No warning comes from this repo.
     - next: none. No file was changed. No commit was made.
   timestamp: 2026-10-18T15:33:56.398971+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m57tcf9hpnnpx9ez6fg621cz
+  text: |-
+    ### commit — changed
+    - evidence: 1ccdfa4 test: stop the hang step of the test server at the end of stdin ^qma01sw (7 files)
+    - next: none. The commit is local. It is not pushed.
+  timestamp: 2026-10-18T15:34:17.137348+00:00
+- actor: claude-code
+  id: 01m57tebt93jy27zze8d83av91
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 1ccdfa4); findings 0, confirmed 0, refuted 0; 3 files reviewed; 4 .kanban files not reviewed because of .reviewignore.
+    - next: none. The task is in done.
+  timestamp: 2026-10-18T15:35:19.113199+00:00
+- actor: claude-code
+  id: 01m57tejq6wjvcga3e9b3614fm
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 3 files
+    - test: green — swift test 1015 passed; swift test --package-path IntegrationTests 16 passed
+    - commit: 1ccdfa4
+    - review: clean — 0 findings
+  timestamp: 2026-10-18T15:35:26.182333+00:00
+position_column: done
+position_ordinal: f880
 title: The hang step of scripted-lsp-server must stop the script when stdin closes
 ---
 ## Problem
