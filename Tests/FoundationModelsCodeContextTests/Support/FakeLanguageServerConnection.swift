@@ -135,6 +135,11 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
     /// caller is cancelled, as a real server that has not answered yet.
     var referencesCallHook: (@Sendable () async throws -> Void)?
 
+    /// Optional hook that `didOpen(uri:languageID:version:text:)` calls after it records its
+    /// call and before it returns its scripted result. A test uses it to keep a `didOpen` in
+    /// flight while a second sync of the same document starts.
+    var didOpenCallHook: (@Sendable () async -> Void)?
+
     private let notificationContinuation: AsyncStream<ServerNotification>.Continuation
 
     /// Server-initiated notifications, fed by tests via `emit(notification:)`.
@@ -259,6 +264,25 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
         referencesCallHook = hook
     }
 
+    /// Installs (or clears) `didOpenCallHook`.
+    /// - Parameter hook: Called after `didOpen(uri:languageID:version:text:)` records its call,
+    ///   before it returns its scripted result. Pass `nil` to remove a previously installed hook.
+    func setDidOpenCallHook(_ hook: (@Sendable () async -> Void)?) {
+        didOpenCallHook = hook
+    }
+
+    /// Scripts the result `didClose(uri:)` returns (or throws) on its next call.
+    /// - Parameter result: The scripted outcome to install as `didCloseResult`.
+    func setDidCloseResult(_ result: Result<Void, Error>) {
+        didCloseResult = result
+    }
+
+    /// Scripts the result `didChange(uri:version:text:)` returns (or throws) on its next call.
+    /// - Parameter result: The scripted outcome to install as `didChangeResult`.
+    func setDidChangeResult(_ result: Result<Void, Error>) {
+        didChangeResult = result
+    }
+
     /// Pushes a server-initiated notification onto `serverNotifications`, simulating an
     /// unsolicited message like `textDocument/publishDiagnostics`.
     /// - Parameter notification: The notification to emit.
@@ -290,6 +314,7 @@ actor FakeLanguageServerConnection: LanguageServerConnection {
 
     func didOpen(uri: DocumentURI, languageID: String, version: Int, text: String) async throws {
         calls.append(.didOpen(uri: uri, languageID: languageID, version: version, text: text))
+        await didOpenCallHook?()
         try didOpenResult.get()
     }
 

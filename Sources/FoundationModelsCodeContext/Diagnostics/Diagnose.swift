@@ -157,10 +157,35 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
             return
         }
         let uri = documentURI(forRelativePath: file, rootDirectory: rootDirectory)
-        if let text = readFileContents(relativePath: file, rootDirectory: rootDirectory) {
-            try? await session.syncOpen(uri: uri, text: text)
-        }
+        let text = readFileContents(relativePath: file, rootDirectory: rootDirectory)
+        let isInUse = await beginToolUse(of: uri, text: text, session: session)
         _ = try? await session.pullDiagnostics(uri: uri)
+        if isInUse {
+            await session.endUse(uri: uri)
+        }
+    }
+
+    /// Syncs `text` to `session` as a document of a tool op and begins one
+    /// use of it, so that the open-document limit of the session does not
+    /// close it while the pull runs. After the use, the document stays open
+    /// and the tool ops own it; the limit of the session closes it later.
+    /// - Parameters:
+    ///   - uri: The document to sync.
+    ///   - text: The disk text of the document, or `nil` when the file cannot
+    ///     be read.
+    ///   - session: The session to sync through.
+    /// - Returns: `true` when the use began, thus the caller must end it;
+    ///   `false` when `text` is `nil` or the sync failed.
+    private static func beginToolUse(of uri: DocumentURI, text: String?, session: LspSession<Connection>) async -> Bool {
+        guard let text else {
+            return false
+        }
+        do {
+            try await session.beginUse(uri: uri, text: text, owner: .tool)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Reads `relativePath`'s content from disk as UTF-8 text, or `nil` if it can't be read or decoded.

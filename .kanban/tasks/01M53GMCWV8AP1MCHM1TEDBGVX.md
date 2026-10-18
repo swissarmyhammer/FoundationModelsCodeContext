@@ -1,8 +1,44 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '8580'
+comments:
+- actor: claude-code
+  id: 01m5772crvapxer722navmw4ky
+  text: |-
+    Research done. Current state:
+    - LspSession keeps `docs: [DocumentURI: DocState]` with no limit, no owner. `syncOpen` writes `docs` after the `await` (reentrancy race). `didClose(uri:)` has one caller: `LSPIndexWorker.closeDocument`.
+    - `LSPIndexWorker.syncAndFetchSymbols` returns nil on a failed `documentSymbols` and the caller returns with no close. The references fallback (`LSPIndexWorker+References.swift`, `fetchCallableSymbols`) has the same leak, and its close can close the file that `processFile` still uses (same URI, nested).
+    - Live ops: `LiveOpsCore.syncLiveDocument` (7 callers in LiveOpsCore and LiveOpsExtended) and `DiagnosticsOps.syncAndPull` sync and never close.
+    - Rust reference: `swissarmyhammer-lsp/src/session/open_documents.rs` (`MAX_OPEN_DOCUMENTS = 50`, `DocumentOwner` tool/indexer, tool is sticky, LRU by a tick). Rust has no "in use" count; this port adds one, because the card asks that a document that an op uses now is not closed.
+    Plan: new `OpenDocuments` value type (owner, LRU tick, use count, limit); per-URI FIFO gate in the session so open and close of one URI run in sequence; the entry goes into the set before the `didOpen` await so the count never goes above the limit; `beginUse`/`endUse`; `closeIfOwned(uri:by:)` replaces `didClose(uri:)`; worker and live ops use them.
+  timestamp: 2026-10-18T09:56:43.931814+00:00
+- actor: claude-code
+  id: 01m578h8qy9esvh9rfq3rrsfka
+  text: |-
+    Implementation landed.
+    - New `LSP/OpenDocuments.swift`: `DocumentOwner` (tool, indexer; tool is sticky) and `OpenDocuments` (entries with owner and LRU tick, use counts, `defaultLimit = 50`).
+    - `LspSession`: `init(... maximumOpenDocuments:)` (injectable limit). `syncOpen(uri:text:owner:)` (owner defaults to `.tool`) holds a per-URI FIFO gate, so open and close of one URI run in sequence; a new entry goes into the set before the `didOpen` await, after `makeSpaceForOneDocument()` closes LRU documents that no op uses and that no gate holds. A failed LRU `didClose` fails the open; no candidate throws `LspSessionError.openDocumentLimit`. New `beginUse`/`endUse` and `closeIfOwned(uri:by:)`; `didClose(uri:)` is gone (its one caller was the worker).
+    - `LSPIndexWorker`: `withIndexerDocument(...)` syncs with owner indexer, runs the body while in use, then closes when the worker owns it, on every path (failed sync, failed documentSymbols, success; the close is before the store write). The references fallback uses the same helper, so a failed documentSymbols there no longer leaks, and a nested open of the same file no longer closes the file that processFile still uses.
+    - Live ops: `LiveOpsCore.syncLiveDocument` became `withLiveDocument(...)`, which keeps the document in use during the request; 7 callers changed. Diagnostics: `syncAndPull` keeps the document in use during the pull.
+    - Also named the magic numbers that `swiftlint --only-rule no_magic_numbers` reported in the touched files (`NotReadyErrorCode` in LspSession, `TreeSitterReferenceSearch` in LiveOpsCore).
+    Discoveries: a test that the references fallback closes `sample.py` one time passed on the old code (the fallback reuses the symbols of the indexed file and does not reopen it), so I deleted that test. The concurrent-sync test passes because of the insert-before-await; the per-URI gate adds the close/reopen ordering. RED was seen for the three worker tests against the old sources (git stash of LspSession).
+  timestamp: 2026-10-18T10:22:19.902364+00:00
+- actor: claude-code
+  id: 01m578hbdb02bvzw35kr4fs533
+  text: |-
+    ### implement — changed
+    - evidence: Sources: LSP/OpenDocuments.swift (new), LSP/LspSession.swift, Index/LSPIndexWorker.swift, Index/LSPIndexWorker+References.swift, Ops/LiveOpsCore.swift, Ops/LiveOpsExtended.swift, Diagnostics/Diagnose.swift. Tests: LspSessionOpenDocumentsTests.swift (new, 10 tests), LSPIndexWorkerTests.swift (+2), LSPIndexWorkerReferencesTests.swift (+1), Support/AsyncGate.swift (new), Support/FakeLanguageServerConnection.swift, Support/LspSessionTestSupport.swift, LspSessionTests.swift. Affected suites: 146 tests in 14 suites passed. Full `swift test`: 979 tests in 86 suites passed. `swiftlint lint --quiet --only-rule no_magic_numbers` on changed files: clean.
+    - next: /review
+  timestamp: 2026-10-18T10:22:22.635592+00:00
+- actor: claude-code
+  id: 01m578z5pxb7tzh2kdbd9nfmqp
+  text: |-
+    ### test — green
+    - evidence: swift test: 979 tests in 86 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests: Build complete, no call-site changes needed; changed files recompiled with zero warnings from this package (only a mlx-swift_Cmlx dependency build-system warning)
+    - next: commit
+  timestamp: 2026-10-18T10:29:55.549342+00:00
+position_column: doing
+position_ordinal: '80'
 title: Close LSP documents on all paths and limit the number of open documents
 ---
 ## Problem

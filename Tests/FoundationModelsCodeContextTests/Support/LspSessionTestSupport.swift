@@ -25,8 +25,16 @@ extension LspSession {
     /// - Parameters:
     ///   - connection: The connection the session drives.
     ///   - languageID: The LSP `languageId` to send on every `didOpen`.
-    init(connection: Connection, languageID: String) {
-        self.init(connection: connection, languageID: languageID, serverName: "fake-lsp", capabilities: .everyGatedMethod)
+    ///   - maximumOpenDocuments: The most documents that the session keeps
+    ///     open. Defaults to the limit that production uses.
+    init(connection: Connection, languageID: String, maximumOpenDocuments: Int = OpenDocuments.defaultLimit) {
+        self.init(
+            connection: connection,
+            languageID: languageID,
+            serverName: "fake-lsp",
+            capabilities: .everyGatedMethod,
+            maximumOpenDocuments: maximumOpenDocuments
+        )
     }
 
     /// Makes a Python session over a `pylsp` server that advertises

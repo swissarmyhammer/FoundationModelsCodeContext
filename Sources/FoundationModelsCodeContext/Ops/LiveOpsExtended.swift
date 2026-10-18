@@ -233,16 +233,15 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
         diagnostics: [Diagnostic],
         only: [String]?
     ) async throws -> CodeActionsResult? {
-        guard let session, let uri = await LiveOpsCore<Connection>.syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
+        guard let session else {
             return nil
         }
-        let rawActions: [CodeActionItem]
-        do {
-            rawActions = try await session.codeActions(uri: uri, range: range, diagnostics: diagnostics, only: only)
-        } catch {
-            return nil
+        let outcome = await LiveOpsCore<Connection>.withLiveDocument(
+            session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath
+        ) { uri in
+            try await session.codeActions(uri: uri, range: range, diagnostics: diagnostics, only: only)
         }
-        guard !rawActions.isEmpty else { return nil }
+        guard case .success(let rawActions)? = outcome, !rawActions.isEmpty else { return nil }
 
         var resolved: [CodeActionItem] = []
         resolved.reserveCapacity(rawActions.count)
@@ -292,20 +291,16 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     ) async throws -> RenameEditsResult {
         let cannotRename = RenameEditsResult(canRename: false, placeholder: nil, edit: nil)
 
-        guard let session, let uri = await LiveOpsCore<Connection>.syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
+        guard let session else {
             return cannotRename
         }
-
-        let batchResult: (prepare: PrepareRenameResult, edit: WorkspaceEdit?)
-        do {
-            batchResult = try await session.prepareRenameAndRename(
-                uri: uri, at: Position(line: line, character: character), newName: newName
-            )
-        } catch {
-            return cannotRename
+        let position = Position(line: line, character: character)
+        let outcome = await LiveOpsCore<Connection>.withLiveDocument(
+            session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath
+        ) { uri in
+            try await session.prepareRenameAndRename(uri: uri, at: position, newName: newName)
         }
-
-        guard let edit = batchResult.edit else {
+        guard case .success(let batchResult)? = outcome, let edit = batchResult.edit else {
             return cannotRename
         }
         return RenameEditsResult(canRename: true, placeholder: batchResult.prepare.placeholder, edit: edit)
@@ -377,29 +372,27 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
         line: Int,
         character: Int
     ) async throws -> InboundCallsResult? {
-        guard let session, let uri = await LiveOpsCore<Connection>.syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
+        guard let session else {
             return nil
         }
         let position = Position(line: line, character: character)
         guard session.capabilities.callHierarchy else {
-            return try await referenceInboundCalls(session: session, store: store, rootDirectory: rootDirectory, uri: uri, position: position)
+            let outcome = await LiveOpsCore<Connection>.withLiveDocument(
+                session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath
+            ) { uri in
+                try await referenceInboundCalls(session: session, store: store, rootDirectory: rootDirectory, uri: uri, position: position)
+            }
+            // A connection failure gives `nil` inside `referenceInboundCalls`, thus
+            // the error of the outcome is a storage error, and it goes to the caller.
+            return try outcome?.get() ?? nil
         }
 
-        let items: [CallHierarchyItem]
-        do {
-            items = try await session.prepareCallHierarchy(uri: uri, position: position)
-        } catch {
-            return nil
+        let outcome = await LiveOpsCore<Connection>.withLiveDocument(
+            session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath
+        ) { uri in
+            try await hierarchyIncomingCalls(session: session, uri: uri, position: position)
         }
-        guard let target = items.first else { return nil }
-
-        let rawCalls: [CallHierarchyIncomingCall]
-        do {
-            rawCalls = try await session.incomingCalls(item: target)
-        } catch {
-            return nil
-        }
-        guard !rawCalls.isEmpty else { return nil }
+        guard case .success(let rawCalls)? = outcome, !rawCalls.isEmpty else { return nil }
 
         let calls = try await store.read { db in
             try rawCalls.map { call -> InboundCall in
@@ -447,6 +440,26 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
         }
         guard !calls.isEmpty else { return nil }
         return InboundCallsResult(calls: calls, sourceLayer: .liveLSP)
+    }
+
+    /// Asks the server for the call-hierarchy item at `position`, then for
+    /// the incoming calls of the first item.
+    /// - Parameters:
+    ///   - session: The live session, already synced with the document.
+    ///   - uri: The document of the symbol.
+    ///   - position: The position of the symbol.
+    /// - Returns: The incoming calls; empty when the server gives no item.
+    /// - Throws: Whatever `LspSession.prepareCallHierarchy(uri:position:)` or
+    ///   `LspSession.incomingCalls(item:)` throws.
+    private static func hierarchyIncomingCalls(
+        session: LspSession<Connection>,
+        uri: DocumentURI,
+        position: Position
+    ) async throws -> [CallHierarchyIncomingCall] {
+        guard let target = try await session.prepareCallHierarchy(uri: uri, position: position).first else {
+            return []
+        }
+        return try await session.incomingCalls(item: target)
     }
 
     /// Groups reference locations by the callable symbol that holds each one.

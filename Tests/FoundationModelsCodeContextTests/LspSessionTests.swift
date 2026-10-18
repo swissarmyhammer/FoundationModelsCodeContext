@@ -49,7 +49,7 @@ struct LspSessionTests {
         let session = LspSession(connection: connection, languageID: "swift")
         let uri = DocumentURI("file:///tmp/a.swift")
 
-        try await session.syncOpen(uri: uri, text: "let x = 1")
+        try await session.syncOpen(uri: uri, text: "let x = 1", owner: .tool)
 
         let calls = await connection.calls
         #expect(calls.count == 1)
@@ -62,7 +62,7 @@ struct LspSessionTests {
         let session = LspSession(connection: connection, languageID: "swift")
         let uri = DocumentURI("file:///tmp/b.swift")
 
-        try await session.syncOpen(uri: uri, text: "let x = 1")
+        try await session.syncOpen(uri: uri, text: "let x = 1", owner: .tool)
         try await session.syncOpen(uri: uri, text: "let x = 1")
 
         let calls = await connection.calls

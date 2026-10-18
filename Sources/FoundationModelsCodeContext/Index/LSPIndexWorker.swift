@@ -387,7 +387,11 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// writes nothing for it — see this type's doc comment for why this
     /// differs from the Rust reference. A `prepareCallHierarchy`/
     /// `outgoingCalls` failure for one symbol only skips that symbol's
-    /// edges (logged, non-fatal); the file's symbols are still persisted. A
+    /// edges (logged, non-fatal); the file's symbols are still persisted. On
+    /// each path after the sync, the worker closes the document when it owns
+    /// it (see `withIndexerDocument(relativePath:uri:contents:session:_:)`):
+    /// it never closes a document that a tool op synced. The close comes
+    /// before the store write, thus a failed write leaves no open document. A
     /// `didClose` failure is logged but never blocks persistence — every
     /// piece of data needed to index the file has already been collected by
     /// that point.
@@ -440,17 +444,88 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         let fileURL = rootDirectory.appendingPathComponent(relativePath)
         let uri = DocumentURI(fileURL.absoluteString)
 
-        guard
-            let documentSymbols = await syncAndFetchSymbols(
+        let collected = await withIndexerDocument(relativePath: relativePath, uri: uri, contents: contents, session: session) {
+            await collectFileIndex(
                 relativePath: relativePath,
                 uri: uri,
                 contents: contents,
-                session: session
+                rootDirectory: rootDirectory,
+                pathFilter: filter,
+                session: session,
+                store: store
             )
-        else {
+        }
+        guard let collected else {
             return false
         }
+        return await writeCollectedFile(collected, filePath: relativePath, store: store)
+    }
 
+    /// Writes what the worker collected for one file to the store, in one
+    /// transaction, logging (not propagating) a failure.
+    /// - Parameters:
+    ///   - collected: What the worker collected from the server.
+    ///   - filePath: The file's workspace-relative path.
+    ///   - store: The workspace's index store to write into.
+    /// - Returns: `true` when the write succeeded; `false` when it failed,
+    ///   thus the file stays dirty for a later retry.
+    private static func writeCollectedFile(_ collected: CollectedFile, filePath: String, store: Store) async -> Bool {
+        do {
+            try await store.write { db in
+                try writeFile(
+                    db: db,
+                    filePath: filePath,
+                    flatSymbols: collected.flatSymbols,
+                    pendingEdges: collected.pendingEdges,
+                    callSiteTargets: collected.callSiteTargets
+                )
+            }
+        } catch {
+            logStoreFailure("the LSP index of a file could not be written to the store", filePath: filePath, error: error)
+            return false
+        }
+        return true
+    }
+
+    /// What the worker collects from the server for one file, before it
+    /// writes the file to the store.
+    private struct CollectedFile: Sendable {
+        /// The symbols of the file, flattened out of their tree.
+        let flatSymbols: [FlatSymbol]
+
+        /// The call edges from call hierarchy (or from the references
+        /// fallback) that the file owns.
+        let pendingEdges: [PendingCallEdge]
+
+        /// The targets of the call sites of the file.
+        let callSiteTargets: Set<CallSiteTarget>
+    }
+
+    /// Asks the server for the symbols, the call edges and the call-site
+    /// targets of a file that the worker already synced.
+    /// - Parameters:
+    ///   - relativePath: The file's workspace-relative path.
+    ///   - uri: The document uri of the file.
+    ///   - contents: The file's current disk content.
+    ///   - rootDirectory: The workspace root `relativePath` is relative to.
+    ///   - pathFilter: The path filter that the references fallback uses.
+    ///   - session: The live session to query through.
+    ///   - store: The workspace's index store, to find call-site targets.
+    /// - Returns: What the worker collected, or `nil` when `documentSymbols`
+    ///   threw. A call-hierarchy failure of one symbol only skips the edges
+    ///   of that symbol.
+    private static func collectFileIndex(
+        relativePath: String,
+        uri: DocumentURI,
+        contents: String,
+        rootDirectory: URL,
+        pathFilter: PathFilter,
+        session: LspSession<Connection>,
+        store: Store
+    ) async -> CollectedFile? {
+        guard let documentSymbols = await fetchDocumentSymbols(relativePath: relativePath, uri: uri, session: session) else {
+            return nil
+        }
         let flatSymbols = flattenSymbols(filePath: relativePath, symbols: documentSymbols)
         let pendingEdges = await collectCallEdges(
             filePath: relativePath,
@@ -458,7 +533,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             contents: contents,
             flatSymbols: flatSymbols,
             rootDirectory: rootDirectory,
-            pathFilter: filter,
+            pathFilter: pathFilter,
             session: session
         )
         let callSiteTargets = await collectCallSiteTargets(
@@ -470,56 +545,62 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             session: session,
             store: store
         )
-
-        await closeDocument(uri: uri, relativePath: relativePath, session: session)
-
-        do {
-            try await store.write { db in
-                try writeFile(
-                    db: db,
-                    filePath: relativePath,
-                    flatSymbols: flatSymbols,
-                    pendingEdges: pendingEdges,
-                    callSiteTargets: callSiteTargets
-                )
-            }
-        } catch {
-            logStoreFailure("the LSP index of a file could not be written to the store", filePath: relativePath, error: error)
-            return false
-        }
-
-        return true
+        return CollectedFile(flatSymbols: flatSymbols, pendingEdges: pendingEdges, callSiteTargets: callSiteTargets)
     }
 
-    /// Syncs `contents` to the session then requests `textDocument/documentSymbol`,
-    /// logging and returning `nil` if either step throws.
+    /// Syncs `contents` to the session as a document of the index worker,
+    /// runs `body` while the worker uses the document, and then closes the
+    /// document when the worker owns it.
     ///
-    /// Factored out of `processFile(relativePath:rootDirectory:pathFilter:session:store:)`
-    /// so its two "leave dirty on failure" branches share one early-return
-    /// shape at the call site instead of duplicating it. Not `private`: the
-    /// references fallback uses it too, to read the symbols of a file that
-    /// holds a reference. A failure is logged through
+    /// The close comes on each path: after a failed sync, after a `body`
+    /// that gives `nil` (for example a failed `documentSymbols`), and after
+    /// a `body` that gives a value. The worker owns only a document that no
+    /// tool op synced (see `DocumentOwner`), and the session closes nothing
+    /// that an op uses now, thus a document of a live op stays open. Not
+    /// `private`: the references fallback uses it too, to read the symbols
+    /// of a file that holds a reference. A sync failure is logged through
     /// `LspSession.logFailure(of:filePath:error:)`, one time for each
     /// (server, request) pair.
     /// - Parameters:
     ///   - relativePath: The file's workspace-relative path, used only for log messages.
-    ///   - uri: The document uri to sync and query.
+    ///   - uri: The document uri to sync.
     ///   - contents: The file's current disk content.
-    ///   - session: The live session to sync and query through.
-    /// - Returns: The document's symbols, or `nil` if `syncOpen`/`documentSymbols` threw.
-    static func syncAndFetchSymbols(
+    ///   - session: The live session to sync and close through.
+    ///   - body: The requests to send while the document is open.
+    /// - Returns: The value of `body`, or `nil` when the sync threw or `body`
+    ///   gave `nil`.
+    static func withIndexerDocument<Value>(
         relativePath: String,
         uri: DocumentURI,
         contents: String,
-        session: LspSession<Connection>
-    ) async -> [DocumentSymbol]? {
+        session: LspSession<Connection>,
+        _ body: () async -> Value?
+    ) async -> Value? {
         do {
-            try await session.syncOpen(uri: uri, text: contents)
+            try await session.beginUse(uri: uri, text: contents, owner: .indexer)
         } catch {
             await logRequestFailure(of: .syncOpen, filePath: relativePath, error: error, session: session)
+            await closeDocument(uri: uri, relativePath: relativePath, session: session)
             return nil
         }
+        let value = await body()
+        await session.endUse(uri: uri)
+        await closeDocument(uri: uri, relativePath: relativePath, session: session)
+        return value
+    }
 
+    /// Requests `textDocument/documentSymbol` for a document that the worker
+    /// already synced, logging and returning `nil` if the request throws.
+    /// - Parameters:
+    ///   - relativePath: The file's workspace-relative path, used only for log messages.
+    ///   - uri: The document uri to query.
+    ///   - session: The live session to query through.
+    /// - Returns: The document's symbols, or `nil` if `documentSymbols` threw.
+    static func fetchDocumentSymbols(
+        relativePath: String,
+        uri: DocumentURI,
+        session: LspSession<Connection>
+    ) async -> [DocumentSymbol]? {
         do {
             return try await session.documentSymbols(uri: uri)
         } catch {
@@ -528,16 +609,17 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         }
     }
 
-    /// Sends `didClose` for `uri`, logging (not propagating) a failure: every
-    /// piece of data the worker needs from the document is already collected
-    /// when it closes the document.
+    /// Sends `didClose` for `uri` when the index worker owns the document and
+    /// no op uses it now, logging (not propagating) a failure: every piece of
+    /// data the worker needs from the document is already collected when it
+    /// closes the document.
     /// - Parameters:
     ///   - uri: The document to close.
     ///   - relativePath: The file's workspace-relative path, used only for log messages.
     ///   - session: The live session to close the document through.
-    static func closeDocument(uri: DocumentURI, relativePath: String, session: LspSession<Connection>) async {
+    private static func closeDocument(uri: DocumentURI, relativePath: String, session: LspSession<Connection>) async {
         do {
-            try await session.didClose(uri: uri)
+            try await session.closeIfOwned(uri: uri, by: .indexer)
         } catch {
             await logRequestFailure(of: .didClose, filePath: relativePath, error: error, session: session)
         }

@@ -224,10 +224,12 @@ extension LSPIndexWorker {
             return []
         }
         let uri = DocumentURI(rootDirectory.appendingPathComponent(relativePath).absoluteString)
-        guard let symbols = await syncAndFetchSymbols(relativePath: relativePath, uri: uri, contents: contents, session: session) else {
+        let symbols = await withIndexerDocument(relativePath: relativePath, uri: uri, contents: contents, session: session) {
+            await fetchDocumentSymbols(relativePath: relativePath, uri: uri, session: session)
+        }
+        guard let symbols else {
             return []
         }
-        await closeDocument(uri: uri, relativePath: relativePath, session: session)
         return flattenSymbols(filePath: relativePath, symbols: symbols).filter { callableKinds.contains($0.kind) }
     }
 

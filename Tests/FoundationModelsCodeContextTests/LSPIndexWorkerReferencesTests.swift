@@ -142,6 +142,23 @@ struct LSPIndexWorkerReferencesTests {
         }
     }
 
+    // MARK: - Open documents
+
+    @Test
+    func theWorkerLeavesNoDocumentOpenWhenDocumentSymbolsFailsForAFileThatHoldsAReference() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let connection = FakeLanguageServerConnection()
+            try await Self.seedPythonFixture(root: root, store: store, connection: connection)
+            await connection.setDocumentSymbolsResult(.failure(WireError.missingResult), for: Self.uri(for: "other.py", in: root))
+            let session = LspSession.makePylsp(over: connection)
+
+            try await Self.drainPython(store: store, root: root, session: session)
+
+            #expect(await session.openDocuments().isEmpty, "the worker must close each document that it opened")
+        }
+    }
+
     // MARK: - Callers from references
 
     @Test

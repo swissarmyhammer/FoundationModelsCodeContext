@@ -140,6 +140,55 @@ struct LSPIndexWorkerTests {
         }
     }
 
+    @Test
+    func drainBatchClosesTheDocumentWhenDocumentSymbolsFails() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("func topLevel() {}\n", to: "Sample.swift", in: root)
+            try await Self.seedDirty(store: store, filePath: "Sample.swift")
+            let connection = FakeLanguageServerConnection()
+            await connection.setDocumentSymbolsResult(.failure(SimulatedConnectionFailure()))
+            let session = LspSession(connection: connection, languageID: "swift")
+
+            try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
+                store: store,
+                rootDirectory: root,
+                pathFilter: SharedPathFilter(rootDirectory: root),
+                extensions: ["swift"],
+                session: session
+            )
+
+            #expect(await connection.calls.contains(.didClose(uri: Self.uri(for: "Sample.swift", in: root))))
+            #expect(await session.openDocuments().isEmpty)
+        }
+    }
+
+    @Test
+    func drainBatchDoesNotCloseADocumentThatALiveOpOpened() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("func topLevel() {}\n", to: "Sample.swift", in: root)
+            try await Self.seedDirty(store: store, filePath: "Sample.swift")
+            let connection = FakeLanguageServerConnection()
+            await connection.setDocumentSymbolsResult(
+                .success([Self.documentSymbol(name: "topLevel", kind: .function, startLine: 0, endLine: 0)])
+            )
+            let session = LspSession(connection: connection, languageID: "swift")
+            let pathFilter = SharedPathFilter(rootDirectory: root)
+            _ = try await LiveOpsCore<FakeLanguageServerConnection>.hover(
+                store: store, session: session, rootDirectory: root, pathFilter: pathFilter, filePath: "Sample.swift", line: 0, character: 0
+            )
+
+            try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
+                store: store, rootDirectory: root, pathFilter: pathFilter, extensions: ["swift"], session: session
+            )
+
+            let uri = Self.uri(for: "Sample.swift", in: root)
+            #expect(!(await connection.calls.contains(.didClose(uri: uri))), "the worker must not close a document of a live op")
+            #expect(await session.openDocuments()[uri] != nil)
+        }
+    }
+
     // MARK: - LSP-sourced call edges
 
     @Test

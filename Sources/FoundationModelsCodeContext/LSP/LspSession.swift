@@ -73,6 +73,11 @@ enum LspSessionError: Error, Equatable {
     /// The server does not advertise the method of this request in its
     /// `initialize` capabilities, so the session did not send it.
     case notAdvertised(SessionRequest)
+
+    /// The session has the most open documents that it keeps, and an op uses
+    /// each one of them now, thus no document can close to make space for a
+    /// new one. The associated value is the limit.
+    case openDocumentLimit(Int)
 }
 
 /// Gives each `LspSessionError` a description for log lines and tool output.
@@ -82,6 +87,8 @@ extension LspSessionError: LocalizedError {
         switch self {
         case .notAdvertised(let request):
             return "the server does not advertise \(request.rawValue)"
+        case .openDocumentLimit(let limit):
+            return "each of the \(limit) open documents is in use, thus no document can open"
         }
     }
 }
@@ -118,6 +125,18 @@ enum NotSupportedText {
     }
 }
 
+/// The `error.code` values that a pull-diagnostics response carries when the
+/// server answers "still loading, retrigger later" rather than a real report
+/// (LSP 3.17+). A generic type cannot hold a stored static property, thus the
+/// values are in this non-generic namespace.
+private enum NotReadyErrorCode {
+    /// `ServerCancelled`.
+    static let serverCancelled = -32802
+
+    /// `ContentModified`, the server's other "still loading" signal.
+    static let contentModified = -32801
+}
+
 /// A single owned LSP session over one `LanguageServerConnection`: the
 /// open-document set, the diagnostics cache and its multi-subscriber
 /// fan-out, and the server's observed readiness.
@@ -131,19 +150,15 @@ enum NotSupportedText {
 /// continuation, all fed from the same `recordDiagnostics(uri:diagnostics:)`
 /// write path).
 ///
+/// The open-document set has a limit and an owner for each document (see
+/// `OpenDocuments`). At the limit, the session closes the least recently used
+/// document that no op uses now before it opens one more. The index worker
+/// closes only the documents that it owns (`closeIfOwned(uri:by:)`).
+///
 /// On creation, the session starts consuming `connection.serverNotifications`
 /// in the background so `textDocument/publishDiagnostics` pushes land in the
 /// cache and fan-out without any caller having to drive a read loop.
 actor LspSession<Connection: LanguageServerConnection> {
-    /// The `error.code` a pull-diagnostics response carries when the server
-    /// answers "still loading, retrigger later" rather than a real report
-    /// (`ServerCancelled`, LSP 3.17+).
-    private static var serverCancelledErrorCode: Int { -32802 }
-
-    /// The `error.code` a pull-diagnostics response carries for the
-    /// server's other "still loading" signal (`ContentModified`).
-    private static var contentModifiedErrorCode: Int { -32801 }
-
     /// The one connection this session drives.
     private let connection: Connection
 
@@ -151,8 +166,23 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// session serves one server, which serves one language family.
     private let languageID: String
 
-    /// What the server is believed to have open: `uri -> DocState`.
-    private var docs: [DocumentURI: DocState] = [:]
+    /// What the server is believed to have open, with the owner, the last
+    /// use and the use count of each document.
+    private var documents: OpenDocuments
+
+    /// The documents that an open or a close works on now.
+    ///
+    /// `LspSession` is an actor, and an actor is reentrant at each `await`.
+    /// One sync reads the open-document set, waits for the send, and then
+    /// writes the set. A second sync of the same URI in that wait could send
+    /// a second `didOpen`, and a close in that wait could make the sync skip
+    /// a reopen. Thus one open or close of a URI runs at a time: a URI in
+    /// this set is held, and the next caller for it waits in
+    /// `documentWaiters`.
+    private var busyDocuments: Set<DocumentURI> = []
+
+    /// The callers that wait for a URI of `busyDocuments`, in FIFO order.
+    private var documentWaiters: [DocumentURI: [CheckedContinuation<Void, Never>]] = [:]
 
     /// Latest-per-uri diagnostics cache: `uri -> latest full diagnostic set.
     ///
@@ -210,6 +240,9 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///   - languageID: The LSP `languageId` to send on every `didOpen` (e.g. `"swift"`).
     ///   - serverName: The name of the server, used in log lines.
     ///   - capabilities: The gated capabilities that the server advertised.
+    ///   - maximumOpenDocuments: The most documents that the session keeps
+    ///     open on the server. Defaults to `OpenDocuments.defaultLimit`; tests
+    ///     give a small limit.
     ///   - logger: The logger that gets the failure records. Defaults to
     ///     `Log.lsp`; tests give a logger that keeps the records instead.
     init(
@@ -217,12 +250,14 @@ actor LspSession<Connection: LanguageServerConnection> {
         languageID: String,
         serverName: String,
         capabilities: ServerCapabilities,
+        maximumOpenDocuments: Int = OpenDocuments.defaultLimit,
         logger: Logger = Log.lsp
     ) {
         self.connection = connection
         self.languageID = languageID
         self.serverName = serverName
         self.capabilities = capabilities
+        self.documents = OpenDocuments(limit: maximumOpenDocuments)
         self.logger = logger
         notificationConsumerTask = Task { [weak self] in
             await self?.consumeServerNotifications()
@@ -239,7 +274,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// Snapshots the current open-document set (`uri -> DocState`).
     /// - Returns: A copy of the open-document set; not a live view.
     func openDocuments() -> [DocumentURI: DocState] {
-        docs
+        documents.states
     }
 
     /// The number of live diagnostics subscribers, for tests to observe
@@ -260,25 +295,86 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// Because the session keeps documents open across requests, callers
     /// that depend on a document's current text (a query op, a diagnostics
     /// pull) should call this before issuing that request.
+    ///
+    /// Each sync marks the document as the most recently used. A sync by a
+    /// tool op makes the tool ops the owner of the document. When the set is
+    /// full, a new document first closes the least recently used document
+    /// that no op uses now. Two syncs of one URI run one after the other, thus
+    /// they send one `didOpen` only.
+    ///
+    /// A sync does not keep the document open for the request that follows
+    /// it: an op that must keep the document open uses
+    /// `beginUse(uri:text:owner:)` and `endUse(uri:)`.
     /// - Parameters:
     ///   - uri: The document to open or refresh.
     ///   - text: The document's full current content.
-    /// - Throws: Whatever `connection.didOpen`/`didChange` throws (e.g. a
-    ///   transport failure).
-    func syncOpen(uri: DocumentURI, text: String) async throws {
+    ///   - owner: Who syncs the document. Defaults to `DocumentOwner.tool`.
+    /// - Throws: `LspSessionError.openDocumentLimit` when the set is full and
+    ///   an op uses each open document; whatever `connection.didClose` throws
+    ///   for the document that must close first; whatever
+    ///   `connection.didOpen`/`didChange` throws (e.g. a transport failure).
+    func syncOpen(uri: DocumentURI, text: String, owner: DocumentOwner = .tool) async throws {
+        await acquireDocumentGate(for: uri)
+        defer { releaseDocumentGate(for: uri) }
         let newHash = Self.hashText(text)
-        if let state = docs[uri] {
-            guard state.textHash != newHash else {
-                // No textual change since the last sync — nothing to send.
-                return
-            }
-            let nextVersion = state.version + 1
-            try await connection.didChange(uri: uri, version: nextVersion, text: text)
-            docs[uri] = DocState(version: nextVersion, textHash: newHash)
-        } else {
-            try await connection.didOpen(uri: uri, languageID: languageID, version: 1, text: text)
-            docs[uri] = DocState(version: 1, textHash: newHash)
+        guard let state = documents.state(of: uri) else {
+            try await sendOpen(of: uri, text: text, textHash: newHash, owner: owner)
+            return
         }
+        documents.touch(uri, by: owner)
+        try await sendChange(of: uri, from: state, text: text, textHash: newHash)
+    }
+
+    /// Syncs `uri` like `syncOpen(uri:text:owner:)` and adds one use of the
+    /// document, so that the limit does not close it and its owner does not
+    /// close it until the op calls `endUse(uri:)`.
+    ///
+    /// The use begins before the sync, thus no close runs between the sync
+    /// and the request that the op sends next. When the sync throws, the use
+    /// ends before the error goes to the caller, thus the caller calls
+    /// `endUse(uri:)` only after a sync that did not throw.
+    /// - Parameters:
+    ///   - uri: The document to open or refresh.
+    ///   - text: The document's full current content.
+    ///   - owner: Who uses the document.
+    /// - Throws: Whatever `syncOpen(uri:text:owner:)` throws.
+    func beginUse(uri: DocumentURI, text: String, owner: DocumentOwner) async throws {
+        documents.beginUse(of: uri)
+        do {
+            try await syncOpen(uri: uri, text: text, owner: owner)
+        } catch {
+            documents.endUse(of: uri)
+            throw error
+        }
+    }
+
+    /// Ends one use that `beginUse(uri:text:owner:)` began. The document
+    /// stays open; the limit or its owner closes it later.
+    /// - Parameter uri: The document that the op does not use any more.
+    func endUse(uri: DocumentURI) {
+        documents.endUse(of: uri)
+    }
+
+    /// Sends `didClose` for `uri` when `owner` owns the open document and no
+    /// op uses it now, then forgets the document.
+    ///
+    /// The index worker calls this with `DocumentOwner.indexer` after it
+    /// indexes a file, on each path. A document that a tool op synced
+    /// belongs to the tool ops, thus the worker does not close it; the limit
+    /// closes it later. If the notification fails, the document stays in the
+    /// set: the server may still believe that the document is open, so a
+    /// later sync continues with `didChange`.
+    /// - Parameters:
+    ///   - uri: The document to close.
+    ///   - owner: The owner that closes the document.
+    /// - Throws: Whatever `connection.didClose(uri:)` throws.
+    func closeIfOwned(uri: DocumentURI, by owner: DocumentOwner) async throws {
+        await acquireDocumentGate(for: uri)
+        defer { releaseDocumentGate(for: uri) }
+        guard documents.owner(of: uri) == owner, !documents.isInUse(uri) else {
+            return
+        }
+        try await sendClose(of: uri)
     }
 
     /// Forgets every open document and every cached diagnostic, without
@@ -292,17 +388,121 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// a reset, the next `syncOpen` for any uri emits a fresh `didOpen`
     /// instead of being suppressed as a stale duplicate. The diagnostics
     /// cache is cleared too: it is derived state describing the gone
-    /// process's analysis, so it must not outlive that process.
+    /// process's analysis, so it must not outlive that process. The use
+    /// counts stay, because each op that uses a document now ends its use
+    /// later.
     func resetDocuments() {
-        docs.removeAll()
+        documents.removeAllEntries()
         diagnosticsCache.removeAll()
+    }
+
+    /// Sends `didChange` with the next version when `textHash` differs from
+    /// the hash of the text that the server has, then records the new state.
+    /// The caller holds the gate of `uri`.
+    /// - Parameters:
+    ///   - uri: The open document.
+    ///   - state: What the server has now.
+    ///   - text: The new full text.
+    ///   - textHash: The hash of `text`.
+    /// - Throws: Whatever `connection.didChange` throws.
+    private func sendChange(of uri: DocumentURI, from state: DocState, text: String, textHash: Int) async throws {
+        guard state.textHash != textHash else {
+            // No textual change since the last sync — nothing to send.
+            return
+        }
+        let next = DocState(version: state.version + 1, textHash: textHash)
+        try await connection.didChange(uri: uri, version: next.version, text: text)
+        documents.setState(next, of: uri)
+    }
+
+    /// Makes space for one more document, records `uri` in the set, and then
+    /// sends `didOpen` at version 1. The caller holds the gate of `uri`.
+    ///
+    /// The entry goes into the set before the `await` of the send, with no
+    /// `await` between the space check and the insert. Thus two opens of two
+    /// URIs at the same time cannot both use the last free place, and the
+    /// set never holds more than its limit. When the send fails, the entry
+    /// goes out of the set again.
+    /// - Parameters:
+    ///   - uri: The document to open.
+    ///   - text: The full text.
+    ///   - textHash: The hash of `text`.
+    ///   - owner: Who opens the document.
+    /// - Throws: Whatever `makeSpaceForOneDocument()` or `connection.didOpen` throws.
+    private func sendOpen(of uri: DocumentURI, text: String, textHash: Int, owner: DocumentOwner) async throws {
+        try await makeSpaceForOneDocument()
+        let state = DocState(version: 1, textHash: textHash)
+        documents.insert(uri, state: state, owner: owner)
+        do {
+            try await connection.didOpen(uri: uri, languageID: languageID, version: state.version, text: text)
+        } catch {
+            documents.remove(uri)
+            throw error
+        }
+    }
+
+    /// Closes the least recently used documents that no op uses now, until
+    /// the set has space for one more document.
+    ///
+    /// A document that an open or a close works on now is not a candidate.
+    /// When a `didClose` fails, the open that needs the space fails too, thus
+    /// the set never holds more than its limit.
+    /// - Throws: `LspSessionError.openDocumentLimit` when no document can
+    ///   close; whatever `connection.didClose` throws.
+    private func makeSpaceForOneDocument() async throws {
+        while documents.isFull {
+            guard let leastRecentlyUsed = documents.leastRecentlyUsed(excluding: busyDocuments) else {
+                throw LspSessionError.openDocumentLimit(documents.limit)
+            }
+            // The candidate is not in `busyDocuments`, thus the gate is free
+            // and the insert holds it with no wait.
+            busyDocuments.insert(leastRecentlyUsed)
+            defer { releaseDocumentGate(for: leastRecentlyUsed) }
+            try await sendClose(of: leastRecentlyUsed)
+        }
+    }
+
+    /// Sends `didClose` for `uri`, then forgets the document. When the send
+    /// fails, the document stays in the set. The caller holds the gate of
+    /// `uri`.
+    /// - Parameter uri: The document to close.
+    /// - Throws: Whatever `connection.didClose(uri:)` throws.
+    private func sendClose(of uri: DocumentURI) async throws {
+        try await connection.didClose(uri: uri)
+        documents.remove(uri)
+    }
+
+    /// Waits until no other open or close works on `uri`, then holds the
+    /// gate of `uri`. Paired with `releaseDocumentGate(for:)`.
+    /// - Parameter uri: The document to hold.
+    private func acquireDocumentGate(for uri: DocumentURI) async {
+        guard busyDocuments.contains(uri) else {
+            busyDocuments.insert(uri)
+            return
+        }
+        await withCheckedContinuation { continuation in
+            documentWaiters[uri, default: []].append(continuation)
+        }
+    }
+
+    /// Releases the gate that `acquireDocumentGate(for:)` holds: gives it to
+    /// the next FIFO waiter for `uri` when one waits, or frees it.
+    /// - Parameter uri: The document to release.
+    private func releaseDocumentGate(for uri: DocumentURI) {
+        guard var waiters = documentWaiters[uri], !waiters.isEmpty else {
+            busyDocuments.remove(uri)
+            return
+        }
+        let next = waiters.removeFirst()
+        documentWaiters[uri] = waiters.isEmpty ? nil : waiters
+        next.resume()
     }
 
     /// Requests the symbols declared in a document, delegating directly to
     /// `connection.documentSymbols(in:)`.
     ///
     /// - Parameter uri: The document to query; should already be synced via
-    ///   `syncOpen(uri:text:)` so the server sees its current content.
+    ///   `syncOpen(uri:text:owner:)` so the server sees its current content.
     /// - Returns: The document's symbols.
     /// - Throws: Whatever `connection.documentSymbols(in:)` throws.
     func documentSymbols(uri: DocumentURI) async throws -> [DocumentSymbol] {
@@ -315,7 +515,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///
     /// - Parameters:
     ///   - uri: The document containing the cursor position; should already
-    ///     be synced via `syncOpen(uri:text:)` so the server sees its
+    ///     be synced via `syncOpen(uri:text:owner:)` so the server sees its
     ///     current content.
     ///   - position: The cursor position to query.
     /// - Returns: Zero or more call-hierarchy items.
@@ -362,7 +562,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///
     /// - Parameters:
     ///   - uri: The document containing the cursor position; should already
-    ///     be synced via `syncOpen(uri:text:)` so the server sees its
+    ///     be synced via `syncOpen(uri:text:owner:)` so the server sees its
     ///     current content.
     ///   - position: The cursor position to query.
     /// - Returns: Zero or more definition locations.
@@ -376,7 +576,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///
     /// - Parameters:
     ///   - uri: The document containing the cursor position; should already
-    ///     be synced via `syncOpen(uri:text:)` so the server sees its
+    ///     be synced via `syncOpen(uri:text:owner:)` so the server sees its
     ///     current content.
     ///   - position: The cursor position to query.
     /// - Returns: Zero or more type-definition locations.
@@ -390,7 +590,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///
     /// - Parameters:
     ///   - uri: The document containing the cursor position; should already
-    ///     be synced via `syncOpen(uri:text:)` so the server sees its
+    ///     be synced via `syncOpen(uri:text:owner:)` so the server sees its
     ///     current content.
     ///   - position: The cursor position to query.
     /// - Returns: The hover contents, or `nil` if the server has nothing to
@@ -405,7 +605,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///
     /// - Parameters:
     ///   - uri: The document containing the cursor position; should already
-    ///     be synced via `syncOpen(uri:text:)` so the server sees its
+    ///     be synced via `syncOpen(uri:text:owner:)` so the server sees its
     ///     current content.
     ///   - position: The cursor position to query.
     ///   - includeDeclaration: Whether the declaration site itself should be
@@ -422,7 +622,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///
     /// - Parameters:
     ///   - uri: The document containing the cursor position; should already
-    ///     be synced via `syncOpen(uri:text:)` so the server sees its
+    ///     be synced via `syncOpen(uri:text:owner:)` so the server sees its
     ///     current content.
     ///   - position: The cursor position to query.
     /// - Returns: Zero or more implementation locations.
@@ -439,7 +639,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///
     /// - Parameters:
     ///   - uri: The document containing the range; should already be synced
-    ///     via `syncOpen(uri:text:)` so the server sees its current content.
+    ///     via `syncOpen(uri:text:owner:)` so the server sees its current content.
     ///   - range: The span to request actions for.
     ///   - diagnostics: The diagnostics currently in scope for `range`.
     ///   - only: If non-`nil`, restricts the server to these code-action kinds.
@@ -463,7 +663,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// delegating directly to `connection.workspaceSymbols(query:)`.
     ///
     /// Unlike every other request wrapper above, this one is document-less:
-    /// it needs no prior `syncOpen(uri:text:)` call, since `workspace/symbol`
+    /// it needs no prior `syncOpen(uri:text:owner:)` call, since `workspace/symbol`
     /// is not scoped to any single open document.
     /// - Parameter query: The search string, interpreted by the server (typically fuzzy).
     /// - Returns: Zero or more matching symbols.
@@ -575,7 +775,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     ///
     /// - Parameters:
     ///   - uri: The document containing the cursor position; should already
-    ///     be synced via `syncOpen(uri:text:)` so the server sees its
+    ///     be synced via `syncOpen(uri:text:owner:)` so the server sees its
     ///     current content.
     ///   - position: The cursor position to query.
     ///   - newName: The symbol's new name.
@@ -595,26 +795,6 @@ actor LspSession<Connection: LanguageServerConnection> {
         }
         let edit = try await connection.rename(in: uri, at: position, newName: newName)
         return (prepare, edit)
-    }
-
-    /// Notifies the server that a document was closed, then forgets it from
-    /// the open-document set.
-    ///
-    /// Unlike `resetDocuments()` — which forgets every document without
-    /// notifying a (presumed-gone) server — this notifies the still-live
-    /// server via `connection.didClose(uri:)` first, so a later
-    /// `syncOpen(uri:text:)` for the same uri is correctly treated as
-    /// never-opened (a fresh `didOpen`) rather than a stale duplicate. If
-    /// the notification fails, the open-document entry is left in place: the
-    /// server may still believe the document is open, so a later
-    /// `syncOpen(uri:text:)` correctly continues sending `didChange`.
-    /// - Parameter uri: The document to close.
-    /// - Throws: Whatever `connection.didClose(uri:)` throws; the
-    ///   open-document entry is only forgotten once the notification
-    ///   succeeds.
-    func didClose(uri: DocumentURI) async throws {
-        try await connection.didClose(uri: uri)
-        docs.removeValue(forKey: uri)
     }
 
     /// The latest captured diagnostics for a document uri.
@@ -719,7 +899,7 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// - Parameter code: The JSON-RPC `error.code` from a pull response.
     /// - Returns: `true` for `ServerCancelled` or `ContentModified`.
     private static func isNotReadyErrorCode(_ code: Int) -> Bool {
-        code == serverCancelledErrorCode || code == contentModifiedErrorCode
+        code == NotReadyErrorCode.serverCancelled || code == NotReadyErrorCode.contentModified
     }
 
     /// Hashes a document's text for cheap no-op-change detection.

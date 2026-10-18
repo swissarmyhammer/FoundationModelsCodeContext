@@ -121,6 +121,18 @@ public struct ImplementationsResult: Codable, Sendable, Equatable {
     }
 }
 
+/// The size of the chunk search of the tree-sitter layer of
+/// `LiveOpsCore.references`, as the Rust reference `try_treesitter` sets it.
+/// A generic type cannot hold a stored static property, thus the values are
+/// in this non-generic namespace.
+private enum TreeSitterReferenceSearch {
+    /// The chunks to search for each result that the caller asks for.
+    static let chunksPerResult = 3
+
+    /// The chunks to search when the caller sets no result limit.
+    static let defaultChunkLimit = 200
+}
+
 // ---------------------------------------------------------------------------
 // LiveOpsCore
 // ---------------------------------------------------------------------------
@@ -312,16 +324,14 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         includeSource: Bool,
         method: (LspSession<Connection>, DocumentURI, Position) async throws -> [Location]
     ) async throws -> DefinitionResult? {
-        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
+        guard let session else {
             return nil
         }
-        let rawLocations: [Location]
-        do {
-            rawLocations = try await method(session, uri, Position(line: line, character: character))
-        } catch {
-            return nil
+        let position = Position(line: line, character: character)
+        let outcome = await withLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) { uri in
+            try await method(session, uri, position)
         }
-        guard !rawLocations.isEmpty else { return nil }
+        guard case .success(let rawLocations)? = outcome, !rawLocations.isEmpty else { return nil }
 
         let locations = try await store.read { db in
             try rawLocations.map { location -> DefinitionLocation in
@@ -406,16 +416,14 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         line: Int,
         character: Int
     ) async throws -> HoverResult? {
-        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
+        guard let session else {
             return nil
         }
-        let hover: Hover?
-        do {
-            hover = try await session.hover(uri: uri, at: Position(line: line, character: character))
-        } catch {
-            return nil
+        let position = Position(line: line, character: character)
+        let outcome = await withLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) { uri in
+            try await session.hover(uri: uri, at: position)
         }
-        guard let hover, !hover.contents.isEmpty else { return nil }
+        guard case .success(let hover?)? = outcome, !hover.contents.isEmpty else { return nil }
 
         var symbol: LayeredSymbolInfo?
         if let range = hover.range {
@@ -526,16 +534,14 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         includeDeclaration: Bool,
         maxResults: Int?
     ) async throws -> ReferencesResult? {
-        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
+        guard let session else {
             return nil
         }
-        let rawLocations: [Location]
-        do {
-            rawLocations = try await session.references(uri: uri, at: Position(line: line, character: character), includeDeclaration: includeDeclaration)
-        } catch {
-            return nil
+        let position = Position(line: line, character: character)
+        let outcome = await withLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) { uri in
+            try await session.references(uri: uri, at: position, includeDeclaration: includeDeclaration)
         }
-        guard !rawLocations.isEmpty else { return nil }
+        guard case .success(let rawLocations)? = outcome, !rawLocations.isEmpty else { return nil }
 
         let references = try await store.read { db in
             try rawLocations.map { location -> ReferenceLocation in
@@ -598,7 +604,8 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
             return nil
         }
 
-        let searchLimit = maxResults.map { $0 * 3 } ?? 200
+        let searchLimit =
+            maxResults.map { $0 * TreeSitterReferenceSearch.chunksPerResult } ?? TreeSitterReferenceSearch.defaultChunkLimit
         let chunks = try LayeredContext.tsChunksMatching(db: db, query: searchTerm, max: searchLimit)
         let references = try chunks.map { matched -> ReferenceLocation in
             let range = LSPRange(start: Position(line: matched.startLine, character: 0), end: Position(line: matched.startLine, character: 0))
@@ -750,12 +757,19 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         maxResults: Int
     ) async throws -> LiveImplementations {
         let noLiveAnswer = LiveImplementations(result: nil, notSupportedReason: nil)
-        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
+        guard let session else {
+            return noLiveAnswer
+        }
+        let position = Position(line: line, character: character)
+        let outcome = await withLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) { uri in
+            try await session.implementations(uri: uri, at: position)
+        }
+        guard let outcome else {
             return noLiveAnswer
         }
         let rawLocations: [Location]
         do {
-            rawLocations = try await session.implementations(uri: uri, at: Position(line: line, character: character))
+            rawLocations = try outcome.get()
         } catch LspSessionError.notAdvertised(let request) {
             return LiveImplementations(result: nil, notSupportedReason: NotSupportedText.server(session.serverName, doesNotHave: request))
         } catch {
@@ -834,10 +848,17 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
 
     // MARK: - Shared live-layer helpers
 
-    /// Reads `filePath`'s current disk content and syncs it to `session`
-    /// before any live request — the "`syncOpen` called with current disk
+    /// Reads `filePath`'s current disk content, syncs it to `session` as a
+    /// document of a tool op, runs `request` while the op uses the document,
+    /// and then ends the use — the "`syncOpen` called with current disk
     /// content before every live request" contract this task's acceptance
     /// criteria requires.
+    ///
+    /// The use keeps the document open while `request` runs: the limit of
+    /// the session does not close a document that an op uses now. After the
+    /// use, the document stays open, and the tool ops own it, thus the index
+    /// worker does not close it. The limit of the session closes it later
+    /// (see `OpenDocuments`).
     ///
     /// Before the read, the shared path filter examines `filePath` (see
     /// `PathFilter.acceptsDocument(relativePath:)`). A path that the ignore
@@ -861,17 +882,21 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - rootDirectory: The workspace root `filePath` is relative to.
     ///   - pathFilter: The one path filter instance of the workspace.
     ///   - filePath: The file to sync, relative to `rootDirectory`.
-    /// - Returns: The synced document's URI, or `nil` on any failure.
+    ///   - request: The live request, given the URI of the synced document.
+    /// - Returns: `nil` when the document was not synced (the op then uses
+    ///   the next layer); otherwise the outcome of `request`, with the error
+    ///   that it threw, if any.
     ///
     /// Not `private`: `LiveOpsExtended` reuses this exact "sync current disk
     /// content before a live request" helper for `codeActions`/`renameEdits`/
     /// `inboundCalls` rather than duplicating it.
-    static func syncLiveDocument(
+    static func withLiveDocument<Value>(
         session: LspSession<Connection>,
         rootDirectory: URL,
         pathFilter: SharedPathFilter,
-        filePath: String
-    ) async -> DocumentURI? {
+        filePath: String,
+        _ request: (DocumentURI) async throws -> Value
+    ) async -> Result<Value, any Error>? {
         guard await pathFilter.acceptsDocument(relativePath: filePath),
             let contents = readFileContents(relativePath: filePath, rootDirectory: rootDirectory)
         else {
@@ -879,11 +904,18 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         }
         let uri = DocumentURI(rootDirectory.appendingPathComponent(filePath).absoluteString)
         do {
-            try await session.syncOpen(uri: uri, text: contents)
+            try await session.beginUse(uri: uri, text: contents, owner: .tool)
         } catch {
             return nil
         }
-        return uri
+        let outcome: Result<Value, any Error>
+        do {
+            outcome = .success(try await request(uri))
+        } catch {
+            outcome = .failure(error)
+        }
+        await session.endUse(uri: uri)
+        return outcome
     }
 
     /// Reads `relativePath`'s content from disk as UTF-8 text, or `nil` if
@@ -891,7 +923,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     /// `RelativePath.isSafeRelativePath(_:)`'s path-traversal guard.
     ///
     /// This is the sole gateway every disk read in this type goes through
-    /// (`readSourceRange`, and `syncLiveDocument`'s own subsequent
+    /// (`readSourceRange`, and `withLiveDocument`'s own subsequent
     /// `DocumentURI` construction, which only runs after this guard has
     /// already accepted `relativePath`) — see
     /// `RelativePath.isSafeRelativePath(_:)`'s doc comment for why
