@@ -85,6 +85,45 @@ comments:
     - evidence: swift test (root) — 984 tests in 87 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete, exit 0. The only warning is a build-system message about the mlx-swift_Cmlx bundle from a dependency, not from this package.
     - next: commit
   timestamp: 2026-10-18T10:53:41.946573+00:00
+- actor: claude-code
+  id: 01m57aky7fct4appsr0hh83db3
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (a5abe2d). 1 finding (1 confirmed, 1 refuted). All 3 prior items are checked. Open: Sources/FoundationModelsCodeContext/Index/LanguageServerDocument.swift:31 (swift/initialization).
+    - next: Fix the open item in the "Review Findings (2026-10-18 05:54)" section. Then run review again.
+  timestamp: 2026-10-18T10:58:44.591681+00:00
+- actor: claude-code
+  id: 01m57am8qm7316cmmn6pxe52kd
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 11 files (shared LanguageServerDocument, uris(where:), one AsyncGate)
+    - test: green — swift test, 984 passed
+    - commit: a5abe2d
+    - review: findings — Sources/FoundationModelsCodeContext/Index/LanguageServerDocument.swift:31
+  timestamp: 2026-10-18T10:58:55.348521+00:00
+- actor: claude-code
+  id: 01m57b7x97y2mwb7g3mhfpjv4b
+  text: |-
+    Finding swift/initialization (LanguageServerDocument.swift:31) corrected.
+    - `LanguageServerDocument.init?` now does the path check and the URI build only. It keeps `relativePath`, `rootDirectory` and `uri`. The `text` property is gone. New `func readText() -> String?` reads the disk text each time a caller calls it.
+    - Callers call `readText()` where they sync the document: Diagnose.syncAndPull (it still pulls diagnostics when the read gives `nil`), LSPIndexWorker.processFile (it still marks an unreadable file indexed), fetchCallableSymbols, LiveOpsCore.withLiveDocument. LiveOpsCore.readSourceRange already uses the explicit static `readText(relativePath:rootDirectory:)`; no change.
+    - Other types of this task: OpenDocuments.init(limit:), AsyncGate.init(isOpen:), GatedConnection.init(gate:) and the LspSession test init only set stored values. No slow work, no change. The task in LspSession.init that consumes notifications is from an earlier commit (135efdc), not from this task.
+    - LanguageServerDocumentTests: tests use `readText()`; new test `theDiskReadOccursAtReadTextAndNotAtInit` writes new text after init and expects the new text. RED: compile failure (no instance `readText()`).
+  timestamp: 2026-10-18T11:09:38.983519+00:00
+- actor: claude-code
+  id: 01m57b80cz8b0kjzhwrm8gf2js
+  text: |-
+    ### implement — changed
+    - evidence: Sources: Index/LanguageServerDocument.swift, Diagnostics/Diagnose.swift, Index/LSPIndexWorker.swift, Index/LSPIndexWorker+References.swift, Ops/LiveOpsCore.swift. Tests: LanguageServerDocumentTests.swift. `swift test --filter LanguageServerDocumentTests`: 6 tests passed. Affected suites (LSPIndexWorker, LSPIndexWorkerReferences, LSPPathCheck, Diagnostics, LayeredOps, LiveOpsExtended, LspSessionOpenDocuments, LanguageServerDocument): 134 tests in 8 suites passed. Full `swift test`: 985 tests in 87 suites passed, 0 failed. `swiftlint --only-rule no_magic_numbers` on changed files: clean. 1 of 1 open finding checked.
+    - next: /test, then /review
+  timestamp: 2026-10-18T11:09:42.175010+00:00
+- actor: claude-code
+  id: 01m57bhct7vwtpm19yg4e047fe
+  text: |-
+    ### test — green
+    - evidence: swift test: 985 tests in 87 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests: Build complete, exit 0. Only warning is from the mlx-swift_Cmlx bundle (dependency, not this package).
+    - next: commit
+  timestamp: 2026-10-18T11:14:49.799242+00:00
 position_column: doing
 position_ordinal: '80'
 title: Close LSP documents on all paths and limit the number of open documents
@@ -126,3 +165,12 @@ title: Close LSP documents on all paths and limit the number of open documents
 - [x] `Sources/FoundationModelsCodeContext/Diagnostics/Diagnose.swift:160` `duplication/duplication` — The guard on the path filter, the read of the disk text, and the build of the document URI are repeated in three places: here in syncAndPull, in processFile, and in fetchCallableSymbols. Copies of this prologue can drift apart, for example when the filter check or the URI form changes in one place only. Extract one shared helper that takes the relative path, the root, and the path filter, and returns the URI and the disk text, or nil when the filter rejects the file or the read fails. Call it from all three sites. Keep the per-site work (beginToolUse for tools, withIndexerDocument for the indexer) at each call site.
 - [x] `Tests/FoundationModelsCodeContextTests/LspSessionOpenDocumentsTests.swift:36` `reuse/reuse` — The new `closedURIs` helper repeats the shape of the existing `openedURIs` helper: it runs `compactMap` over `connection.calls` and returns the URI of one call case. The only difference is the matched case (`.didClose` instead of `.didOpen`). A second copy means two places to fix if the recorded-call shape changes. Move one generic helper to the shared test support (for example `Tests/FoundationModelsCodeContextTests/Support/`) that takes the case extractor, for example `uris(of connection:, where: (FakeLanguageServerConnection.Call) -> DocumentURI?)`. Then express `closedURIs`, and ideally `openedURIs` and `pulledURIs`, as one-line calls to it. Keep the per-case matches as the parameters so each case stays visible at its call site.
 - [x] `Tests/FoundationModelsCodeContextTests/Support/AsyncGate.swift:16` `reuse/reuse` — The new AsyncGate actor reimplements the gate that RestartGate already has. RestartGate.waitUntilOpen is the same suspend-until-open logic. Two copies of one gate must now be kept in step, and they can drift apart. Reuse one gate. Either make RestartGate a typealias or thin wrapper over AsyncGate, or delete RestartGate and have LspSupervisorTests use AsyncGate. If RestartGate has behavior that AsyncGate lacks, add that parameter to AsyncGate instead of writing a second type.
+
+## Review Findings (2026-10-18 05:54)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 11 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Sources/FoundationModelsCodeContext/Index/LanguageServerDocument.swift:31` `swift/initialization` — The failable `init?` does disk I/O. Its `text = Self.readText(...)` reads the whole file, and the `acceptsDocument` check before it touches the filesystem. A caller that only needs the URI, or that builds the document in a loop, pays for a file read on every construction. The rule says `init` does no slow work and that reads belong in an explicit call the caller makes. Keep `init?` to the path check and the URI build, and make the disk text a lazy or explicit read. For example, store `uri` in `init?` and add `func readText() -> String?` that callers invoke where they sync the document. If the eager read is intended, say so in the type's doc comment as a documented exception to the rule.

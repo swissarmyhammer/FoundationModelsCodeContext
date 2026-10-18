@@ -219,7 +219,7 @@ extension LSPIndexWorker {
         session: LspSession<Connection>
     ) async -> [FlatSymbol] {
         guard let document = LanguageServerDocument(relativePath: relativePath, rootDirectory: rootDirectory, pathFilter: pathFilter),
-            let contents = document.text
+            let contents = document.readText()
         else {
             return []
         }

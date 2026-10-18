@@ -3,8 +3,8 @@ import Testing
 
 @testable import FoundationModelsCodeContext
 
-/// Tests for `LanguageServerDocument`: the one path check, disk read and URI
-/// build that each caller makes before it syncs a document to a language
+/// Tests for `LanguageServerDocument`: the one path check, URI build and disk
+/// read that each caller makes before it syncs a document to a language
 /// server.
 struct LanguageServerDocumentTests {
     /// The path of a fixture file that the path filter accepts.
@@ -17,6 +17,9 @@ struct LanguageServerDocumentTests {
     /// The text of each fixture source file.
     private static let swiftSource = "func kept() {}\n"
 
+    /// The text that a test writes after it makes the document.
+    private static let changedSource = "func changed() {}\n"
+
     /// Bytes that are not UTF-8 text.
     private static let notUTF8 = Data([0xFF, 0xFE, 0xFD])
 
@@ -25,10 +28,26 @@ struct LanguageServerDocumentTests {
         try await withTemporaryWorkspace { root in
             try write(Self.swiftSource, to: Self.keptPath, in: root)
 
-            let document = LanguageServerDocument(relativePath: Self.keptPath, rootDirectory: root, pathFilter: PathFilter(rootDirectory: root))
+            let document = try #require(
+                LanguageServerDocument(relativePath: Self.keptPath, rootDirectory: root, pathFilter: PathFilter(rootDirectory: root))
+            )
 
-            #expect(document?.uri == DocumentURI(root.appendingPathComponent(Self.keptPath).absoluteString))
-            #expect(document?.text == Self.swiftSource)
+            #expect(document.uri == DocumentURI(root.appendingPathComponent(Self.keptPath).absoluteString))
+            #expect(document.readText() == Self.swiftSource)
+        }
+    }
+
+    @Test
+    func theDiskReadOccursAtReadTextAndNotAtInit() async throws {
+        try await withTemporaryWorkspace { root in
+            try write(Self.swiftSource, to: Self.keptPath, in: root)
+            let document = try #require(
+                LanguageServerDocument(relativePath: Self.keptPath, rootDirectory: root, pathFilter: PathFilter(rootDirectory: root))
+            )
+
+            try write(Self.changedSource, to: Self.keptPath, in: root)
+
+            #expect(document.readText() == Self.changedSource)
         }
     }
 
@@ -48,10 +67,11 @@ struct LanguageServerDocumentTests {
         try await withTemporaryWorkspace { root in
             try Self.notUTF8.write(to: root.appendingPathComponent(Self.keptPath))
 
-            let document = LanguageServerDocument(relativePath: Self.keptPath, rootDirectory: root, pathFilter: PathFilter(rootDirectory: root))
+            let document = try #require(
+                LanguageServerDocument(relativePath: Self.keptPath, rootDirectory: root, pathFilter: PathFilter(rootDirectory: root))
+            )
 
-            #expect(document != nil)
-            #expect(document?.text == nil)
+            #expect(document.readText() == nil)
         }
     }
 
@@ -74,7 +94,7 @@ struct LanguageServerDocumentTests {
             let document = await pathFilter.acceptedDocument(relativePath: Self.keptPath, rootDirectory: root)
             let skipped = await pathFilter.acceptedDocument(relativePath: Self.skippedPath, rootDirectory: root)
 
-            #expect(document?.text == Self.swiftSource)
+            #expect(document?.readText() == Self.swiftSource)
             #expect(skipped == nil)
         }
     }

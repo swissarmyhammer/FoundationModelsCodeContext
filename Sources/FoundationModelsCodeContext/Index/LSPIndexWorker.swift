@@ -432,7 +432,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             )
         }
 
-        guard let contents = document.text else {
+        guard let contents = document.readText() else {
             return await skipFile(
                 relativePath: relativePath,
                 store: store,

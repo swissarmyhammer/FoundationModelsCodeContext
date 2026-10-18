@@ -892,7 +892,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         _ request: (DocumentURI) async throws -> Value
     ) async -> Result<Value, any Error>? {
         guard let document = await pathFilter.acceptedDocument(relativePath: filePath, rootDirectory: rootDirectory),
-            let contents = document.text
+            let contents = document.readText()
         else {
             return nil
         }

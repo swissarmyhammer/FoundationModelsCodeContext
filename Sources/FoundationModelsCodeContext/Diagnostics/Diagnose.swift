@@ -142,8 +142,9 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
     /// watcher's own async pulls, matching the fix noted in the Rust
     /// reference's git history ("pull target files in diagnose").
     ///
-    /// Before both steps, the shared path filter examines `file` and reads its
-    /// disk text (see `SharedPathFilter.acceptedDocument(relativePath:rootDirectory:)`).
+    /// Before both steps, the shared path filter examines `file` (see
+    /// `SharedPathFilter.acceptedDocument(relativePath:rootDirectory:)`), and
+    /// then the method reads the disk text of the accepted document.
     /// For a path that the ignore rules ignore, or a path whose real path is
     /// not in the root, the method sends no `didOpen` and pulls no
     /// diagnostics. This is not an error: the report has no records for that
@@ -157,7 +158,7 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
         guard let document = await pathFilter.acceptedDocument(relativePath: file, rootDirectory: rootDirectory) else {
             return
         }
-        let isInUse = await beginToolUse(of: document.uri, text: document.text, session: session)
+        let isInUse = await beginToolUse(of: document.uri, text: document.readText(), session: session)
         _ = try? await session.pullDiagnostics(uri: document.uri)
         if isInUse {
             await session.endUse(uri: document.uri)

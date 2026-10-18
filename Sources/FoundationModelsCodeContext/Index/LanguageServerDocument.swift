@@ -1,34 +1,47 @@
 import Foundation
 
 /// A document that a language server may open: the path filter accepts its
-/// path. The value holds the document URI and the disk text of the document.
+/// path. The value holds the path and the document URI.
 ///
 /// The LSP index worker, the references fallback, the live operations and the
 /// diagnostics operation make this value before they sync a document. Thus they
-/// all use one path check, one disk read and one URI form. The work that comes
-/// after (the sync, the use and the close) stays at each caller.
+/// all use one path check, one URI form and one disk read. The value does not
+/// read the file: each caller calls `readText()` where it syncs the document.
+/// The work that comes after (the sync, the use and the close) stays at each
+/// caller.
 struct LanguageServerDocument: Sendable {
+    /// The path of the document relative to `rootDirectory`.
+    let relativePath: String
+
+    /// The workspace root.
+    let rootDirectory: URL
+
     /// The URI of the document below the workspace root.
     let uri: DocumentURI
 
-    /// The disk text of the document, or `nil` when the file cannot be read
-    /// or is not UTF-8 text.
-    let text: String?
-
     /// Makes the document at `relativePath` when `pathFilter` accepts it (see
-    /// `PathFilter.acceptsDocument(relativePath:)`).
+    /// `PathFilter.acceptsDocument(relativePath:)`). The init does not read
+    /// the file; call `readText()` for the disk text.
     /// - Parameters:
     ///   - relativePath: The path of the document relative to `rootDirectory`.
     ///   - rootDirectory: The workspace root.
     ///   - pathFilter: The path filter that must accept the path.
-    /// - Returns: `nil` when `pathFilter` does not accept the path. A file that
-    ///   cannot be read gives a document with a `nil` text.
+    /// - Returns: `nil` when `pathFilter` does not accept the path.
     init?(relativePath: String, rootDirectory: URL, pathFilter: PathFilter) {
         guard pathFilter.acceptsDocument(relativePath: relativePath) else {
             return nil
         }
+        self.relativePath = relativePath
+        self.rootDirectory = rootDirectory
         uri = Self.uri(relativePath: relativePath, rootDirectory: rootDirectory)
-        text = Self.readText(relativePath: relativePath, rootDirectory: rootDirectory)
+    }
+
+    /// Reads the disk text of the document now. Each call reads the file
+    /// again (see `readText(relativePath:rootDirectory:)`).
+    /// - Returns: The text, or `nil` when the file cannot be read or is not
+    ///   UTF-8 text.
+    func readText() -> String? {
+        Self.readText(relativePath: relativePath, rootDirectory: rootDirectory)
     }
 
     /// Builds the document URI of `relativePath` below `rootDirectory`. The
@@ -68,7 +81,8 @@ extension SharedPathFilter {
     /// filter accepts it. See
     /// `LanguageServerDocument.init(relativePath:rootDirectory:pathFilter:)`.
     ///
-    /// The check reads `realpath(3)` and the disk, thus it runs off this actor.
+    /// The check reads `realpath(3)`, thus it runs off this actor. The
+    /// document does not read the file; the caller calls `readText()`.
     /// - Parameters:
     ///   - relativePath: The path of the document relative to `rootDirectory`.
     ///   - rootDirectory: The workspace root.
