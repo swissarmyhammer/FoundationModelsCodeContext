@@ -36,8 +36,31 @@ comments:
     - evidence: swift test (root package) - 1015 tests in 90 suites passed, 0 failed, 0 skipped. Build output has one warning: the SwiftPM warning "missing creator for mutated node ... mlx-swift_Cmlx.bundle". It comes from a dependency and has its own task ^kw00hcn. No warning comes from this repo.
     - next: none. The IntegrationTests package was not run.
   timestamp: 2026-10-18T15:10:40.551758+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m57s1r5e6sh9ykmh94p92575
+  text: |-
+    ### commit — changed
+    - evidence: 7000095 refactor(diagnostics): use CancellableWaiters in UpdateMailbox ^6ava5jt (9 files)
+    - next: review
+  timestamp: 2026-10-18T15:10:57.198082+00:00
+- actor: claude-code
+  id: 01m57s3nm00y3anz01wnh0pwaz
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 7000095). Counts: findings 0, confirmed 0, refuted 0, attempted 7, failed 0. 5 files reviewed. 4 .kanban files not reviewed (.reviewignore).
+    - next: none. The task is in done.
+  timestamp: 2026-10-18T15:12:00.128588+00:00
+- actor: claude-code
+  id: 01m57s3we1ykqynxhjgwr1dw8k
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 5 files
+    - test: green — swift test, 1015 passed
+    - commit: 7000095
+    - review: clean — 0 findings
+  timestamp: 2026-10-18T15:12:07.105491+00:00
+position_column: done
+position_ordinal: f580
 title: Move the waiter logic of UpdateMailbox onto CancellableWaiters
 ---
 ## Problem
