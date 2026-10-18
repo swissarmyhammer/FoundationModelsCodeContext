@@ -3,13 +3,55 @@ import FoundationModelsCodeContext
 import FoundationModelsExtras
 import GRDB
 
+/// The place of each temporary item of the test target.
+///
+/// Each item is below one shared directory in `/tmp`, not below `$TMPDIR`.
+/// Many processes of the user write in `$TMPDIR`. When `$TMPDIR` holds very
+/// many entries (one machine had about one million), each change of
+/// `$TMPDIR` is slow and locks it, and each path lookup through `$TMPDIR`
+/// waits for the lock: one `mkdir`, `rmdir`, `lstat` or `realpath(3)` can take
+/// seconds. The code under test calls `realpath(3)` on the workspace root,
+/// and SQLite calls `lstat` on each component of the path of the database.
+/// Each blocked call holds one thread of the cooperative pool. The tests run
+/// in parallel, thus all the threads can block, the whole test process stops
+/// for about a minute, and the tests that measure time fail. Below `/tmp`,
+/// the same calls take milliseconds.
+///
+/// The directory is not below the package directory, because a workspace
+/// there is inside the git work tree of the package, and the tests that
+/// expect a workspace that is not a git repository then fail.
+enum TemporaryItem {
+    /// The directory that holds the shared directory.
+    private static let parent = URL(fileURLWithPath: "/tmp", isDirectory: true)
+
+    /// The shared directory, `/tmp/FoundationModelsCodeContextTests-<uid>`.
+    ///
+    /// The user ID is in the name, because a different user cannot write in
+    /// a directory of this user. The name is fixed for one user, thus each
+    /// test run uses the same directory and adds no entry to `/tmp`. The
+    /// tests do not remove this directory, because a different test run can
+    /// use it at the same time. The first item that a test creates with
+    /// `withIntermediateDirectories: true` also creates this directory.
+    static let root = parent.appendingPathComponent("FoundationModelsCodeContextTests-\(getuid())", isDirectory: true)
+
+    /// Gives a new, unique URL below `root`. No item exists at the URL.
+    ///
+    /// Create the item with `withIntermediateDirectories: true`, because
+    /// `root` possibly does not exist yet.
+    /// - Parameter prefix: The start of the last path component. It tells
+    ///   the use of the item.
+    /// - Returns: The URL `root/<prefix>-<UUID>`.
+    static func makeURL(prefix: String) -> URL {
+        root.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+    }
+}
+
 /// Creates a fresh temporary workspace directory for `body`, removed
 /// afterwards regardless of outcome. Shared across the test target by any
 /// suite that needs an isolated on-disk root (`ReconcilerTests`,
-/// `WalkerTests`, `StoreTests`).
+/// `WalkerTests`, `StoreTests`). The directory is below `TemporaryItem.root`.
 func withTemporaryWorkspace<T>(_ body: (URL) async throws -> T) async throws -> T {
-    let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("FoundationModelsCodeContextTests-\(UUID().uuidString)", isDirectory: true)
+    let root = TemporaryItem.makeURL(prefix: "workspace")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
     return try await body(root)
@@ -67,8 +109,7 @@ func withPermissions<T>(
 /// - Throws: Rethrows what `body` throws, or the error of the link creation.
 func withSymlinkedWorkspace<T>(_ body: (_ link: URL, _ target: URL) async throws -> T) async throws -> T {
     try await withTemporaryWorkspace { target in
-        let link = FileManager.default.temporaryDirectory
-            .appendingPathComponent("FoundationModelsCodeContextTests-link-\(UUID().uuidString)", isDirectory: true)
+        let link = TemporaryItem.makeURL(prefix: "link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
         defer { try? FileManager.default.removeItem(at: link) }
         return try await body(link, target)

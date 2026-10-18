@@ -47,16 +47,27 @@ struct CodeContextStartTests {
     /// default of the `debounceInterval` parameter of `Watcher`.
     private static let watcherDebounceInterval: Duration = .seconds(1)
 
-    /// The real time between two reads of the index status in
-    /// `waitForIndexStatus(of:_:)`.
+    /// The real time between two checks of the condition in `waitUntil(_:)`.
     private static let statusPollInterval: Duration = .milliseconds(1)
+
+    /// Checks `isDone` again and again until it returns `true`. Between two
+    /// checks, the wait sleeps for `statusPollInterval`.
+    ///
+    /// The work that the test waits for runs in tasks of the context, thus a
+    /// test cannot await it directly. The time limit of the test cancels a
+    /// wait that cannot end, and the wait then throws.
+    /// - Parameter isDone: Returns `true` when the state that the test waits
+    ///   for is present.
+    /// - Throws: `CancellationError` when the task of the test is cancelled,
+    ///   or the error that `isDone` throws.
+    private static func waitUntil(_ isDone: () async throws -> Bool) async throws {
+        while try await !isDone() {
+            try await Task.sleep(for: statusPollInterval)
+        }
+    }
 
     /// Reads the index status of `context` again and again until `isExpected`
     /// returns `true`.
-    ///
-    /// The index passes run in tasks of `context`, thus a test cannot await
-    /// them directly. The time limit of the test cancels a wait that cannot
-    /// end, and the wait then throws.
     /// - Parameters:
     ///   - context: The context that gives the index status.
     ///   - isExpected: Returns `true` for the status that the test waits for.
@@ -65,9 +76,7 @@ struct CodeContextStartTests {
         of context: CodeContext<FakeLanguageServerConnection>,
         _ isExpected: (IndexProgress) -> Bool
     ) async throws {
-        while !isExpected(await context.indexStatus()) {
-            try await Task.sleep(for: statusPollInterval)
-        }
+        try await waitUntil { isExpected(await context.indexStatus()) }
     }
 
     /// Makes a `CodeContext` for `rootDirectory` with a fake event source and
@@ -487,8 +496,6 @@ struct CodeContextStartTests {
 
     /// Waits until the installer of `command` ran one time and the server of `command` is
     /// `.notFound` again.
-    ///
-    /// The time limit of the test cancels a wait that cannot end, and the wait then throws.
     /// - Parameters:
     ///   - context: The context that gives the server status.
     ///   - runner: The fake installer runner of the context.
@@ -499,13 +506,10 @@ struct CodeContextStartTests {
         runner: FakeInstallRunner,
         command: String
     ) async throws {
-        while true {
+        try await waitUntil {
             let hasRun = await !runner.invocations.isEmpty
             let state = await context.lspStatus().first { $0.command == command }?.state
-            if hasRun && state == .notFound {
-                return
-            }
-            try await Task.sleep(for: statusPollInterval)
+            return hasRun && state == .notFound
         }
     }
 

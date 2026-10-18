@@ -170,7 +170,7 @@ struct BinaryLookupTests {
 
     @Test
     func resolveFindsCommandInExtraSearchDirectory() throws {
-        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let tempDirectory = TemporaryItem.makeURL(prefix: "extra-search-directory")
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let binaryPath = tempDirectory.appendingPathComponent("fake-binary-in-extra-dir")
@@ -189,7 +189,7 @@ struct BinaryLookupTests {
     func resolvePrefersPathOverExtraSearchDirectories() throws {
         // "true" is on $PATH, so it must win even when an extra search directory is also
         // supplied — $PATH is searched first, matching the documented order.
-        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let tempDirectory = TemporaryItem.makeURL(prefix: "extra-search-directory")
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
 

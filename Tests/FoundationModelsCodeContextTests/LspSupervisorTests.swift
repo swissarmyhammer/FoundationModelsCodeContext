@@ -610,7 +610,7 @@ struct LspSupervisorTests {
 
     @Test
     func autoInstallSuccessTransitionsNotFoundToInstallingToRunning() async throws {
-        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let tempDirectory = TemporaryItem.makeURL(prefix: "install-directory")
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let command = "fake-auto-install-success-\(UUID().uuidString)"
         let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)
@@ -659,7 +659,7 @@ struct LspSupervisorTests {
 
     @Test
     func autoInstallFailureTransitionsInstallingBackToNotFoundWithoutRetry() async throws {
-        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let tempDirectory = TemporaryItem.makeURL(prefix: "install-directory")
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let command = "fake-auto-install-failure-\(UUID().uuidString)"
         let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)
@@ -698,7 +698,7 @@ struct LspSupervisorTests {
 
     @Test
     func autoInstallDisabledPolicyLeavesDaemonNotFoundWithoutInvokingRunner() async throws {
-        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let tempDirectory = TemporaryItem.makeURL(prefix: "install-directory")
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let command = "fake-auto-install-disabled-\(UUID().uuidString)"
         let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)
@@ -751,7 +751,7 @@ struct LspSupervisorTests {
 
     @Test
     func startForTestingReturnsWithDaemonAlreadyObservablyInstalling() async throws {
-        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let tempDirectory = TemporaryItem.makeURL(prefix: "install-directory")
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let command = "fake-auto-install-nonblocking-\(UUID().uuidString)"
         let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)
@@ -784,7 +784,7 @@ struct LspSupervisorTests {
 
     @Test
     func shutdownDuringInFlightInstallCancelsCleanlyAndPromptly() async throws {
-        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let tempDirectory = TemporaryItem.makeURL(prefix: "install-directory")
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let command = "fake-auto-install-shutdown-\(UUID().uuidString)"
         let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)

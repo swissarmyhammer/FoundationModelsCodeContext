@@ -39,6 +39,72 @@ comments:
     - remaining environment fact: a run with ChildStandardInputTests skipped still stalled the whole process about 43 s and failed two LspSupervisorTests timing tests. A sample of the process shows threads blocked in lstat, rmdir and realpath in the kernel. The user TMPDIR directory ($TMPDIR, /var/folders/l7/.../T/) holds about 1 million entries (directory size 81 MB, link count 65535), and ls -f on it does not finish in 15 minutes. Other swift test and cargo runs also ran on the machine. This stall is outside the package code. A person should clean $TMPDIR.
     - next: commit
   timestamp: 2026-10-18T02:03:07.583913+00:00
+- actor: claude-code
+  id: 01m56c88cvfbs2qg0h5k7vqfg2
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (6b183de): 1 finding (1 confirmed, 1 refuted) — Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:502 reuse/reuse. Acceptance criteria are correct: the only Process() in Sources/ is in ProcessUtilities.makeChildProcess, which sets stdin, stdout and stderr. The installer and the git runner use the null device as stdin. The LSP connection uses its own stdin pipe. CodeContextStartTests has a test for a failed install.
+    - next: implement the open finding (a shared poll wait in CodeContextStartTests), then review again.
+  timestamp: 2026-10-18T02:08:04.507040+00:00
+- actor: claude-code
+  id: 01m56c8hvp5brc36n1n3x9wb33
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 11 files
+    - test: green — swift test x3, 914 passed
+    - commit: 6b183de
+    - review: findings — Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:502
+  timestamp: 2026-10-18T02:08:14.198540+00:00
+- actor: claude-code
+  id: 01m56cen29zxze88j11zpsxhph
+  text: |-
+    Review finding fixed. CodeContextStartTests has a new private `waitUntil(_ isDone: () async throws -> Bool)`. It checks `isDone` and sleeps for `statusPollInterval` between two checks. `waitForIndexStatus` and `waitForTheFailedInstall` now call `waitUntil`. The file had only these two poll loops (a search for `Task.sleep` gives only the line in `waitUntil` now). The doc of `statusPollInterval` now names `waitUntil(_:)`.
+
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift. `swift test --filter CodeContextStartTests`: 15 tests in 1 suite passed, 0 failed. Only warning: "missing creator for mutated node ... mlx-swift_Cmlx.bundle" from the third-party mlx-swift build.
+    - next: /review
+  timestamp: 2026-10-18T02:11:34.089799+00:00
+- actor: claude-code
+  id: 01m56cwcjws1bf25cg9h5zz845
+  text: |-
+    ### test — green
+    - evidence: swift test full run: 914 tests in 81 suites, 4 timing-only failures (LspSupervisorTests autoInstallSuccess, autoInstallFailure, shutdownDuringInFlightInstall; ProcessInstallRunnerTests cancellationTerminatesTheChildPromptly) while the machine was starved (each ran about 30 s). The 4 tests alone: 4 passed in 2.7 s, no code change. The environment caused it. swift build --package-path IntegrationTests --build-tests: Build complete. Zero warnings from this package. Zero skipped tests.
+    - next: commit
+  timestamp: 2026-10-18T02:19:04.156427+00:00
+- actor: claude-code
+  id: 01m56hxkyscvtqfymv7dsgta4e
+  text: |-
+    Root cause of the slow timing tests (about 55 s each, only in the full suite) is found and removed. No time limit was changed.
+
+    Baseline: at e850544 (before ^w29j74j) in a separate worktree, the full suite had the same stall. Run 1 passed, but the 6 auto-install and cancel tests each took about 42 s and 564 tests took more than 30 s. Run 2 failed shutdownDuringInFlightInstallCancelsCleanlyAndPromptly (elapsed < 5 s, 58 s). Thus the ^w29j74j change did not cause the stall and did not make it worse.
+
+    Cause: each test workspace was in $TMPDIR (/var/folders/.../T/). On this machine $TMPDIR holds about one million entries and other processes write in it all the time. A change of $TMPDIR is slow and locks it, and each path lookup through $TMPDIR waits. `sample` of the test process during the stall showed 20 or more threads blocked in mkdirat and rmdir (withTemporaryWorkspace), getattrlist (realpath in WorkspaceRoot.realURL) and lstat (SQLite open of the store). These calls block the threads of the cooperative pool, thus the whole process stops for about a minute, and each test that measures wall-clock time fails. Measurements: 200 mkdir+rmdir in $TMPDIR took 20.6 s (worst call 5.9 s); in a subdirectory of $TMPDIR 0.04 s. But 1000 realpath+lstat on a path below $TMPDIR still took 62 s (worst 6.8 s), and on a path below /tmp 0.03 s. Thus a subdirectory of $TMPDIR is not sufficient (a first try with $TMPDIR/FoundationModelsCodeContextTests/ still stalled the suite for 150 s); the items must be out of $TMPDIR.
+
+    Fix (tests only, no change in Sources/):
+    - TestSupport.swift: new `TemporaryItem` with `root` = /tmp/FoundationModelsCodeContextTests-<uid> and `makeURL(prefix:)`. withTemporaryWorkspace and withSymlinkedWorkspace use it. The root is not in the package directory, because a workspace in the git work tree of the package breaks the tests that expect no git repository (for example aGitFailureGivesTheCorrectiveOutput).
+    - The direct $TMPDIR sites now use TemporaryItem.makeURL: LspSupervisorTests (5), LSPDaemonTests (2), ServerInstallerTests (2), MetricsTests (1).
+    - IntegrationSupport.swift: withTemporaryWorkspace uses /tmp/FoundationModelsCodeContextIntegrationTests-<uid>.
+    - New TemporaryItemTests (4 tests). RED: the root was below $TMPDIR.
+    - RootDiscoveryTests (4 lines) and CodeContextManagerTests (1 line) now build the expected directory URL with isDirectory: true. These tests passed before only because of a quirk of the URL that FileManager.temporaryDirectory gives: standardizedFileURL of a URL derived from it reads the file system and adds the trailing slash of a directory. A plain /tmp URL does not do that.
+
+    Result: full swift test 918 tests passed two times (33.4 s and 36.0 s; before the fix 105 s to 150 s). Slowest test 5.4 s. The 6 tests of the card take 1.2 s to 1.5 s.
+
+    Discovery: LayeredOpsTests, TreeSitterWorkerTests and LSPIndexWorkerTests write "../secret.swift" into the parent of the workspace. Before this fix that file went directly into $TMPDIR; now it stays in the shared root. It is never removed. Filed as a new task.
+  timestamp: 2026-10-18T03:47:07.353016+00:00
+- actor: claude-code
+  id: 01m56hy882j8pqae65rkzpyytd
+  text: |-
+    ### implement — changed
+    - evidence: root cause = test temporary items in a $TMPDIR with about 1 million entries; mkdir/rmdir/realpath/lstat through $TMPDIR blocked all cooperative-pool threads (seen with `sample`), so the process stalled for about a minute. The same stall is in the baseline e850544, so ^w29j74j did not cause it. Files: Tests/FoundationModelsCodeContextTests/TestSupport.swift (TemporaryItem, root /tmp/FoundationModelsCodeContextTests-<uid>), TemporaryItemTests.swift (new, 4 tests), LspSupervisorTests.swift, LSPDaemonTests.swift, ServerInstallerTests.swift, MetricsTests.swift, RootDiscoveryTests.swift, CodeContextManagerTests.swift, IntegrationTests/.../IntegrationSupport.swift. `swift test` full: 918 tests in 82 suites passed two times (33.4 s, 36.0 s), 0 failed, 0 skipped. `swift build --package-path IntegrationTests --build-tests`: Build complete. Only warning: the third-party "missing creator for mutated node ... mlx-swift_Cmlx.bundle". No time limit changed.
+    - next: /review
+  timestamp: 2026-10-18T03:47:28.130595+00:00
+- actor: claude-code
+  id: 01m56j8eyjfd1tzf71vdtc8bme
+  text: |-
+    ### test — green
+    - evidence: swift test — 918 tests in 82 suites passed, 0 failed, 0 skipped, 0 warnings from this package (only a SwiftPM warning about the mlx-swift_Cmlx bundle); swift build --package-path IntegrationTests --build-tests — build complete, same single third-party warning
+    - next: commit
+  timestamp: 2026-10-18T03:53:02.674602+00:00
 position_column: doing
 position_ordinal: '80'
 title: Child processes must not read the stdin of the host process
@@ -83,3 +149,12 @@ In the same run, the log had `the binary of the language server is not on the PA
 - [x] The tests above pass.
 
 #lsp-fix
+
+## Review Findings (2026-10-17 21:03)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 11 file(s) reviewed, 8 not reviewed.
+
+> 8 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 8 file(s)
+
+- [x] `Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:502` `reuse/reuse` — waitForTheFailedInstall repeats the poll-until-condition loop of waitForIndexStatus (line 64-71): sleep for statusPollInterval, check a condition on the context, and throw on cancellation. The loop was written again instead of parameterizing the existing wait. Add a generic predicate-based wait in CodeContextStartTests (for example waitUntil(_ predicate: () async throws -> Bool)) that polls with statusPollInterval. Rebuild waitForIndexStatus and waitForTheFailedInstall on top of it. The private waitUntil in LspSupervisorTests.swift:50 has a deadline and is in another file, so it does not fit as is.

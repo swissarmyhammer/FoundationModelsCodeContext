@@ -254,7 +254,7 @@ struct CodeContextManagerTests {
     @Test
     func contextContainingLazilyOpensGitRootWhenOpenIfNeeded() async throws {
         try await withTemporaryWorkspace { root in
-            let repoRoot = root.appendingPathComponent("repo")
+            let repoRoot = root.appendingPathComponent("repo", isDirectory: true)
             try Self.makeGitDirRepo(at: repoRoot)
             try Self.writeFixture(in: repoRoot)
             let manager = await Self.makeManager()

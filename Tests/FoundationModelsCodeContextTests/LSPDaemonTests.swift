@@ -203,7 +203,7 @@ struct LSPDaemonTests {
 
     @Test
     func startResolvesBinaryFromExtraSearchDirectoryAndSpawnsWithAbsolutePath() async throws {
-        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let tempDirectory = TemporaryItem.makeURL(prefix: "extra-search-directory")
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let binaryPath = tempDirectory.appendingPathComponent("fake-lsp-binary-in-extra-dir")
@@ -255,7 +255,7 @@ struct LSPDaemonTests {
 
     @Test
     func startFailsWithNotFoundWhenBinaryMissingFromPathAndExtraSearchDirectories() async throws {
-        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let tempDirectory = TemporaryItem.makeURL(prefix: "extra-search-directory")
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
 

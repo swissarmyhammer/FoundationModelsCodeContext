@@ -27,7 +27,7 @@ struct RootDiscoveryTests {
     @Test
     func prunesRepoNestedInsideAnotherRepo() async throws {
         try await withTemporaryWorkspace { root in
-            let outer = root.appendingPathComponent("outer")
+            let outer = root.appendingPathComponent("outer", isDirectory: true)
             try makeGitDirRepo(at: outer)
             try makeGitDirRepo(at: outer.appendingPathComponent("vendor/inner"))
 
@@ -40,7 +40,7 @@ struct RootDiscoveryTests {
     @Test
     func recognizesGitFileWorktreeAsRoot() async throws {
         try await withTemporaryWorkspace { root in
-            let worktree = root.appendingPathComponent("worktree")
+            let worktree = root.appendingPathComponent("worktree", isDirectory: true)
             try makeGitFileRepo(at: worktree)
 
             let roots = try RootDiscovery.discoverRoots(under: root)
@@ -74,7 +74,7 @@ struct RootDiscoveryTests {
     @Test
     func doesNotFollowSymlinksDuringTraversal() async throws {
         try await withTemporaryWorkspace { root in
-            let actual = root.appendingPathComponent("actual")
+            let actual = root.appendingPathComponent("actual", isDirectory: true)
             try makeGitDirRepo(at: actual)
             try FileManager.default.createSymbolicLink(
                 at: root.appendingPathComponent("alias"), withDestinationURL: actual)
@@ -88,7 +88,7 @@ struct RootDiscoveryTests {
     @Test
     func gitRootResolvesDeepFilePathToEnclosingRepoRoot() async throws {
         try await withTemporaryWorkspace { root in
-            let repo = root.appendingPathComponent("repo")
+            let repo = root.appendingPathComponent("repo", isDirectory: true)
             try makeGitDirRepo(at: repo)
             try write("// swift", to: "repo/Sources/A/a.swift", in: root)
 

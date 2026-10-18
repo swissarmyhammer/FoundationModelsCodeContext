@@ -222,7 +222,7 @@ internal struct MetricsTests {
     @Test(.timeLimit(.minutes(MetricsTests.timeLimitMinutes)))
     internal func aRestartAfterAnInstallAddsOneToTheRestartCounterOfTheServer() async throws {
         let command = "fake-metrics-install-\(UUID().uuidString)"
-        let installDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let installDirectory = TemporaryItem.makeURL(prefix: "install-directory")
         let spec = ServerSpec(
             command: command,
             languageIDs: ["fake"],

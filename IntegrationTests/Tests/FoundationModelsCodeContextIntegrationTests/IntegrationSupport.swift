@@ -11,10 +11,19 @@ import Tracing
 
 /// Creates a fresh temporary workspace directory for `body`, removed
 /// afterwards regardless of outcome.
+///
+/// The directory is below the shared directory
+/// `/tmp/FoundationModelsCodeContextIntegrationTests-<uid>`, not below
+/// `$TMPDIR`. When `$TMPDIR` holds very many entries, each path lookup through
+/// `$TMPDIR` (a `mkdir`, an `lstat`, a `realpath(3)`) can take seconds and
+/// block a thread of the cooperative pool. The tests do not remove the shared
+/// directory, because a different test run can use it at the same time. The
+/// unit test target has the same rule in `TemporaryItem`, which tells the
+/// full reason.
 func withTemporaryWorkspace<T>(_ body: (URL) async throws -> T) async throws -> T {
-    let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent(
-            "FoundationModelsCodeContextIntegrationTests-\(UUID().uuidString)", isDirectory: true)
+    let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        .appendingPathComponent("FoundationModelsCodeContextIntegrationTests-\(getuid())", isDirectory: true)
+        .appendingPathComponent("workspace-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
     return try await body(root)
