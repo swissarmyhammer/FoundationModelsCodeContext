@@ -657,12 +657,17 @@ struct LSPDaemonTests {
 /// internal `FakeLanguageServerConnection`, which this test never exercises but must still
 /// implement to satisfy the protocol.
 private actor HangingInitializeConnection: LanguageServerConnection {
+    /// The number of seconds that `initialize(rootURI:)` sleeps. This time is
+    /// much longer than the handshake timeout of each test, thus the
+    /// handshake never gets an answer.
+    private static let initializeHangSeconds = 3600
+
     private let inner = FakeLanguageServerConnection()
 
     nonisolated var serverNotifications: AsyncStream<ServerNotification> { inner.serverNotifications }
 
     func initialize(rootURI: DocumentURI?) async throws -> ServerCapabilities {
-        try await Task.sleep(for: .seconds(3600))
+        try await Task.sleep(for: .seconds(Self.initializeHangSeconds))
         return try await inner.initialize(rootURI: rootURI)
     }
 

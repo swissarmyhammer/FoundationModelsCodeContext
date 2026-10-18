@@ -185,6 +185,42 @@ comments:
     - evidence: swift test — 922 tests in 83 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete. Only warning: SwiftPM "missing creator for mutated node" for the mlx-swift_Cmlx.bundle dependency, not from this package.
     - next: commit
   timestamp: 2026-10-18T04:55:05.103918+00:00
+- actor: claude-code
+  id: 01m56p37qph76z3syrnkeze69x
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (fba93b2): 1 finding, 1 confirmed, 0 refuted. Tests/FoundationModelsCodeContextTests/TestSupport.swift:225 code-hygiene/magic-numbers-swift. All prior review items are checked.
+    - next: implement the open item in the "Review Findings (2026-10-17 23:55)" section, then review again.
+  timestamp: 2026-10-18T05:00:05.750083+00:00
+- actor: claude-code
+  id: 01m56p408469hj9tphdgw6g81a
+  text: |-
+    ### finish iteration 4 — findings
+    - implement: changed — 9 files (shared test constants in TestSupport.swift)
+    - test: green — swift test, 922 passed
+    - commit: fba93b2
+    - review: findings — Tests/FoundationModelsCodeContextTests/TestSupport.swift:225
+  timestamp: 2026-10-18T05:00:30.852127+00:00
+- actor: claude-code
+  id: 01m56pqgat2c3ry4e6h7h83ngy
+  text: |-
+    Review finding (2026-10-17 23:55) fixed: TestSupport.swift:225 code-hygiene/magic-numbers-swift — "Magic numbers should be replaced by named constants."
+    - The gate is the swiftlint rule `no_magic_numbers` (swiftlint 0.65.1 is in /opt/homebrew/bin). Before the fix, `swiftlint lint --quiet --only-rule no_magic_numbers` on all 22 test files that the commits of this task touched (`git diff --name-only 6b183de^..HEAD -- Tests IntegrationTests`) gave 5 violations: TestSupport.swift `.seconds(5)`, LSPDaemonTests.swift `.seconds(3600)` (HangingInitializeConnection), IntegrationSupport.swift `.seconds(10)` two times and `.milliseconds(10)`.
+    - Fix, in the style of the repo (`testTimeLimitMinutes`, `CodeContextDefaults.diagnosticsHardTimeoutSeconds`, `defaultPollIntervalMilliseconds`): one named numeric constant, then `.seconds(name)`. New constants: `readyAfterInstallTimeoutSeconds = 5` (TestSupport.swift), `HangingInitializeConnection.initializeHangSeconds = 3600` (LSPDaemonTests.swift), `ScriptedLSPServer.requestTimeoutSeconds = 10`, `.stderrBudgetSeconds = 10`, `.stderrPollIntervalMilliseconds = 10` (IntegrationSupport.swift). The values did not change. No swiftlint disable comment.
+    - After the fix, the same swiftlint command gives 0 violations (exit 0).
+    - Discovery: swiftlint does not report a literal in the body of a type that has `@Test` functions (for example `.seconds(5)` in `LSPDaemonTests.serverSpec`). It reported the private actor in LSPDaemonTests.swift because that actor is outside the test struct.
+
+    ### implement — changed
+    - evidence: 3 files — Tests/FoundationModelsCodeContextTests/TestSupport.swift, Tests/FoundationModelsCodeContextTests/LSPDaemonTests.swift, IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/IntegrationSupport.swift. swiftlint no_magic_numbers on the 22 touched test files: 5 violations before, 0 after. `swift test --filter 'LSPDaemonTests|CodeContextManagerTests|CodeContextE2ETests'`: 47 tests in 3 suites passed. `swift test --package-path IntegrationTests --filter 'LoggingContentTests|TelemetryContentSafetyTests|LSPRequestMetricsTests|LSPRequestSpanTests'`: 6 tests in 4 suites passed. Full `swift test`: 922 tests in 83 suites passed, 0 failed. Only warning: the third-party "missing creator for mutated node ... mlx-swift_Cmlx.bundle".
+    - next: /review
+  timestamp: 2026-10-18T05:11:09.914049+00:00
+- actor: claude-code
+  id: 01m56q0tg4cqn5berknbxpwjks
+  text: |-
+    ### test — green
+    - evidence: swift test — 922 tests in 83 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete, exit 0. The only warning is "missing creator for mutated node" for the mlx-swift_Cmlx.bundle dependency, not from this package.
+    - next: commit
+  timestamp: 2026-10-18T05:16:15.236588+00:00
 position_column: doing
 position_ordinal: '80'
 title: Child processes must not read the stdin of the host process
@@ -256,3 +292,12 @@ In the same run, the log had `the binary of the language server is not on the PA
 > - `.kanban/ (from .reviewignore)` — 2 file(s)
 
 - [x] `Tests/FoundationModelsCodeContextTests/CodeContextManagerTests.swift:20` `reuse/reuse` — The new constant readyAfterInstallTimeout is a copy of the constant of the same name in CodeContextE2ETests.swift. Both have the same value, the same doc comment, and the same purpose. Two copies can drift apart. The constant is not shared by the test files. Declare the constant once in a shared test support file, such as TestSupport.swift, next to waitUntil. Both suites then read the same value. Remove the private copies.
+
+## Review Findings (2026-10-17 23:55)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 9 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsCodeContextTests/TestSupport.swift:225` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.

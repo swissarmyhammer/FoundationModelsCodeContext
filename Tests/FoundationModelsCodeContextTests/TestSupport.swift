@@ -219,10 +219,13 @@ func waitUntil(
 /// for a closed gate, fails at this limit. All suites read this one value.
 let testTimeLimitMinutes = 1
 
+/// The number of seconds in `readyAfterInstallTimeout`.
+let readyAfterInstallTimeoutSeconds = 5
+
 /// The longest real time that a test waits for `isReady` after a failed
 /// auto-install. The forced restart after the install gives `.notFound` again
 /// in some milliseconds. All suites read this one value.
-let readyAfterInstallTimeout: Duration = .seconds(5)
+let readyAfterInstallTimeout: Duration = .seconds(readyAfterInstallTimeoutSeconds)
 
 /// Writes `content` to `relativePath` under `root`, creating any missing
 /// intermediate directories. Shared across the test target by any suite

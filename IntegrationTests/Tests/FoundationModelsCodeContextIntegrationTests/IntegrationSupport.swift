@@ -190,14 +190,23 @@ internal enum ScriptedLSPServer {
     /// The script starts in less than one second, thus a few seconds are
     /// sufficient. A request that gets no answer fails after this time and
     /// does not hang the test.
-    internal static let requestTimeout: Duration = .seconds(10)
+    internal static let requestTimeout: Duration = .seconds(requestTimeoutSeconds)
+
+    /// The number of seconds in `requestTimeout`.
+    private static let requestTimeoutSeconds = 10
 
     /// The time that a test waits for the standard error tail of the server
     /// to hold a text.
-    internal static let stderrBudget: Duration = .seconds(10)
+    internal static let stderrBudget: Duration = .seconds(stderrBudgetSeconds)
+
+    /// The number of seconds in `stderrBudget`.
+    private static let stderrBudgetSeconds = 10
 
     /// The time between two polls of the standard error tail.
-    internal static let stderrPollInterval: Duration = .milliseconds(10)
+    internal static let stderrPollInterval: Duration = .milliseconds(stderrPollIntervalMilliseconds)
+
+    /// The number of milliseconds in `stderrPollInterval`.
+    private static let stderrPollIntervalMilliseconds = 10
 
     /// Starts the scripted server with `steps`, runs `body` with the
     /// connection, and closes the connection on every exit path.
