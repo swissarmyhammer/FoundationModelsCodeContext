@@ -18,8 +18,31 @@ comments:
     - evidence: no project file changed. The cause is recorded in the description, and the acceptance-criteria box is checked for the case "cannot remove". `swift build --build-tests`: 1 `missing creator` warning (no-op build). Clean `--scratch-path` build: the same 1 warning. `--build-system native` build: 0 `missing creator` warnings, no Cmlx bundle, 1 deprecation warning. Cause: Swift Build marks `mlx-swift_Cmlx.bundle/Contents/MacOS` as a mutated node with no creator for the Metal resource bundle of mlx-swift 0.32.3 (newest tag). New task ^0d568qc for an orphan scripted-lsp-server process.
     - next: /review. The test step must accept this one upstream warning until Swift Build or mlx-swift removes it.
   timestamp: 2026-10-18T15:18:21.551527+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m57sg7q9jktavqna2qbke47w
+  text: |-
+    ### commit — changed
+    - evidence: e11b4ac chore(kanban): record the cause of the Cmlx bundle build warning ^kw00hcn, 6 files
+    - next: none
+  timestamp: 2026-10-18T15:18:51.881901+00:00
+- actor: claude-code
+  id: 01m57sh9mcf8ynfcwz7es3adgy
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit e11b4ac): findings 0, confirmed 0, refuted 0. The 6 changed files are all in `.kanban/`, and `.reviewignore` excludes them. The description records the cause (the Swift Build plan for the `mlx-swift_Cmlx` Metal resource bundle of mlx-swift 0.32.3), the evidence (no-op build, clean scratch build, native build system), and why this package cannot remove the warning. The acceptance criterion is satisfied.
+    - next: none. The task moved to done.
+  timestamp: 2026-10-18T15:19:26.604590+00:00
+- actor: claude-code
+  id: 01m57shmm7vtt47m9x3zpmk729
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: no-change — cause recorded on the task (Swift Build and the Cmlx Metal bundle of mlx-swift 0.32.3)
+    - test: skipped — no code change since the green run at 7000095 (1015 passed)
+    - commit: e11b4ac (kanban records only)
+    - review: clean — 0 findings; acceptance criterion met by the recorded cause
+  timestamp: 2026-10-18T15:19:37.863813+00:00
+position_column: done
+position_ordinal: f680
 title: 'swift build: warning "missing creator for mutated node" for the mlx-swift_Cmlx bundle'
 ---
 ## Problem
