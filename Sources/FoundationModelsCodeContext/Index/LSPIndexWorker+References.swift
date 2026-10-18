@@ -218,12 +218,12 @@ extension LSPIndexWorker {
         pathFilter: PathFilter,
         session: LspSession<Connection>
     ) async -> [FlatSymbol] {
-        guard pathFilter.acceptsDocument(relativePath: relativePath),
-            let contents = readFileContents(relativePath: relativePath, rootDirectory: rootDirectory)
+        guard let document = LanguageServerDocument(relativePath: relativePath, rootDirectory: rootDirectory, pathFilter: pathFilter),
+            let contents = document.text
         else {
             return []
         }
-        let uri = DocumentURI(rootDirectory.appendingPathComponent(relativePath).absoluteString)
+        let uri = document.uri
         let symbols = await withIndexerDocument(relativePath: relativePath, uri: uri, contents: contents, session: session) {
             await fetchDocumentSymbols(relativePath: relativePath, uri: uri, session: session)
         }

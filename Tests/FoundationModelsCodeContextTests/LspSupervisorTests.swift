@@ -486,10 +486,10 @@ struct LspSupervisorTests {
         // models an in-flight actor call `shutdown()` genuinely cannot interrupt by cancelling,
         // only by awaiting its actual completion.
         let connectionIndex = Counter()
-        let latestGate = Box<RestartGate?>(nil)
+        let latestGate = Box<AsyncGate?>(nil)
         let gatedFactory: ConnectionFactory<GatedConnection> = { _, _ in
             let index = await connectionIndex.increment()
-            let gate = RestartGate()
+            let gate = AsyncGate(isOpen: true)
             if index > 1 {
                 await gate.close()
             }
@@ -831,46 +831,16 @@ struct LspSupervisorTests {
     }
 }
 
-/// A one-shot gate an async caller can wait on and a test can later release, using a bare
-/// `CheckedContinuation` with no cancellation handling — unlike `ManualClock.sleep`, cancelling the
-/// waiting task does *not* interrupt `waitUntilOpen()`. Models an in-flight actor call that
-/// genuinely cannot be interrupted by cancellation alone.
-private actor RestartGate {
-    /// Whether the gate currently lets `waitUntilOpen()` return immediately.
-    private var isOpen = true
-
-    /// The suspended `waitUntilOpen()` caller's continuation, if the gate is currently closed.
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    /// Closes the gate, so the next `waitUntilOpen()` call suspends until `open()` is called.
-    func close() {
-        isOpen = false
-    }
-
-    /// Suspends until the gate is open, returning immediately if it already is.
-    func waitUntilOpen() async {
-        if isOpen { return }
-        await withCheckedContinuation { continuation = $0 }
-    }
-
-    /// Opens the gate, resuming a suspended `waitUntilOpen()` caller if there is one.
-    func open() {
-        isOpen = true
-        continuation?.resume()
-        continuation = nil
-    }
-}
-
-/// A `LanguageServerConnection` whose `initialize(rootURI:)` suspends on a `RestartGate` before
+/// A `LanguageServerConnection` whose `initialize(rootURI:)` suspends on an `AsyncGate` before
 /// forwarding to an inner `FakeLanguageServerConnection`. Every other requirement forwards
 /// directly, mirroring `LSPDaemonTests`' `HangingInitializeConnection`.
 private actor GatedConnection: LanguageServerConnection {
     private let inner = FakeLanguageServerConnection()
-    private let gate: RestartGate
+    private let gate: AsyncGate
 
     /// Creates a connection whose handshake suspends on `gate`.
     /// - Parameter gate: The gate `initialize(rootURI:)` waits on before proceeding.
-    init(gate: RestartGate) {
+    init(gate: AsyncGate) {
         self.gate = gate
     }
 

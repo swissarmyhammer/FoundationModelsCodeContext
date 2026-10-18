@@ -57,7 +57,7 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
                 await syncAndPull(file: file, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session)
             }
 
-            let watchedURIs = allFiles.map { documentURI(forRelativePath: $0, rootDirectory: rootDirectory) }
+            let watchedURIs = allFiles.map { LanguageServerDocument.uri(relativePath: $0, rootDirectory: rootDirectory) }
             let outcome = await Settle.settle(session: session, uris: watchedURIs, settleWindow: settleWindow, hardTimeout: hardTimeout, clock: clock)
             switch outcome {
             case .settled(let state):
@@ -142,26 +142,25 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
     /// watcher's own async pulls, matching the fix noted in the Rust
     /// reference's git history ("pull target files in diagnose").
     ///
-    /// Before both steps, the shared path filter examines `file` (see
-    /// `PathFilter.acceptsDocument(relativePath:)`). For a path that the
-    /// ignore rules ignore, or a path whose real path is not in the root, the
-    /// method sends no `didOpen` and pulls no diagnostics. This is not an
-    /// error: the report has no records for that file.
+    /// Before both steps, the shared path filter examines `file` and reads its
+    /// disk text (see `SharedPathFilter.acceptedDocument(relativePath:rootDirectory:)`).
+    /// For a path that the ignore rules ignore, or a path whose real path is
+    /// not in the root, the method sends no `didOpen` and pulls no
+    /// diagnostics. This is not an error: the report has no records for that
+    /// file.
     /// - Parameters:
     ///   - file: The file to sync and pull, relative to `rootDirectory`.
     ///   - rootDirectory: The workspace root `file` is relative to.
     ///   - pathFilter: The one path filter instance of the workspace.
     ///   - session: The session to sync and pull through.
     private static func syncAndPull(file: String, rootDirectory: URL, pathFilter: SharedPathFilter, session: LspSession<Connection>) async {
-        guard await pathFilter.acceptsDocument(relativePath: file) else {
+        guard let document = await pathFilter.acceptedDocument(relativePath: file, rootDirectory: rootDirectory) else {
             return
         }
-        let uri = documentURI(forRelativePath: file, rootDirectory: rootDirectory)
-        let text = readFileContents(relativePath: file, rootDirectory: rootDirectory)
-        let isInUse = await beginToolUse(of: uri, text: text, session: session)
-        _ = try? await session.pullDiagnostics(uri: uri)
+        let isInUse = await beginToolUse(of: document.uri, text: document.text, session: session)
+        _ = try? await session.pullDiagnostics(uri: document.uri)
         if isInUse {
-            await session.endUse(uri: uri)
+            await session.endUse(uri: document.uri)
         }
     }
 
@@ -186,20 +185,6 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
         } catch {
             return false
         }
-    }
-
-    /// Reads `relativePath`'s content from disk as UTF-8 text, or `nil` if it can't be read or decoded.
-    private static func readFileContents(relativePath: String, rootDirectory: URL) -> String? {
-        let fileURL = rootDirectory.appendingPathComponent(relativePath)
-        guard let data = try? Data(contentsOf: fileURL), let contents = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return contents
-    }
-
-    /// Builds `relativePath`'s `DocumentURI`, relative to `rootDirectory`.
-    private static func documentURI(forRelativePath relativePath: String, rootDirectory: URL) -> DocumentURI {
-        DocumentURI(rootDirectory.appendingPathComponent(relativePath).absoluteString)
     }
 
     // MARK: - Report building

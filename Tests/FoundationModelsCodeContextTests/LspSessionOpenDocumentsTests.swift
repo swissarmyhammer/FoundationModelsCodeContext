@@ -34,16 +34,12 @@ struct LspSessionOpenDocumentsTests {
 
     /// The URIs of the `didClose` calls that `connection` got, in order.
     private static func closedURIs(_ connection: FakeLanguageServerConnection) async -> [DocumentURI] {
-        await connection.calls.compactMap { call in
-            if case .didClose(let uri) = call { uri } else { nil }
-        }
+        await connection.uris { if case .didClose(let uri) = $0 { uri } else { nil } }
     }
 
     /// The number of `didOpen` calls that `connection` got.
     private static func didOpenCount(_ connection: FakeLanguageServerConnection) async -> Int {
-        await connection.calls.filter { call in
-            if case .didOpen = call { true } else { false }
-        }.count
+        await connection.uris { if case .didOpen(let uri, _, _, _) = $0 { uri } else { nil } }.count
     }
 
     @Test

@@ -861,21 +861,15 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     /// (see `OpenDocuments`).
     ///
     /// Before the read, the shared path filter examines `filePath` (see
-    /// `PathFilter.acceptsDocument(relativePath:)`). A path that the ignore
-    /// rules ignore, or a path whose real path is not in the root, is not
-    /// opened: the method returns `nil`, thus the op uses the next layer.
-    /// This is not an error.
+    /// `SharedPathFilter.acceptedDocument(relativePath:rootDirectory:)`). A
+    /// path that is not safe, that the ignore rules ignore, or whose real
+    /// path is not in the root, is not opened: the method returns `nil`, thus
+    /// the op uses the next layer. This is not an error.
     ///
     /// Any failure (the file can't be read, or `syncOpen` itself throws — a
     /// connection failure) is swallowed into `nil`: per `LiveOpsCore`'s
     /// type-level doc comment, a live-layer failure falls through to the
     /// next layer rather than surfacing.
-    ///
-    /// `readFileContents(relativePath:rootDirectory:)` rejects a
-    /// path-traversal `filePath` before touching disk (see its own doc
-    /// comment), so this method's own `DocumentURI` construction below —
-    /// which reuses the exact same `filePath` — never runs on an unsafe
-    /// path either: the `guard` above already returned `nil` for it.
     ///
     /// - Parameters:
     ///   - session: The session to sync the document to.
@@ -897,12 +891,12 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         filePath: String,
         _ request: (DocumentURI) async throws -> Value
     ) async -> Result<Value, any Error>? {
-        guard await pathFilter.acceptsDocument(relativePath: filePath),
-            let contents = readFileContents(relativePath: filePath, rootDirectory: rootDirectory)
+        guard let document = await pathFilter.acceptedDocument(relativePath: filePath, rootDirectory: rootDirectory),
+            let contents = document.text
         else {
             return nil
         }
-        let uri = DocumentURI(rootDirectory.appendingPathComponent(filePath).absoluteString)
+        let uri = document.uri
         do {
             try await session.beginUse(uri: uri, text: contents, owner: .tool)
         } catch {
@@ -918,32 +912,13 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         return outcome
     }
 
-    /// Reads `relativePath`'s content from disk as UTF-8 text, or `nil` if
-    /// it can't be read or decoded, or if `relativePath` fails
-    /// `RelativePath.isSafeRelativePath(_:)`'s path-traversal guard.
-    ///
-    /// This is the sole gateway every disk read in this type goes through
-    /// (`readSourceRange`, and `withLiveDocument`'s own subsequent
-    /// `DocumentURI` construction, which only runs after this guard has
-    /// already accepted `relativePath`) — see
-    /// `RelativePath.isSafeRelativePath(_:)`'s doc comment for why
-    /// `relativePath` isn't trusted even though every current caller in
-    /// this file passes the op's own `filePath` argument.
-    private static func readFileContents(relativePath: String, rootDirectory: URL) -> String? {
-        guard RelativePath.isSafeRelativePath(relativePath) else {
-            return nil
-        }
-        let fileURL = rootDirectory.appendingPathComponent(relativePath)
-        guard let data = try? Data(contentsOf: fileURL), let contents = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return contents
-    }
-
     /// Reads the source lines spanning `range` (inclusive) from `filePath` on disk, or `nil` if the
     /// file can't be read or `range` falls outside it.
+    ///
+    /// The read goes through `LanguageServerDocument.readText(relativePath:rootDirectory:)`,
+    /// which rejects a path-traversal `filePath` before it touches the disk.
     private static func readSourceRange(rootDirectory: URL, filePath: String, range: LSPRange) -> String? {
-        guard let contents = readFileContents(relativePath: filePath, rootDirectory: rootDirectory) else {
+        guard let contents = LanguageServerDocument.readText(relativePath: filePath, rootDirectory: rootDirectory) else {
             return nil
         }
         let lines = contents.components(separatedBy: "\n")

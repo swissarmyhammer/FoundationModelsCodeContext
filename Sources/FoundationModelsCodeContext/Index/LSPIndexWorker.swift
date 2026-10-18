@@ -423,7 +423,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         }
 
         let filter = await pathFilter.filter
-        guard filter.acceptsDocument(relativePath: relativePath) else {
+        guard let document = LanguageServerDocument(relativePath: relativePath, rootDirectory: rootDirectory, pathFilter: filter) else {
             return await skipFile(
                 relativePath: relativePath,
                 store: store,
@@ -432,7 +432,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             )
         }
 
-        guard let contents = readFileContents(relativePath: relativePath, rootDirectory: rootDirectory) else {
+        guard let contents = document.text else {
             return await skipFile(
                 relativePath: relativePath,
                 store: store,
@@ -441,9 +441,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             )
         }
 
-        let fileURL = rootDirectory.appendingPathComponent(relativePath)
-        let uri = DocumentURI(fileURL.absoluteString)
-
+        let uri = document.uri
         let collected = await withIndexerDocument(relativePath: relativePath, uri: uri, contents: contents, session: session) {
             await collectFileIndex(
                 relativePath: relativePath,
@@ -623,20 +621,6 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         } catch {
             await logRequestFailure(of: .didClose, filePath: relativePath, error: error, session: session)
         }
-    }
-
-    /// Reads `relativePath`'s content from disk as UTF-8 text, or `nil` if
-    /// it can't be read or decoded.
-    /// - Parameters:
-    ///   - relativePath: The file's workspace-relative path.
-    ///   - rootDirectory: The workspace root `relativePath` is relative to.
-    /// - Returns: The file's decoded text, or `nil` on any read/decode failure.
-    static func readFileContents(relativePath: String, rootDirectory: URL) -> String? {
-        let fileURL = rootDirectory.appendingPathComponent(relativePath)
-        guard let data = try? Data(contentsOf: fileURL), let contents = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return contents
     }
 
     /// Logs why `processFile` skips `relativePath`, then marks the file

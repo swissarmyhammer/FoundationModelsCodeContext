@@ -34,12 +34,7 @@ struct LSPPathCheckTests {
     /// - Parameter connection: The fake connection.
     /// - Returns: The uris, in call order.
     private static func openedURIs(_ connection: FakeLanguageServerConnection) async -> [DocumentURI] {
-        await connection.calls.compactMap { call in
-            guard case .didOpen(let uri, _, _, _) = call else {
-                return nil
-            }
-            return uri
-        }
+        await connection.uris { if case .didOpen(let uri, _, _, _) = $0 { uri } else { nil } }
     }
 
     /// Gives the document uris that `connection` got a pull-diagnostics
@@ -47,12 +42,7 @@ struct LSPPathCheckTests {
     /// - Parameter connection: The fake connection.
     /// - Returns: The uris, in call order.
     private static func pulledURIs(_ connection: FakeLanguageServerConnection) async -> [DocumentURI] {
-        await connection.calls.compactMap { call in
-            guard case .pullDiagnostics(let uri) = call else {
-                return nil
-            }
-            return uri
-        }
+        await connection.uris { if case .pullDiagnostics(let uri) = $0 { uri } else { nil } }
     }
 
     /// Writes the `build-out/` rule and the ignored file, and gives a shared
