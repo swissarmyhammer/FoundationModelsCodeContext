@@ -16,9 +16,6 @@ internal struct MetricsTests {
     /// The number of fixture files of the index pass test.
     private static let fixtureFileCount = 3
 
-    /// The time limit of each test that starts background work, in minutes.
-    private static let timeLimitMinutes = 1
-
     /// The JSON-RPC method name of the recorded request.
     private static let requestMethod = "textDocument/definition"
 
@@ -88,7 +85,7 @@ internal struct MetricsTests {
 
     // MARK: - Index pass
 
-    @Test(.timeLimit(.minutes(MetricsTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     internal func anIndexPassRecordsOneDurationAndAddsTheCountOfIndexedFiles() async throws {
         try await withTemporaryWorkspace { root in
             for index in 0..<Self.fixtureFileCount {
@@ -216,7 +213,7 @@ internal struct MetricsTests {
         #expect(restarts.totalValue == 1)
     }
 
-    @Test(.timeLimit(.minutes(MetricsTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     internal func aRestartAfterAnInstallAddsOneToTheRestartCounterOfTheServer() async throws {
         let command = "fake-metrics-install-\(UUID().uuidString)"
         let installDirectory = TemporaryItem.makeURL(prefix: "install-directory")

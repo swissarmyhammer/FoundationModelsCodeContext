@@ -20,10 +20,6 @@ import Testing
 /// registered LSP server. Thus the `markUncoveredLspFilesDone()` step of the facade marks the LSP
 /// layer as drained.
 struct CodeContextE2ETests {
-    /// The longest real time that a test waits for `isReady` after a failed auto-install. The
-    /// forced restart after the install gives `.notFound` again in some milliseconds.
-    private static let readyAfterInstallTimeout: Duration = .seconds(5)
-
     /// Builds a `CodeContext<FakeLanguageServerConnection>` for `rootDirectory`, wired to a fake
     /// filesystem-event source (never a real FSEvents stream) and a fake LSP connection factory (never
     /// invoked in these tests, since no fixture here has a detected project/server spec, but still
@@ -295,7 +291,7 @@ struct CodeContextE2ETests {
 
             // Wait (real time, with a limit) until the forced restart after the failed install
             // gives `.notFound` again. Then isReady must be true again.
-            let isReady = try await waitUntil(timeout: Self.readyAfterInstallTimeout) { await context.state.isReady }
+            let isReady = try await waitUntil(timeout: readyAfterInstallTimeout) { await context.state.isReady }
             #expect(isReady, "isReady must become true again once the failed auto-install resolves and the daemon re-settles")
 
             let finalState = await context.lspStatus().first { $0.command == "intelephense" }?.state

@@ -15,9 +15,6 @@ struct DetectProjectsIsolationTests {
     /// The dimension of the fake embedding vectors.
     private static let dimension = 8
 
-    /// The time limit of the test, in minutes.
-    private static let timeLimitMinutes = 1
-
     /// The most time that `detectProjects()` can use while the index pass and the
     /// executors are held. The detection of the small fixture takes some
     /// milliseconds, thus a call that answers in this time did not wait.
@@ -32,7 +29,7 @@ struct DetectProjectsIsolationTests {
     /// The canonical name of the language that the marker identifies.
     private static let swiftLanguageName = "swift"
 
-    @Test(.timeLimit(.minutes(timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func detectProjectsAnswersWhileAnIndexPassAndTheActorsAreHeld() async throws {
         try await withTemporaryWorkspace { root in
             try write("// swift-tools-version: 6.2\n", to: Self.markerFileName, in: root)

@@ -145,6 +145,46 @@ comments:
     - evidence: swift test — 922 tests in 83 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete, 0 warnings from this package (only a build-system note about the mlx-swift_Cmlx.bundle dependency, not from this package)
     - next: commit
   timestamp: 2026-10-18T04:27:21.830497+00:00
+- actor: claude-code
+  id: 01m56mtjfp0sqa0k90mvqh35p8
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (a56ffaa). 1 finding (1 confirmed, 1 refuted). Tests/FoundationModelsCodeContextTests/CodeContextManagerTests.swift:20. All prior findings are checked.
+    - next: Declare readyAfterInstallTimeout one time in a shared test support file. Remove the private copies in CodeContextManagerTests.swift and CodeContextE2ETests.swift.
+  timestamp: 2026-10-18T04:37:53.270060+00:00
+- actor: claude-code
+  id: 01m56mtywzdxkbhtyxk6ed6yn1
+  text: |-
+    ### finish iteration 3 — findings
+    - implement: changed — 14 files (one shared waitUntil for all test files)
+    - test: green — swift test, 922 passed
+    - commit: a56ffaa
+    - review: findings — Tests/FoundationModelsCodeContextTests/CodeContextManagerTests.swift:20
+  timestamp: 2026-10-18T04:38:05.983412+00:00
+- actor: claude-code
+  id: 01m56ngpxby3h8av54vzp9tprt
+  text: |-
+    Review finding (2026-10-17 23:27) fixed.
+    - TestSupport.swift now declares `readyAfterInstallTimeout` (5 s) one time, next to `waitUntil`. The private copies in CodeContextManagerTests.swift and CodeContextE2ETests.swift are removed. Both suites read the shared value.
+    - Search of all test files for the same cause (one constant with copies, same value and same purpose): `timeLimitMinutes = 1` had six private copies. ChildStandardInputTests added a new copy in this task. CodeContextStartTests, MetricsTests and DetectProjectsIsolationTests were touched in this task. TracingSpanTests and TelemetryContentSafetyTests also had the same copy. TestSupport.swift now declares `testTimeLimitMinutes` one time, and all six suites use it. The six private copies are removed.
+    - The other timeout and interval constants in the touched files have different purposes or values (for example `stateWaitTimeout`, `processReapTimeout`, `subscriberRemovalTimeout`, `answerBudget`, `installTimeout`). They are not copies, thus they stay.
+    - Not changed: CodeContextStateTests and LSPIndexWorkerReferencesTests write the literal `.timeLimit(.minutes(1))`. These files are not in the commits of this task.
+    - The `replace_all` flag of the sah files edit tool changed only one place for each call. Thus each place needed its own edit.
+  timestamp: 2026-10-18T04:49:58.699400+00:00
+- actor: claude-code
+  id: 01m56ngstssac2ah7aw13nat0t
+  text: |-
+    ### implement — changed
+    - evidence: 9 files — Tests/FoundationModelsCodeContextTests/TestSupport.swift, CodeContextManagerTests.swift, CodeContextE2ETests.swift, ChildStandardInputTests.swift, CodeContextStartTests.swift, MetricsTests.swift, DetectProjectsIsolationTests.swift, TracingSpanTests.swift, TelemetryContentSafetyTests.swift. `swift build --build-tests`: Build complete. Affected suites (`swift test --filter` on the 8 suites): 66 tests in 8 suites passed; the two tests that read readyAfterInstallTimeout ran and passed. Full `swift test`: 922 tests in 83 suites passed, 0 failed, 0 skipped. Only warning: the third-party "missing creator for mutated node ... mlx-swift_Cmlx.bundle".
+    - next: /review
+  timestamp: 2026-10-18T04:50:01.689756+00:00
+- actor: claude-code
+  id: 01m56nt24f67pm0e7tm2serekk
+  text: |-
+    ### test — green
+    - evidence: swift test — 922 tests in 83 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete. Only warning: SwiftPM "missing creator for mutated node" for the mlx-swift_Cmlx.bundle dependency, not from this package.
+    - next: commit
+  timestamp: 2026-10-18T04:55:05.103918+00:00
 position_column: doing
 position_ordinal: '80'
 title: Child processes must not read the stdin of the host process
@@ -207,3 +247,12 @@ In the same run, the log had `the binary of the language server is not on the PA
 > - `.kanban/ (from .reviewignore)` — 8 file(s)
 
 - [x] `Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:63` `reuse/reuse` — The new private static waitUntil duplicates the wait helper that already exists in LspSupervisorTests. The change says the start tests now use one shared wait, but the code keeps two copies. The copies differ in contract: the existing one has a timeout and returns without throwing, and this one has no timeout and throws on cancellation. Each copy must be kept in step with the other, and a fix to one will not reach the other. Move one generic polling helper to a shared test support file, such as TestSupport.swift, with the timeout and the throwing behavior as parameters. Both suites then call that helper. If the throwing behavior must stay, keep the difference in one parameter and state the reason for it in a doc comment.
+
+## Review Findings (2026-10-17 23:27)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 14 file(s) reviewed, 2 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+- [x] `Tests/FoundationModelsCodeContextTests/CodeContextManagerTests.swift:20` `reuse/reuse` — The new constant readyAfterInstallTimeout is a copy of the constant of the same name in CodeContextE2ETests.swift. Both have the same value, the same doc comment, and the same purpose. Two copies can drift apart. The constant is not shared by the test files. Declare the constant once in a shared test support file, such as TestSupport.swift, next to waitUntil. Both suites then read the same value. Remove the private copies.

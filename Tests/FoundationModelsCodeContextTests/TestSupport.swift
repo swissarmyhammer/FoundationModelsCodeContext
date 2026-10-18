@@ -214,6 +214,16 @@ func waitUntil(
     return true
 }
 
+/// The time limit of each test that uses a `.timeLimit` trait, in minutes. A
+/// test that does not end, for example a `start()` or a `stop()` that waits
+/// for a closed gate, fails at this limit. All suites read this one value.
+let testTimeLimitMinutes = 1
+
+/// The longest real time that a test waits for `isReady` after a failed
+/// auto-install. The forced restart after the install gives `.notFound` again
+/// in some milliseconds. All suites read this one value.
+let readyAfterInstallTimeout: Duration = .seconds(5)
+
 /// Writes `content` to `relativePath` under `root`, creating any missing
 /// intermediate directories. Shared across the test target by any suite
 /// that needs to materialize fixture files (`ReconcilerTests`, `WalkerTests`).

@@ -141,9 +141,6 @@ private struct ContentSafetyCapture {
 /// real subprocess. Thus their content-safety test is in the `IntegrationTests` package
 /// (`IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/TelemetryContentSafetyTests.swift`).
 internal struct TelemetryContentSafetyTests {
-    /// The time limit of the test, in minutes.
-    private static let timeLimitMinutes = 1
-
     /// The length of each vector of the fake embedder.
     private static let embeddingDimension = 8
 
@@ -192,7 +189,7 @@ internal struct TelemetryContentSafetyTests {
         CodeContextTracing.MetricName.lspServerRestarts,
     ]
 
-    @Test(.timeLimit(.minutes(TelemetryContentSafetyTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     internal func noSpanLogRecordOrMetricHoldsTheContentOfTheUser() async throws {
         _ = CapturedLogRecords.handler
         let capture = ContentSafetyCapture(marker: Self.makeMarker())

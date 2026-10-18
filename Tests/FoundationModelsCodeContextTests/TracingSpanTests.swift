@@ -29,9 +29,6 @@ internal struct TracingSpanTests {
     /// thus one call holds the chunks of all the fixture files.
     private static let firstPassEmbedSpanCount = 2
 
-    /// The time limit of each test that starts background work, in minutes.
-    private static let timeLimitMinutes = 1
-
     /// The length of each vector of the fake embedder.
     private static let embeddingDimension = 8
 
@@ -49,7 +46,7 @@ internal struct TracingSpanTests {
 
     // MARK: - Index pass
 
-    @Test(.timeLimit(.minutes(TracingSpanTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     internal func anIndexPassGivesOneIndexPassSpanWithTheCountOfIndexedFiles() async throws {
         let tracer = InMemoryTracer()
         try await Self.runFirstIndexPass(embedder: nil, tracer: tracer)
@@ -61,7 +58,7 @@ internal struct TracingSpanTests {
         #expect(passSpan.errors.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(TracingSpanTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     internal func theEmbedSpansOfAnIndexPassAreChildrenOfThePassSpan() async throws {
         let tracer = InMemoryTracer()
         try await Self.runFirstIndexPass(embedder: FakeEmbedder(vectorLength: Self.embeddingDimension), tracer: tracer)
@@ -75,7 +72,7 @@ internal struct TracingSpanTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(TracingSpanTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     internal func anIndexPassWritesAnEnterRecordBeforeTheWork() async throws {
         _ = CapturedLogRecords.handler
         try await Self.runFirstIndexPass(embedder: nil, tracer: InMemoryTracer())
@@ -85,7 +82,7 @@ internal struct TracingSpanTests {
 
     // MARK: - Watcher batch
 
-    @Test(.timeLimit(.minutes(TracingSpanTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     internal func aWatcherFlushGivesOneWatcherBatchSpanWithTheBatchSize() async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)

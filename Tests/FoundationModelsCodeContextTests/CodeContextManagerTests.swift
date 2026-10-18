@@ -15,10 +15,6 @@ import Testing
 struct CodeContextManagerTests {
     // MARK: - Fixtures
 
-    /// The longest real time that a test waits for `isReady` after a failed auto-install. The
-    /// forced restart after the install gives `.notFound` again in some milliseconds.
-    private static let readyAfterInstallTimeout: Duration = .seconds(5)
-
     /// Builds a `CodeContextManager<FakeLanguageServerConnection>` wired to a fake filesystem-event
     /// source and a fake LSP connection factory (never actually invoked in these tests, since no
     /// fixture here has a detected project/server spec).
@@ -488,7 +484,7 @@ struct CodeContextManagerTests {
 
                 // Wait (real time, with a limit) until the forced restart after the failed
                 // install gives `.notFound` again.
-                let isReady = try await waitUntil(timeout: Self.readyAfterInstallTimeout) { await context.state.isReady }
+                let isReady = try await waitUntil(timeout: readyAfterInstallTimeout) { await context.state.isReady }
                 #expect(isReady)
                 #expect(await context.lspStatus().first { $0.command == "intelephense" }?.state == .notFound)
             }

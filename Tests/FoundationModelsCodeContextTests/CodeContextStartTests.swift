@@ -36,10 +36,6 @@ struct CodeContextStartTests {
     /// thus a complete pass makes more than one call.
     private static let fixtureFileCount = 3
 
-    /// The time limit of each test, in minutes. A `start()` or a `stop()` that
-    /// waits for the closed gate fails at this limit.
-    private static let timeLimitMinutes = 1
-
     /// The name of the file that a test makes while the first pass runs.
     private static let lateFileName = "GreeterLate.swift"
 
@@ -108,7 +104,7 @@ struct CodeContextStartTests {
         return false
     }
 
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func startReturnsBeforeTheEmbeddingStepIsComplete() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
@@ -138,7 +134,7 @@ struct CodeContextStartTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func stopDuringTheFirstPassCancelsThePass() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
@@ -159,7 +155,7 @@ struct CodeContextStartTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func waitForFirstIndexPassReturnsWhenStopCancelsThePass() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
@@ -180,7 +176,7 @@ struct CodeContextStartTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func aNudgeDuringAPassDoesNotEmbedAChunkTwice() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
@@ -212,7 +208,7 @@ struct CodeContextStartTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func rebuildIndexDuringAPassReturnsAfterAPassThatStartedAfterTheRebuild() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
@@ -237,7 +233,7 @@ struct CodeContextStartTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func aCancelledRebuildIndexStopsItsWaitAndThePassContinues() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
@@ -266,7 +262,7 @@ struct CodeContextStartTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func aNilEmbedderTurnsTheEmbeddingLayerOff() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
@@ -294,7 +290,7 @@ struct CodeContextStartTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func anEmbedderTurnsTheEmbeddingLayerOn() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
@@ -314,7 +310,7 @@ struct CodeContextStartTests {
     /// The first pass of a context learns the vector length from one probe
     /// vector. A second pass uses the length that the context keeps, thus it
     /// embeds no probe again, and it embeds only the chunks.
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func theProbeIsEmbeddedOneTimeOnlyForTheLifeOfAContext() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)
@@ -338,7 +334,7 @@ struct CodeContextStartTests {
 
     /// A host that gives no event source turns the watcher off. Then `start()`
     /// makes no watcher, thus no FSEvents stream starts.
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func noEventSourceTurnsTheWatcherOff() async throws {
         try await withTemporaryWorkspace { root in
             let context = try await CodeContext(
@@ -356,7 +352,7 @@ struct CodeContextStartTests {
     }
 
     /// A host that gives an event source gets a watcher on that source.
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func anEventSourceTurnsTheWatcherOn() async throws {
         try await withTemporaryWorkspace { root in
             let context = try await Self.makeCodeContext(rootDirectory: root, embedder: nil)
@@ -496,7 +492,7 @@ struct CodeContextStartTests {
 
     /// An installer that exits with 1 does not stop the session: `start()` completes, the server
     /// of that installer stays `.notFound`, the other server runs and the index answers.
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func aFailedInstallLeavesItsServerNotFoundAndTheOtherServerAndTheIndexRunning() async throws {
         try await withTemporaryWorkspace { root in
             try await withTemporaryWorkspace { binaryDirectory in
@@ -532,7 +528,7 @@ struct CodeContextStartTests {
     }
 
     /// Before `start()` and after `stop()`, the two calls do nothing and give `lspStatus()`.
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func stopAndStartLanguageServersOutsideTheLifecycleGiveTheLspStatus() async throws {
         try await withTemporaryWorkspace { root in
             try await withTemporaryWorkspace { binaryDirectory in
@@ -551,7 +547,7 @@ struct CodeContextStartTests {
     }
 
     /// After `start()`, `stopLanguageServers()` stops each server and publishes the result.
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func stopLanguageServersStopsEachServerAndPublishesTheResult() async throws {
         try await withTemporaryWorkspace { root in
             try await withTemporaryWorkspace { binaryDirectory in
@@ -572,7 +568,7 @@ struct CodeContextStartTests {
 
     /// After `stopLanguageServers()`, `startLanguageServers()` starts each server again and
     /// publishes the result.
-    @Test(.timeLimit(.minutes(CodeContextStartTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func startLanguageServersAfterAStopStartsEachServerAgainAndPublishesTheResult() async throws {
         try await withTemporaryWorkspace { root in
             try await withTemporaryWorkspace { binaryDirectory in

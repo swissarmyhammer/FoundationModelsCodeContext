@@ -12,9 +12,6 @@ import Testing
 /// and spawn their own child processes. The child of each test sees the same standard input
 /// in each run, thus no test depends on the standard input of the test process.
 struct ChildStandardInputTests {
-    /// The time limit of each test, in minutes.
-    static let timeLimitMinutes = 1
-
     /// The time that the installer runner gives the child.
     private static let installTimeout: Duration = .seconds(30)
 
@@ -47,21 +44,21 @@ struct ChildStandardInputTests {
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    @Test(.timeLimit(.minutes(ChildStandardInputTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func aChildMadeWithTheNullDeviceReadsTheNullDevice() throws {
         let identity = try Self.output(of: Self.identifyingScript, standardInput: .nullDevice)
 
         #expect(identity == "null")
     }
 
-    @Test(.timeLimit(.minutes(ChildStandardInputTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func aChildMadeWithTheNullDeviceReadsNoByteAndReachesTheEndAtOnce() throws {
         let count = try Self.output(of: Self.countingScript, standardInput: .nullDevice)
 
         #expect(count == "0")
     }
 
-    @Test(.timeLimit(.minutes(ChildStandardInputTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func aChildMadeWithAPipeReadsThatPipeAndNotTheNullDevice() throws {
         let inputPipe = Pipe()
         let outputPipe = Pipe()
@@ -81,7 +78,7 @@ struct ChildStandardInputTests {
         #expect(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "other")
     }
 
-    @Test(.timeLimit(.minutes(ChildStandardInputTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func anInstallerGetsTheNullDeviceAsStandardInput() async throws {
         let result = try await ProcessInstallRunner().run(
             tool: "sh",
@@ -93,7 +90,7 @@ struct ChildStandardInputTests {
         #expect(result.output.trimmingCharacters(in: .whitespacesAndNewlines) == "null")
     }
 
-    @Test(.timeLimit(.minutes(ChildStandardInputTests.timeLimitMinutes)))
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func gitThatReadsStandardInputToTheEndGetsTheEndOfTheFileAtOnce() async throws {
         try await withTemporaryWorkspace { root in
             let objectID = try await GitShell.run(arguments: ["hash-object", "--stdin"], in: root)
