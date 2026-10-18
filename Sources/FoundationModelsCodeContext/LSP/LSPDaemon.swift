@@ -483,14 +483,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
         try? await handle.connection.shutdown()
         try? await handle.connection.exit()
 
-        let daemonClock = clock
-        let grace = shutdownGrace
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await handle.waitForExit() }
-            group.addTask { try? await daemonClock.sleep(for: grace) }
-            await group.next()
-            group.cancelAll()
-        }
+        await clock.waitForCompletion(atMost: shutdownGrace) { await handle.waitForExit() }
 
         if await handle.isAlive() {
             Log.lsp.warning(

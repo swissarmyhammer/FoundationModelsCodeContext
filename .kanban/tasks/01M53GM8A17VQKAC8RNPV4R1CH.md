@@ -23,6 +23,49 @@ comments:
     - evidence: swift test (root) 995 tests in 88 suites passed, 0 failures, 0 skipped; swift build --build-tests after touching all package sources: 0 warnings from this package (only the mlx-swift dependency bundle warning "missing creator for mutated node"); swift build --package-path IntegrationTests --build-tests complete; swift test --package-path IntegrationTests --filter LanguageServerProcessGroupTests 2 tests in 1 suite passed
     - next: commit
   timestamp: 2026-10-18T12:42:04.236533+00:00
+- actor: claude-code
+  id: 01m57h20fgb2cz81xzm63rhmzm
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (fc2d112). 3 findings, 3 confirmed, 0 refuted. Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift:132, Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift:288, Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift:363
+    - acceptance criteria: both items are checked on the task. The change adds LanguageServerProcessGroupTests, a process group start with posix_spawn, a group kill on close and on deinit, and one release path in LSPDaemon.
+    - next: implement the three findings. The task stays in review.
+  timestamp: 2026-10-18T12:51:17.104688+00:00
+- actor: claude-code
+  id: 01m57h2cx230fffn1qj95jakd0
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 12 files
+    - test: green — swift test, 995 passed; integration LanguageServerProcessGroupTests 2 passed
+    - commit: fc2d112
+    - review: findings — Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift:132, :288, :363
+  timestamp: 2026-10-18T12:51:29.826104+00:00
+- actor: claude-code
+  id: 01m57hjgrhmzn440xv11xxfhwy
+  text: |-
+    Review fix pass. Two shared helpers replace the copies.
+    - New `Clock.waitForCompletion(atMost:_:)` (LSP/Clock+WaitForCompletion.swift): races an operation against a sleep on the given clock, cancels the loser, and returns `true` when the operation finished first. ProcessGroupChild.terminateGroup(grace:) uses it with ContinuousClock(). LSPDaemon.shutdown() also uses it with the injected clock. That was a one-line, safe change, thus no separate task for the LSPDaemon copy.
+    - New `CancellableWaiters<State>` (LSP/CancellableWaiters.swift): a Mutex-guarded state plus cancellable waits for a condition on that state. ExitSignal is removed. ProcessGroupChild keeps a `CancellableWaiters<Bool>` for the reap.
+    - Discovery: the old ExitSignal and UpdateMailbox keep a cancelled token in a set when the cancel comes after the resume, and that token never leaves the set. CancellableWaiters keeps one entry per token (pending, suspended, cancelled) and removes it at the resume, thus a late cancel finds nothing and adds nothing.
+    - update(_:) resumes the suspended waits only when the condition is true after the change. A pending wait (not registered yet) reads the condition at its registration.
+    - UpdateMailbox is not changed (the finding says so). New task ^6ava5jt (tag lsp-fix) moves it onto CancellableWaiters.
+    - The other race in LSPDaemon (performHandshake, a throwing timeout race) has a different shape and is outside these findings.
+  timestamp: 2026-10-18T13:00:18.065542+00:00
+- actor: claude-code
+  id: 01m57hjn7cs2mxt71nn6s74ysv
+  text: |-
+    ### implement — changed
+    - evidence: new Sources/FoundationModelsCodeContext/LSP/CancellableWaiters.swift, new Sources/FoundationModelsCodeContext/LSP/Clock+WaitForCompletion.swift, changed Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift (ExitSignal removed), changed Sources/FoundationModelsCodeContext/LSP/LSPDaemon.swift (shutdown uses the shared race); new Tests/FoundationModelsCodeContextTests/CancellableWaitersTests.swift (6 tests) and Tests/FoundationModelsCodeContextTests/ClockWaitForCompletionTests.swift (3 tests). RED seen (types did not exist). New task ^6ava5jt. swift test --filter of the 2 new suites: 9 passed; affected root suites (LSPDaemon, ConnectionTests, LspSupervisor*, ChildStandardInput, new suites): 92 tests in 7 suites passed; swift test --package-path IntegrationTests --filter LanguageServerProcessGroupTests: 2 passed; full root swift test: 1004 tests in 90 suites passed. swift build --build-tests: 0 warnings from this package. swiftlint no_magic_numbers on the 6 changed files: no finding.
+    - findings: 3 of 3 checked.
+    - next: /review
+  timestamp: 2026-10-18T13:00:22.636171+00:00
+- actor: claude-code
+  id: 01m57hp5vmy3ck747t2eknrs5y
+  text: |-
+    ### test — green
+    - evidence: swift test — 1004 tests in 90 suites passed, 0 failed, 0 skipped; IntegrationTests build-tests complete; LanguageServerProcessGroupTests 2 tests passed. Only warning: "missing creator for mutated node" for mlx-swift_Cmlx.bundle (dependency, not this package).
+    - next: commit
+  timestamp: 2026-10-18T13:02:17.972192+00:00
 position_column: doing
 position_ordinal: '80'
 title: Start each language server in its own process group and kill the group on close and on deinit
@@ -55,3 +98,17 @@ title: Start each language server in its own process group and kill the group on
 - [x] The tests above pass.
 
 #lsp-fix
+
+## Review Findings (2026-10-18 07:42)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 10 file(s) reviewed, 5 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `README.md` — no validator matches this file
+
+- [x] `Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift:132` `duplication/duplication` — The race in waitUntilExit(atMost:) repeats the task-group race in LSPDaemon.shutdown(): one task waits for the exit, one task sleeps, the first to finish wins, and the group cancels the other. Two copies of this race can drift apart, for example if one gets a cancel fix and the other does not. Extract one shared helper that races an exit wait against a clock sleep and takes the clock as a parameter. Call it from waitUntilExit(atMost:) in the changed code. Report the LSPDaemon.shutdown() copy as a separate task, because that code is outside this change.
+- [x] `Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift:288` `reuse/reuse` — `ExitSignal` rebuilds a cancellable async waiter with a lock, a token per wait, a continuation map, and a set of early-cancelled tokens. `UpdateMailbox` already has the same shape: a waiter token, `registerWaiter`, and `cancelWaiter`. Writing a second copy means two places to fix the cancel-before-register race. Check whether `UpdateMailbox`'s waiter machinery, or a small shared one-shot waiter type, can serve `ExitSignal`. If the contracts differ too much (an update stream versus a fire-once signal), extract the shared token-and-cancel registration into one helper that both types call, and note in the `ExitSignal` doc comment why the reuse stops there.
+- [x] `Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift:363` `duplication/duplication` — ExitSignal.cancelWait(token:) and its register/wait pattern copy the cancellable-waiter logic of UpdateMailbox. Each has a token counter, a dictionary of continuations, a set of cancelled tokens recorded before registration, and a cancel handler that resumes the waiter. Two copies of this subtle logic can drift apart. Extract one generic cancellable-waiter helper, parameterized by the state that each caller guards, and use it from ExitSignal in the changed code. Do not edit UpdateMailbox in this change. Report the UpdateMailbox adoption as a separate task.

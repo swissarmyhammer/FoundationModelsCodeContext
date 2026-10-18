@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import Synchronization
 
 /// A child process that leads its own process group. One signal to the group reaches the child
 /// and each process that the child starts.
@@ -26,16 +25,16 @@ final class ProcessGroupChild: Sendable {
     /// group.
     let pid: pid_t
 
-    /// Fires when the reaper thread reaped the child.
-    private let exitSignal: ExitSignal
+    /// Whether the reaper thread reaped the child, and the waits for the reap.
+    private let reap: CancellableWaiters<Bool>
 
-    /// Keeps the pid and the exit signal of a child that `spawn` started.
+    /// Keeps the pid and the reap state of a child that `spawn` started.
     /// - Parameters:
     ///   - pid: The pid of the child.
-    ///   - exitSignal: The signal that the reaper thread fires at the reap.
-    private init(pid: pid_t, exitSignal: ExitSignal) {
+    ///   - reap: The reap state that the reaper thread sets.
+    private init(pid: pid_t, reap: CancellableWaiters<Bool>) {
         self.pid = pid
-        self.exitSignal = exitSignal
+        self.reap = reap
     }
 
     /// Starts `executableURL` as the leader of a new process group, and starts the thread that
@@ -85,15 +84,15 @@ final class ProcessGroupChild: Sendable {
             fileActions: &fileActions,
             attributes: &attributes
         )
-        let exitSignal = ExitSignal()
-        startReaper(pid: pid, exitSignal: exitSignal)
-        return ProcessGroupChild(pid: pid, exitSignal: exitSignal)
+        let reap = CancellableWaiters(false) { isReaped in isReaped }
+        startReaper(pid: pid, reap: reap)
+        return ProcessGroupChild(pid: pid, reap: reap)
     }
 
     /// Whether the child did not exit yet. The value is `false` from the time that the reaper
     /// thread reaps the child.
     var isRunning: Bool {
-        !exitSignal.hasFired
+        !reap.read { isReaped in isReaped }
     }
 
     /// Sends `signal` to each process of the process group of the child.
@@ -108,7 +107,7 @@ final class ProcessGroupChild: Sendable {
     /// Suspends until the reaper thread reaps the child, or until the task of the caller is
     /// cancelled. Returns at once when the child already exited.
     func waitUntilExit() async {
-        await exitSignal.wait()
+        await reap.wait()
     }
 
     /// Stops each process of the process group, and waits for the reap of the child.
@@ -120,21 +119,10 @@ final class ProcessGroupChild: Sendable {
     /// - Parameter grace: The time that the child gets to exit after `SIGTERM`.
     func terminateGroup(grace: Duration) async {
         signalGroup(SIGTERM)
-        await waitUntilExit(atMost: grace)
+        let reap = self.reap
+        await ContinuousClock().waitForCompletion(atMost: grace) { await reap.wait() }
         signalGroup(SIGKILL)
         await waitUntilExit()
-    }
-
-    /// Suspends until the reap of the child, or until `limit` elapses.
-    /// - Parameter limit: The longest time to wait.
-    private func waitUntilExit(atMost limit: Duration) async {
-        let exitSignal = self.exitSignal
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await exitSignal.wait() }
-            group.addTask { try? await Task.sleep(for: limit) }
-            await group.next()
-            group.cancelAll()
-        }
     }
 
     // MARK: - Spawn steps
@@ -255,121 +243,22 @@ final class ProcessGroupChild: Sendable {
     }
 
     /// Starts the dedicated thread that waits for the exit of the child and reaps it, and then
-    /// fires `exitSignal`.
+    /// sets `reap` to `true`, which resumes each wait for the reap.
     ///
     /// `waitpid(2)` blocks its thread until the child exits. Thus it runs on a dedicated thread,
     /// not on a thread of the cooperative pool (see
     /// `ProcessUtilities.runOnDedicatedThread(name:_:)`). The thread holds only the pid and the
-    /// signal, not the `ProcessGroupChild`.
+    /// reap state, not the `ProcessGroupChild`.
     /// - Parameters:
     ///   - pid: The pid of the child.
-    ///   - exitSignal: The signal to fire after the reap.
-    private static func startReaper(pid: pid_t, exitSignal: ExitSignal) {
+    ///   - reap: The reap state to set after the reap.
+    private static func startReaper(pid: pid_t, reap: CancellableWaiters<Bool>) {
         _ = ProcessUtilities.runOnDedicatedThread(name: "process-group-reaper \(pid)") {
             var status: Int32 = .zero
             while waitpid(pid, &status, .zero) < .zero, errno == EINTR {
                 continue
             }
-            exitSignal.fire()
+            reap.update { isReaped in isReaped = true }
         }
-    }
-}
-
-/// A signal that fires one time, and that many tasks can wait for.
-///
-/// A wait returns when the signal fires, or when the task of the wait is cancelled. A wait on an
-/// unstructured `Task` does not return at a cancel, thus a race against a timeout (see
-/// `ProcessGroupChild.terminateGroup(grace:)`) needs this type.
-///
-/// A plain `Mutex`-guarded class, not an actor: `fire()` runs on the reaper thread, and the
-/// cancel handler of `wait()` runs synchronously, and neither can `await`. Each wait has a token.
-/// The cancel handler can run before the wait registers its continuation; then the token goes
-/// into `cancelledTokens`, and the registration resumes the continuation at once.
-private final class ExitSignal: Sendable {
-    /// The state behind the lock.
-    private struct State {
-        /// Whether `fire()` ran.
-        var hasFired = false
-
-        /// The token of the most recent wait.
-        var lastToken = 0
-
-        /// The continuation of each wait that did not return yet, by token.
-        var waiters: [Int: CheckedContinuation<Void, Never>] = [:]
-
-        /// The tokens of the waits that were cancelled before they registered.
-        var cancelledTokens: Set<Int> = []
-    }
-
-    /// The lock and its state.
-    private let state = Mutex(State())
-
-    /// Whether the signal fired.
-    var hasFired: Bool {
-        state.withLock { $0.hasFired }
-    }
-
-    /// Fires the signal, and resumes each wait.
-    func fire() {
-        let waiters = state.withLock { state in
-            state.hasFired = true
-            let waiters = Array(state.waiters.values)
-            state.waiters.removeAll()
-            return waiters
-        }
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-
-    /// Suspends until the signal fires or the task is cancelled. Returns at once when the signal
-    /// already fired.
-    func wait() async {
-        let token = state.withLock { state in
-            state.lastToken += 1
-            return state.lastToken
-        }
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                register(continuation, token: token)
-            }
-        } onCancel: {
-            cancelWait(token: token)
-        }
-    }
-
-    /// Keeps `continuation` until the signal fires, or resumes it at once when the signal fired
-    /// or the wait was cancelled.
-    /// - Parameters:
-    ///   - continuation: The continuation of the wait.
-    ///   - token: The token of the wait.
-    private func register(_ continuation: CheckedContinuation<Void, Never>, token: Int) {
-        let resumesNow = state.withLock { state in
-            let isCancelled = state.cancelledTokens.remove(token) != nil
-            if state.hasFired || isCancelled {
-                return true
-            }
-            state.waiters[token] = continuation
-            return false
-        }
-        if resumesNow {
-            continuation.resume()
-        }
-    }
-
-    /// Resumes the wait `token` after a cancel, or records the cancel when the wait did not
-    /// register yet.
-    /// - Parameter token: The token of the wait.
-    private func cancelWait(token: Int) {
-        let waiter: CheckedContinuation<Void, Never>? = state.withLock { state in
-            if let waiter = state.waiters.removeValue(forKey: token) {
-                return waiter
-            }
-            if !state.hasFired {
-                state.cancelledTokens.insert(token)
-            }
-            return nil
-        }
-        waiter?.resume()
     }
 }
