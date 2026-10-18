@@ -69,7 +69,8 @@ struct ConnectionHandle<Connection: LanguageServerConnection>: Sendable {
     /// Suspends until the underlying process exits, returning immediately if it already has.
     let waitForExit: @Sendable () async -> Void
 
-    /// Forcibly terminates the underlying process.
+    /// Kills the underlying process and each process that it started, waits for the exit, and
+    /// releases the connection. The daemon calls it on each path that drops a connection.
     let terminate: @Sendable () async -> Void
 
     /// Returns a best-effort tail of the underlying process's recent stderr output.
@@ -83,7 +84,8 @@ struct ConnectionHandle<Connection: LanguageServerConnection>: Sendable {
     ///   - isAlive: Reports whether the underlying process is still alive.
     ///   - waitForExit: Suspends until the underlying process exits, returning immediately if it
     ///     already has.
-    ///   - terminate: Forcibly terminates the underlying process.
+    ///   - terminate: Kills the underlying process and each process that it started, waits for
+    ///     the exit, and releases the connection.
     ///   - stderrTail: Returns a best-effort tail of the underlying process's recent stderr
     ///     output. Defaults to always returning an empty string.
     init(
@@ -169,6 +171,10 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
 
     /// The session over the current connection, or `nil` when not running.
     private var currentSession: LspSession<Connection>?
+
+    /// Whether a `start()` runs now. A second `start()` returns at once while it is `true`, thus
+    /// two starts at the same time cannot spawn two processes.
+    private var isStarting = false
 
     /// The number of consecutive failures recorded since the last health check that found a
     /// healthy uptime, or since the last `forceRestart()` or `shutdown()`.
@@ -306,11 +312,26 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// (binary missing everywhere — `consecutiveFailures` is left untouched, matching
     /// `swissarmyhammer-lsp`'s `start`) or `.failed(reason:attempts:)` (spawn failure, handshake
     /// failure, or handshake timeout — each increments `consecutiveFailures`).
+    ///
+    /// Returns at once, with no change, when the daemon runs or when another `start()` is in
+    /// progress. Thus a second call never writes over a running connection, and two calls at the
+    /// same time never spawn two processes. A caller that must replace a running server calls
+    /// `forceRestart()`, which shuts the old process down first.
     /// - Throws: `CodeContextError.binaryNotFound` if `spec.command` isn't found on `$PATH` or in
     ///   any of `spec.installer?.extraSearchDirectories`; `CodeContextError.handshakeFailed` if the
     ///   handshake fails or times out; whatever the connection factory throws if spawning the
     ///   connection fails.
     func start() async throws {
+        guard handle == nil, !isStarting else { return }
+        isStarting = true
+        defer { isStarting = false }
+        try await spawnAndHandshake()
+    }
+
+    /// Does the work of `start()`: finds the binary, spawns a connection, runs the handshake, and
+    /// makes the daemon `.running`. `start()` makes sure that only one call runs at a time.
+    /// - Throws: The errors that `start()` documents.
+    private func spawnAndHandshake() async throws {
         guard
             let location = BinaryLookup.resolve(
                 command: spec.command,
@@ -369,9 +390,11 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// restart budget again. The check uses the uptime at a check that found the process alive,
     /// not the uptime at the crash, because the daemon finds a crash only at the next check.
     ///
-    /// On an unexpected exit, tears down the connection, clears the current session's
-    /// open-document set (a fresh process on the next `start()` knows nothing about what the dead
-    /// one had open), and records a failure — mirroring `swissarmyhammer-lsp`'s `health_check`.
+    /// On an unexpected exit, clears the current session's open-document set (a fresh process on
+    /// the next `start()` knows nothing about what the dead one had open), releases the
+    /// connection through `releaseConnection()` (which kills each process that the dead server
+    /// left, and closes the pipes), and records a failure — mirroring `swissarmyhammer-lsp`'s
+    /// `health_check`.
     /// - Returns: `true` if the process is still alive; `false` if it has exited (or the daemon
     ///   isn't running), in which case the state is now `.failed(reason:attempts:)`.
     @discardableResult
@@ -383,9 +406,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
         }
         Log.lsp.error("the language server exited unexpectedly", metadata: serverMetadata)
         await currentSession?.resetDocuments()
-        self.handle = nil
-        currentSession = nil
-        runningSince = nil
+        await releaseConnection()
         recordFailure(reason: "process exited unexpectedly", error: nil)
         return false
     }
@@ -440,8 +461,10 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     }
 
     /// Gracefully shuts down the running server: sends `shutdown` then `exit`, waits for the
-    /// process to exit on its own bounded by `shutdownGrace`, and force-terminates it if that
-    /// grace period elapses. A no-op that transitions straight to `.notStarted` if the daemon
+    /// process to exit on its own bounded by `shutdownGrace`, and then releases the connection
+    /// through `releaseConnection()`. The release kills the process if the grace period elapsed,
+    /// kills each process that the server left, and closes the pipes, also after a clean exit.
+    /// A no-op that transitions straight to `.notStarted` if the daemon
     /// isn't running. Resets `consecutiveFailures` to zero: a deliberate shutdown is a clean
     /// slate, not a failure, so a later `start()` should not inherit backoff state from before
     /// this call.
@@ -474,15 +497,29 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
                 "the language server did not exit in the shutdown grace period; the daemon kills it",
                 metadata: serverMetadata
             )
-            await handle.terminate()
         } else {
             Log.lsp.info("the language server shut down gracefully", metadata: serverMetadata)
         }
 
-        self.handle = nil
-        self.currentSession = nil
-        runningSince = nil
+        await releaseConnection()
         currentState = .notStarted
+    }
+
+    /// Drops the current connection: clears the handle, the session and the uptime, and then
+    /// calls the `terminate` hook of the handle, which kills the process group, waits for the
+    /// exit, and closes the pipes.
+    ///
+    /// The one path that drops a connection: a failed health check and each shutdown (clean, or
+    /// after the grace period) use it, and a restart reaches it through one of them. The fields
+    /// are cleared before the `await`, thus a call that runs during the wait does not see the
+    /// old connection and does not release it a second time. Does nothing when no connection
+    /// runs.
+    private func releaseConnection() async {
+        guard let handle else { return }
+        self.handle = nil
+        currentSession = nil
+        runningSince = nil
+        await handle.terminate()
     }
 
     // MARK: - Internal helpers
@@ -662,8 +699,8 @@ extension LSPDaemon where Connection == ProcessLanguageServerConnection {
     ///
     /// Wires `ProcessLanguageServerConnection`'s pid, liveness, exit-wait, and stderr-tail hooks
     /// into a `ConnectionHandle` so `LSPDaemon` can drive it without knowing about `Process`
-    /// directly. `close()` doubles as the "terminate" hook: it already tears down the process and
-    /// every pipe.
+    /// directly. `close()` is the "terminate" hook: it kills the process group of the server,
+    /// waits for the exit of the server, and closes every pipe.
     /// - Parameters:
     ///   - clock: The clock the spawned connection's own per-request timeout sleeps against.
     ///     Defaults to `ContinuousClock()`.

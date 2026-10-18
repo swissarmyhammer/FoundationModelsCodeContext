@@ -37,6 +37,12 @@ operations answer from the partial index, and `indexStatus()` shows how much
 of the index is complete. `await context.waitForFirstIndexPass()` waits for
 the complete first pass.
 
+Call `await context.stop()` before your process exits. With
+`CodeContextManager`, call `await manager.shutdown()`. Each language server
+runs in its own process group, and `stop()` stops each server and each process
+that a server started. The package installs no exit hook: a host that exits
+with no `stop()` can leave language server processes that run.
+
 `embedder: nil` turns the embedding layer off. Then there is no semantic
 search: `searchCode` and `findDuplicates` throw
 `CodeContextError.embeddingDisabled`, and `indexStatus().isEmbeddingEnabled`

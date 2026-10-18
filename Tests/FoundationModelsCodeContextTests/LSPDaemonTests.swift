@@ -162,6 +162,55 @@ struct LSPDaemonTests {
         #expect(session.serverName == "true")
     }
 
+    /// The pid that the fake factory of each start test gives to each connection.
+    private static let startTestPID: Int32 = 11
+
+    @Test
+    func startOfARunningDaemonSpawnsNoSecondConnection() async throws {
+        let spawnCount = Counter()
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: fakeConnectionFactory(pid: Self.startTestPID, processState: ProcessState()) { _ in
+                await spawnCount.increment()
+            }
+        )
+        try await daemon.start()
+
+        try await daemon.start()
+
+        #expect(await spawnCount.value == 1, "a second start() must not replace the running connection")
+        #expect(await daemon.state() == .running(pid: Self.startTestPID))
+    }
+
+    @Test
+    func startDuringAStartInProgressSpawnsNoSecondConnection() async throws {
+        let spawnCount = Counter()
+        let firstSpawnGate = AsyncGate()
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: fakeConnectionFactory(pid: Self.startTestPID, processState: ProcessState()) { _ in
+                if await spawnCount.increment() == 1 {
+                    await firstSpawnGate.waitUntilOpen()
+                }
+            }
+        )
+        let firstStart = Task { try await daemon.start() }
+        for await state in daemon.stateUpdates where state == .starting {
+            break
+        }
+
+        try await daemon.start()
+        await firstSpawnGate.open()
+        try await firstStart.value
+
+        #expect(await spawnCount.value == 1, "a start() during a start in progress must not spawn a second connection")
+        #expect(await daemon.state() == .running(pid: Self.startTestPID))
+    }
+
     @Test
     func handshakeTimeoutKillsTheConnectionAndCapturesStderrTail() async throws {
         let clock = ManualClock()
@@ -441,6 +490,24 @@ struct LSPDaemonTests {
     }
 
     @Test
+    func healthCheckThatFindsADeadProcessTerminatesItsConnection() async throws {
+        let processState = ProcessState()
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState)
+        )
+        try await daemon.start()
+
+        await processState.setAlive(false)
+        await daemon.healthCheck()
+
+        let terminateCount = await processState.terminateCount
+        #expect(terminateCount == 1, "a failed health check must close the connection and reap the process group")
+    }
+
+    @Test
     func healthCheckReturnsFalseWhenNotRunning() async {
         let processState = ProcessState()
         let daemon = LSPDaemon<FakeLanguageServerConnection>(
@@ -608,9 +675,23 @@ struct LSPDaemonTests {
         let shutdownIndex = try #require(calls.firstIndex(of: .shutdown))
         let exitIndex = try #require(calls.firstIndex(of: .exit))
         #expect(shutdownIndex < exitIndex, "shutdown must be sent before exit")
+    }
+
+    @Test
+    func shutdownOfAProcessThatExitsByItselfTerminatesTheConnectionOnce() async throws {
+        let processState = ProcessState()
+        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+            spec: Self.serverSpec(),
+            workspaceRoot: Self.workspaceRoot,
+            clock: ManualClock(),
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: processState)
+        )
+        try await daemon.start()
+
+        await daemon.shutdown()
 
         let terminateCount = await processState.terminateCount
-        #expect(terminateCount == 0, "a process that exits on its own must not be force-killed")
+        #expect(terminateCount == 1, "a clean shutdown must close the connection and reap the process group")
     }
 
     @Test

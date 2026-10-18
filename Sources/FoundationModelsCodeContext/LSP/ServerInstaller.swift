@@ -242,10 +242,10 @@ struct ProcessInstallRunner: InstallRunner {
     /// risk: `timeoutTask` and `onCancel` below both call `kill(pid, SIGKILL)` unconditionally, so
     /// if the process has already exited and the OS has recycled `pid` for an unrelated process in
     /// the brief window before either call runs, that unrelated process could be signaled instead.
-    /// `ProcessLanguageServerConnection.close()` accepts the same unconditional-`kill`-by-pid risk
-    /// already; both call sites judge the window (a handful of scheduler ticks between exit and
-    /// the next `kill` call) an acceptable tradeoff against the complexity of a synchronized
-    /// "already exited" flag.
+    /// This call site judges the window (a handful of scheduler ticks between exit and the next
+    /// `kill` call) an acceptable tradeoff against the complexity of a synchronized "already
+    /// exited" flag. A language server connection does not have this risk: its
+    /// `ProcessGroupChild` reaps the server, and it signals a process group.
     /// - Parameters:
     ///   - process: The already-spawned installer process, needed only to install
     ///     `terminationHandler`.

@@ -235,8 +235,14 @@ final class PendingRequestTable: @unchecked Sendable {
 /// rather than hanging it forever. Each request records its duration in the
 /// injected `CodeContextMetrics`, with the method name, the server name and the
 /// outcome as dimensions.
+///
+/// The server process leads its own process group (see `ProcessGroupChild`). `close()` stops
+/// the full group and waits for the exit of the server. A connection that is released with no
+/// `close()` kills the group in `deinit`. Thus no process that the server started stays after
+/// the connection.
 public actor ProcessLanguageServerConnection: LanguageServerConnection {
-    private let process: Process
+    /// The server process, the leader of its own process group.
+    private nonisolated let child: ProcessGroupChild
     private let stdinHandle: FileHandle
     private let stdoutHandle: FileHandle
     private let stderrHandle: FileHandle
@@ -251,6 +257,14 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
 
     /// The time that a request waits for its response when the caller gives no timeout.
     static let defaultRequestTimeout: Duration = .seconds(defaultRequestTimeoutSeconds)
+
+    /// The time in milliseconds that `close()` gives the server to exit after `SIGTERM`, before
+    /// it sends `SIGKILL` to the process group.
+    static let terminationGraceMilliseconds = 500
+
+    /// The time that `close()` gives the server to exit after `SIGTERM`, before it sends
+    /// `SIGKILL` to the process group.
+    static let terminationGrace: Duration = .milliseconds(terminationGraceMilliseconds)
 
     private nonisolated let stderrTailBuffer = BoundedTailBuffer(maxChunks: stderrTailChunkLimit)
     private let requestTimeout: Duration
@@ -280,8 +294,8 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     private nonisolated(unsafe) var replyTask: Task<Void, Never>?
     private var isClosed = false
 
-    /// The spawned child process's id, captured once at launch (a process's id never changes
-    /// after `run()` succeeds, so this is safe to expose without an actor hop).
+    /// The id of the server process, and also the id of its process group. The id does not
+    /// change after the start, thus it needs no actor hop.
     nonisolated let pid: Int32
 
     /// The command of the language server, as the caller gave it. The wire and standard error
@@ -296,7 +310,8 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// Server-initiated notifications (currently just `publishDiagnostics`), fanned out as they arrive.
     public nonisolated let serverNotifications: AsyncStream<ServerNotification>
 
-    /// Spawns `command` as a child process and opens a JSON-RPC connection to it over its stdio.
+    /// Spawns `command` as a child process in a new process group and opens a JSON-RPC
+    /// connection to it over its stdio.
     ///
     /// `command` is looked up on `$PATH` via `/usr/bin/env`, matching how `ServerSpec.command`
     /// names language servers (e.g. `"rust-analyzer"`) without requiring a pre-resolved path.
@@ -328,23 +343,22 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
-        let process = ProcessUtilities.makeChildProcess(
-            executableURL: URL(fileURLWithPath: ProcessUtilities.envExecutablePath),
-            arguments: [command] + arguments,
-            standardInput: .pipe(stdinPipe),
-            standardOutput: stdoutPipe,
-            standardError: stderrPipe
-        )
-
+        let child: ProcessGroupChild
         do {
-            try process.run()
+            child = try ProcessGroupChild.spawn(
+                executableURL: URL(fileURLWithPath: ProcessUtilities.envExecutablePath),
+                arguments: [command] + arguments,
+                standardInput: .pipe(stdinPipe),
+                standardOutput: stdoutPipe,
+                standardError: stderrPipe
+            )
         } catch {
             throw CodeContextError.spawnFailed("\(command): \(error.localizedDescription)")
         }
 
-        self.process = process
+        self.child = child
         self.serverName = command
-        self.pid = process.processIdentifier
+        self.pid = child.pid
         self.stdinHandle = stdinPipe.fileHandleForWriting
         self.stdoutHandle = stdoutPipe.fileHandleForReading
         self.stderrHandle = stderrPipe.fileHandleForReading
@@ -376,7 +390,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         self.readerTask = ProcessUtilities.runOnDedicatedThread(name: "lsp-reader \(command)") {
             let isOutOfStep = Self.runReaderLoop(serverName: command, stdoutFileDescriptor: stdoutFileDescriptor, sinks: sinks)
             guard isOutOfStep else { return }
-            Self.closeOutOfStepConnection(process: process, notificationContinuation: continuation)
+            Self.closeOutOfStepConnection(child: child, notificationContinuation: continuation)
         }
 
         let stderrFileDescriptor = self.stderrHandle.fileDescriptor
@@ -399,25 +413,25 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         }
     }
 
-    /// Terminates the child process and releases every resource this connection owns.
+    /// Stops the process group of the server, waits for the exit of the server, and releases
+    /// each resource that this connection owns.
     ///
-    /// Unconditionally `SIGKILL`s a still-running process rather than sending `SIGTERM` via
-    /// `Process.terminate()`: this mirrors `swissarmyhammer-lsp`'s `kill_on_drop(true)`/
-    /// `child.kill()` guarantee that a process this connection owns is reaped, not merely asked
-    /// to leave — a server that traps or ignores `SIGTERM` would otherwise survive `close()`
-    /// indefinitely. Any "ask nicely first" grace period is the caller's responsibility (the
-    /// JSON-RPC `shutdown`/`exit` dance plus the grace-period wait `LSPDaemon.shutdown()`
-    /// performs before ever reaching this call), not this method's. Once the process actually
-    /// exits, its write end of the stdout/stderr pipes closes, which is what stops the reader and
-    /// stderr-drain loops: they read via a blocking raw `read(2)` call outside actor isolation,
-    /// so `Task.cancel()` alone can't interrupt them, and that `read(2)` call returning `0`
-    /// (EOF) is `ProcessUtilities.readChunk(from:bufferSize:)`'s own loop-exit condition.
-    /// `readerTask`/`stderrTask` are still
-    /// cancelled here too, so an already-finished loop doesn't linger as a live (if inert) task.
-    /// Fails every still-pending request with `CodeContextError.notRunning` and finishes
-    /// `serverNotifications`. Drops each reply to a server request that is not written yet.
-    /// Safe to call more than once.
-    func close() {
+    /// Sends `SIGTERM` to the full process group, gives the server `terminationGrace` to exit,
+    /// and then sends `SIGKILL` to the group (see `ProcessGroupChild.terminateGroup(grace:)`).
+    /// Thus each process that the server started also stops, and none of them keeps the pipes of
+    /// the server open. A server that ignores `SIGTERM` does not survive `close()`. The JSON-RPC
+    /// `shutdown`/`exit` exchange and its grace period are the work of the caller
+    /// (`LSPDaemon.shutdown()`), before this call. `close()` returns after the reap of the
+    /// server process, or at once when the task of the caller is cancelled after `SIGKILL`.
+    ///
+    /// The exit of the group closes the write ends of the stdout and stderr pipes, and that
+    /// stops the reader and stderr-drain loops: they block in a raw `read(2)` call outside actor
+    /// isolation, thus `Task.cancel()` alone cannot stop them, and the end of the file is the
+    /// exit condition of `ProcessUtilities.readChunk(from:bufferSize:)`. `readerTask` and
+    /// `stderrTask` are also cancelled here. Fails every still-pending request with
+    /// `CodeContextError.notRunning` and finishes `serverNotifications`. Drops each reply to a
+    /// server request that is not written yet. Safe to call more than once.
+    func close() async {
         guard !isClosed else { return }
         isClosed = true
 
@@ -426,9 +440,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         replyContinuation.finish()
         replyTask?.cancel()
 
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
-        }
+        await child.terminateGroup(grace: Self.terminationGrace)
 
         try? stdinHandle.close()
         try? stdoutHandle.close()
@@ -438,26 +450,38 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         notificationContinuation.finish()
     }
 
+    /// Kills the process group of the server when the connection is released with no `close()`.
+    ///
+    /// A `deinit` cannot `await`, thus it sends `SIGKILL` to the group and does not wait. The
+    /// reaper thread of `ProcessGroupChild` reaps the server after the kill. The signal goes to
+    /// the group also when the server already exited, because a process that the server started
+    /// can still run. After `close()`, the group already got `SIGKILL`, thus `deinit` does
+    /// nothing. Also finishes `serverNotifications`, thus no consumer of the stream waits for
+    /// ever.
+    deinit {
+        guard !isClosed else { return }
+        child.signalGroup(SIGKILL)
+        notificationContinuation.finish()
+    }
+
     // MARK: - Process-level hooks for LSPDaemon
 
-    /// Reports whether the child process is still running.
+    /// Reports whether the server process is still running.
     ///
     /// Backs the `isAlive` hook `LSPDaemon.processConnectionFactory()` bundles into a
     /// `ConnectionHandle`, so the daemon's `healthCheck()` can detect an unexpected exit.
-    /// - Returns: `true` if the process has not exited; `false` once it has.
+    /// - Returns: `true` if the server process is not reaped yet; `false` after the reap.
     func isRunning() -> Bool {
-        process.isRunning
+        child.isRunning
     }
 
-    /// Suspends until the child process exits, returning immediately if it already has.
+    /// Suspends until the server process exits and is reaped, or until the task of the caller
+    /// is cancelled. Returns at once when the server process already exited.
     ///
-    /// Waits on `readerTask` rather than polling `process.isRunning`: the reader loop's own exit
-    /// condition is stdout EOF, which is exactly the child process's exit signal, so this reuses
-    /// the exit-detection `ProcessLanguageServerConnection` already performs to fail pending
-    /// requests on process death instead of introducing a second detection path. The reader loop
-    /// also stops at a bad frame header; the connection then closes and kills the process.
+    /// A cancel stops the wait, thus `LSPDaemon.shutdown()` can race this wait against its grace
+    /// period.
     func waitUntilExit() async {
-        await readerTask?.value
+        await child.waitUntilExit()
     }
 
     /// A best-effort tail of the child process's recent stderr output.
@@ -905,7 +929,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// - Parameter framedMessage: A `Content-Length`-framed JSON-RPC message.
     /// - Throws: `CodeContextError.notRunning` if the process has exited or the write fails.
     private func writeToStdin(_ framedMessage: Data) throws {
-        guard process.isRunning else {
+        guard child.isRunning else {
             throw CodeContextError.notRunning
         }
         do {
@@ -1051,22 +1075,21 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
 
     /// Closes the connection after the reader loop stopped at a bad frame header.
     ///
-    /// After a bad frame header no later byte can be read as a message. This kills the server
-    /// and finishes `serverNotifications`, the same as `close()` does. The reader loop already
-    /// failed every pending request. The health check of the daemon then finds a dead process and
-    /// starts the server again through its normal restart path. `close()` later closes the pipes.
+    /// After a bad frame header no later byte can be read as a message. This kills the process
+    /// group of the server and finishes `serverNotifications`, the same as `close()` does. The
+    /// reader loop already failed every pending request. The health check of the daemon then
+    /// finds a dead process and starts the server again through its normal restart path.
+    /// `close()` later closes the pipes.
     ///
     /// Runs on the thread of the reader loop, thus it does not wait for the actor.
     /// - Parameters:
-    ///   - process: The child process of the language server.
+    ///   - child: The server process, the leader of its process group.
     ///   - notificationContinuation: The stream of the server notifications.
     private static func closeOutOfStepConnection(
-        process: Process,
+        child: ProcessGroupChild,
         notificationContinuation: AsyncStream<ServerNotification>.Continuation
     ) {
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
-        }
+        child.signalGroup(SIGKILL)
         notificationContinuation.finish()
     }
 

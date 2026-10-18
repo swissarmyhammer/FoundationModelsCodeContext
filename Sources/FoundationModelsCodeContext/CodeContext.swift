@@ -270,9 +270,14 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         )
     }
 
-    /// Ensures every spawned task, the watcher, and every managed LSP daemon are torn down even if
-    /// a caller never calls `stop()`. Best-effort and synchronous only (actor `deinit` can't
-    /// `await`): `stop()` is the real, awaited teardown path this exists only as a safety net for.
+    /// Cancels the index loop task, the index pass task and each LSP index task when a caller
+    /// never calls `stop()`.
+    ///
+    /// An actor `deinit` cannot `await`, thus this does not stop the watcher, and it does not
+    /// shut down an LSP daemon. A language server process stops only when the last reference to
+    /// its `ProcessLanguageServerConnection` goes away: the `deinit` of the connection then kills
+    /// the process group of the server. `stop()` is the full teardown. A host must call `stop()`
+    /// (or `CodeContextManager.shutdown()`) before it exits.
     deinit {
         indexLoopTask?.cancel()
         indexPassTask?.cancel()

@@ -1,17 +1,20 @@
 import Darwin
 import Foundation
 
-/// Shared low-level POSIX process helpers. `ProcessLanguageServerConnection`,
-/// `ProcessInstallRunner` (`ServerInstaller.swift`) and `GitShell` (`DiagnosticsScope.swift`)
-/// make each child process with `makeChildProcess`, and the first two read the pipe file
-/// descriptors of the child with the read helpers.
+/// Shared low-level POSIX process helpers. `ProcessInstallRunner` (`ServerInstaller.swift`) and
+/// `GitShell` (`DiagnosticsScope.swift`) make each child process with `makeChildProcess`.
+/// `ProcessLanguageServerConnection` starts each language server with
+/// `ProcessGroupChild.spawn`, which puts the server in its own process group and keeps the same
+/// standard-stream rule. The connection and the install runner read the pipe file descriptors
+/// of the child with the read helpers.
 enum ProcessUtilities {
     /// The `env(1)` path both `ProcessLanguageServerConnection` and `ProcessInstallRunner` spawn
     /// through to resolve a bare executable name (e.g. `"rust-analyzer"`, `"npm"`) against
     /// `$PATH`, exactly as a shell would, without either caller pre-resolving a full path itself.
     static let envExecutablePath = "/usr/bin/env"
 
-    /// The standard input that a child process gets from `makeChildProcess`.
+    /// The standard input that a child process gets from `makeChildProcess` or from
+    /// `ProcessGroupChild.spawn`.
     enum StandardInput {
         /// The null device. A child that reads it gets the end of the file at once. Use it for
         /// each child that does not need input from this process.

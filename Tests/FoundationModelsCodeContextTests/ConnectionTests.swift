@@ -82,6 +82,8 @@ struct ConnectionTests {
     /// `requestReceivesItsScriptedTypedResponse()` happening once to eventually starve that pool
     /// and wedge the *entire* binary — not just this suite — well after `ConnectionTests` itself
     /// had finished reporting. This helper is the fix: `close()` now runs on every exit path.
+    /// `close()` kills the full process group of the script and waits for the exit of the
+    /// script, thus a child process that `swift <script>` starts does not keep the pipes open.
     /// - Parameters:
     ///   - steps: The subprocess's script, per `scripted-lsp-server.swift`'s DSL.
     ///   - requestTimeout: The per-request timeout to configure the connection with.
@@ -401,15 +403,9 @@ struct ConnectionTests {
         // if it hadn't, `capturedPID` would still identify a live process. `kill(pid, 0)` sends no
         // signal; it only reports whether a process with that pid still exists.
         //
-        // `close()` sends `SIGKILL` and returns without itself blocking until the kernel has
-        // finished reaping the child: that reap is only observed asynchronously, once Foundation's
-        // own process-exit monitor notices it and calls `waitpid`. So checking `kill(pid, 0)`
-        // exactly once, immediately after `close()` returns, races that monitor and can
-        // intermittently still observe the pid as present (a zombie, reaped a few milliseconds
-        // later) even though the kill was fully effective — this was the source of this test's
-        // flakiness. Poll with a bounded budget instead of asserting once immediately, the same
-        // shape `waitUntilExitReturnsOnceTheScriptRunsOut()` below uses for the analogous
-        // `Process.isRunning`-lags-real-state race.
+        // `close()` waits for the reap of the process, thus the pid is gone when `close()`
+        // returns. The test still polls with a bounded budget, because a cancel of the task of
+        // `close()` lets `close()` return after `SIGKILL` and before the reap.
         let pid = capturedPID
         let isReaped = try await waitUntil(timeout: Self.processReapTimeout, pollInterval: Self.processPollInterval) {
             !Self.pidExists(pid)
@@ -445,9 +441,9 @@ struct ConnectionTests {
         try await Self.withConnection(steps: []) { connection in
             await connection.waitUntilExit()
 
-            // `waitUntilExit()` is tied to stdout hitting EOF; `Process.isRunning` is updated by a
-            // separate waitpid-based mechanism that can lag EOF by a few milliseconds. Poll with a
-            // bounded budget rather than assuming the two are perfectly synchronized.
+            // `waitUntilExit()` and `isRunning()` both read the reap of the process, thus
+            // `isRunning()` is `false` here. The bounded poll keeps the test safe if a later
+            // change gives the two different sources again.
             let hasStopped = try await waitUntil(timeout: Self.processReapTimeout, pollInterval: Self.processPollInterval) {
                 await !connection.isRunning()
             }

@@ -1,8 +1,30 @@
 ---
 assignees:
 - claude-code
-position_column: todo
-position_ordinal: '8480'
+comments:
+- actor: claude-code
+  id: 01m57fqn7gdrtmgf9476d77y1b
+  text: 'Research: Foundation Process has no public API to set a process group, and a setpgid from the parent after run() races the exec and the first fork of the child. Thus the language server starts with posix_spawn and POSIX_SPAWN_SETPGROUP in a new type ProcessGroupChild (LSP/ProcessGroupChild.swift). It also sets POSIX_SPAWN_CLOEXEC_DEFAULT (only stdin/stdout/stderr go to the child, the same as Process), resets the signal mask and the signal dispositions, and takes all three streams (pipe or null device), the same rule as ProcessUtilities.makeChildProcess. makeChildProcess stays for the installer and GitShell, which do not need a group. A dedicated thread reaps the leader with waitpid; isRunning reads that state, thus a zombie is not "alive". The daemon tests: the old clean-shutdown test asserted terminateCount == 0; the card now requires the clean shutdown to close the connection, thus that assertion moved into a new test that expects 1. RED seen: 4 LSPDaemonTests and 2 integration tests (LanguageServerProcessGroupTests) fail on the old code.'
+  timestamp: 2026-10-18T12:28:09.328214+00:00
+- actor: claude-code
+  id: 01m57gcz98x3n2sthmfdvz6fpb
+  text: |-
+    ### implement — changed
+    - evidence: new Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift (posix_spawn + POSIX_SPAWN_SETPGROUP, waitpid reaper thread, cancel-aware exit wait, terminateGroup = SIGTERM to the group, 500 ms grace, SIGKILL to the group, wait for the reap); ProcessLanguageServerConnection.swift (spawns through ProcessGroupChild, close() is async and kills and reaps the group, deinit sends SIGKILL to the group when close() did not run, out-of-step path signals the group, waitUntilExit reads the reap and a cancel stops it); LSPDaemon.swift (start() returns when a handle runs or a start is in progress; releaseConnection() is the one drop path for a failed health check and each shutdown, clean or after the grace); CodeContext.swift deinit comment; README.md stop()/shutdown() note; ProcessUtilities.swift and ServerInstaller.swift doc text; tests: LSPDaemonTests (+4: health check terminates, clean shutdown terminates once, second start spawns nothing, start during a start spawns nothing; old terminateCount == 0 assertion moved, because the card requires a clean shutdown to close the connection), ConnectionTests doc comments, IntegrationTests LanguageServerProcessGroupTests (+2) and IntegrationSupport.processExists.
+    - RED seen for all 6 new tests on the old code. GREEN: swift test --filter LSPDaemonTests|ConnectionTests|LspSupervisorTests|ChildStandardInputTests → 81 passed; swift test --package-path IntegrationTests --filter (6 LSP suites) → 9 passed; full root swift test → 995 tests in 88 suites passed. swiftlint no_magic_numbers: no finding in changed lines (two findings in ServerInstaller.swift are on old lines 131 and 211).
+    - Discovery: the old waitUntilExit awaited readerTask.value, which a cancel cannot stop, thus the shutdown grace race of LSPDaemon could not end early for a real server that hangs. The new wait stops at a cancel.
+    - Note: makeChildProcess stays for the installer and GitShell; ProcessGroupChild.spawn is the one helper for the language server and keeps the same three-stream rule.
+    - next: /review
+  timestamp: 2026-10-18T12:39:47.752065+00:00
+- actor: claude-code
+  id: 01m57gh4jcd6ex92x00tnxax5m
+  text: |-
+    ### test — green
+    - evidence: swift test (root) 995 tests in 88 suites passed, 0 failures, 0 skipped; swift build --build-tests after touching all package sources: 0 warnings from this package (only the mlx-swift dependency bundle warning "missing creator for mutated node"); swift build --package-path IntegrationTests --build-tests complete; swift test --package-path IntegrationTests --filter LanguageServerProcessGroupTests 2 tests in 1 suite passed
+    - next: commit
+  timestamp: 2026-10-18T12:42:04.236533+00:00
+position_column: doing
+position_ordinal: '80'
 title: Start each language server in its own process group and kill the group on close and on deinit
 ---
 ## Problem
@@ -29,7 +51,7 @@ title: Start each language server in its own process group and kill the group on
 - When the connection is released with no `close()`, the server process is not alive.
 
 ## Acceptance criteria
-- [ ] No server process or child process stays after close or deinit.
-- [ ] The tests above pass.
+- [x] No server process or child process stays after close or deinit.
+- [x] The tests above pass.
 
 #lsp-fix

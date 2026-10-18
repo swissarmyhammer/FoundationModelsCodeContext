@@ -37,8 +37,24 @@ comments:
     - evidence: swift test — 991 tests in 88 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete. Only warning: SwiftPM "missing creator for mutated node" for the mlx-swift_Cmlx.bundle dependency (not from this package).
     - next: commit
   timestamp: 2026-10-18T12:17:06.649734+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m57fc7mcred5dt38acj4vsre
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (1d65f09). 0 findings, 0 confirmed, 0 refuted. 6 files reviewed. 4 .kanban files are not reviewed because of .reviewignore. The two acceptance criteria are checked. The change adds the tests that the task specifies (shutdown during a start, stop lsp then start lsp).
+    - next: none. The task is in done.
+  timestamp: 2026-10-18T12:21:54.956873+00:00
+- actor: claude-code
+  id: 01m57fchq5zwbyqwt9yaaty80e
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 6 files
+    - test: green — swift test, 991 passed
+    - commit: 1d65f09
+    - review: clean — 0 findings
+  timestamp: 2026-10-18T12:22:05.285125+00:00
+position_column: done
+position_ordinal: ed80
 title: LspSupervisor.shutdown must wait for or cancel a start that is in progress
 ---
 ## Problem
