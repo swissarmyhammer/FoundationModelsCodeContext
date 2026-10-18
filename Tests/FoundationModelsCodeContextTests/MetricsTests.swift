@@ -65,11 +65,13 @@ internal struct MetricsTests {
     }
 
     /// Gives the dimensions of a restart of `server` for `reason`.
+    ///
+    /// Not private: `LspSupervisorTests` uses it to examine the install restart.
     /// - Parameters:
     ///   - server: The name of the server.
     ///   - reason: The value of the restart reason dimension.
     /// - Returns: The dimensions, in the order that the package writes them.
-    private static func restartDimensions(server: String, reason: String) -> [(String, String)] {
+    internal static func restartDimensions(server: String, reason: String) -> [(String, String)] {
         [
             (CodeContextTracing.AttributeKey.lspServer, server),
             (CodeContextTracing.AttributeKey.restartReason, reason),

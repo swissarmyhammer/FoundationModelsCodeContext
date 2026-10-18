@@ -55,8 +55,31 @@ comments:
     - change: The first run had one log warning from the repo: "the walk cannot read an ignore rule file and continues without its rules". The test loadThrowsWhenARuleFileCannotBeRead caused it, on purpose, and the default log handler printed it. The test now captures the log with CapturedLogRecords, uses a unique rule file path, checks the exact LoadError, and checks the warning record. The file is Tests/FoundationModelsCodeContextTests/PathFilterTests.swift.
     - next: none. No commit was made.
   timestamp: 2026-10-18T14:23:03.330193+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m57pamqh5rp9phwzrta74a3m
+  text: |-
+    ### commit — changed
+    - evidence: e1d2381 test: keep test files out of the shared temp root ^g0qk420 (11 files)
+    - next: review
+  timestamp: 2026-10-18T14:23:22.865199+00:00
+- actor: claude-code
+  id: 01m57pcnxs9xb6mydkvz4ddszj
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (e1d2381). 7 files reviewed. findings 0, confirmed 0, refuted 0, failed 0, skipped 0. 4 .kanban files were not reviewed because of .reviewignore.
+    - next: none. The task has no open findings and it is in done.
+  timestamp: 2026-10-18T14:24:29.625338+00:00
+- actor: claude-code
+  id: 01m57pcxh6wmz3hwprpqhm0p99
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 6 files (decision: option b, cache in scripted-lsp-server/ subfolder)
+    - test: green — swift test, 1012 passed (PathFilterTests now captures its expected warning)
+    - commit: e1d2381
+    - review: clean — 0 findings
+  timestamp: 2026-10-18T14:24:37.414886+00:00
+position_column: done
+position_ordinal: f280
 title: Tests that write ../secret.swift must remove the file
 ---
 ## Problem

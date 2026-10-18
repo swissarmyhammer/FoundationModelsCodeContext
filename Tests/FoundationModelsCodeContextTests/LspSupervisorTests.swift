@@ -1,4 +1,5 @@
 import Foundation
+import MetricsTestKit
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -772,62 +773,70 @@ struct LspSupervisorTests {
         await supervisor.shutdown()
     }
 
-    @Test
-    func shutdownDuringInFlightInstallCancelsCleanlyAndPromptly() async throws {
+    /// The real time that `shutdownDuringAGatedInstallReturnsOnlyAfterTheInstallAndLeavesTheDaemonNotStartedWithNoInstallRestart`
+    /// gives to `shutdown()` before it opens the gate of the install.
+    ///
+    /// No state tells that `shutdown()` waits for the install task, thus the test gives it this
+    /// time. This value is not a time limit: a slow scheduler cannot make a correct run fail. A
+    /// slow scheduler only gives a defective `shutdown()` less time to return before the install.
+    private static let shutdownHeadStart: Duration = .milliseconds(100)
+
+    /// A `shutdown()` during an install that waits at a closed gate returns only after the install
+    /// ends. When it returns, the daemon is `.notStarted`, and the install did not restart it.
+    ///
+    /// `ServerInstaller` runs the install in a task that does not stop on a cancel, thus
+    /// `shutdown()`, which cancels and then awaits the install task, can return only after the
+    /// gate opens. The test proves the order with state, not with the real time: the install sets
+    /// a flag when it ends, and the shutdown task reads the flag when `shutdown()` returns. Because
+    /// `shutdown()` awaited the install task, no part of the install can run after it, thus the
+    /// state that the test reads after the shutdown is final, and the test needs no settle window.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func shutdownDuringAGatedInstallReturnsOnlyAfterTheInstallAndLeavesTheDaemonNotStartedWithNoInstallRestart()
+        async throws
+    {
         let tempDirectory = TemporaryItem.makeURL(prefix: "install-directory")
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let command = "fake-auto-install-shutdown-\(UUID().uuidString)"
         let spec = Self.autoInstallSpec(command: command, installDirectory: tempDirectory)
 
-        // Gates the runner so the install stays in flight until this test explicitly releases it.
-        // `ServerInstaller.install(spec:)`'s in-flight `Task` is intentionally unstructured and
-        // keeps running to completion regardless of a caller's own cancellation (see its own doc
-        // comment) — so `shutdown()`'s cancel-then-await of the install task can only resolve once
-        // this gate opens, mirroring exactly how `shutdownRacingAnInFlightRestartHandshakeAlwaysWinsAndLeavesTheDaemonNotStarted`
-        // above races `shutdown()` against a gated handshake. What this test actually proves is
-        // that once the gate opens, `shutdown()` still resolves promptly (bounded wall-clock, no
-        // leaked task) and the guarded `forceRestart()` never fires afterward — the daemon is torn
-        // down, not resurrected by the install that "completed" concurrently with/after shutdown.
+        let installEnded = Box(false)
         let runner = FakeInstallRunner()
         await runner.closeGate()
+        await runner.setOnRun { _, _ in await installEnded.set(true) }
 
+        let metrics = TestMetrics()
         let supervisor = LspSupervisor<FakeLanguageServerConnection>(
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
             installRunner: runner,
-            connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
+            metrics: CodeContextMetrics(factory: metrics),
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
         )
 
         await supervisor.startForTesting(specs: [spec])
-        try await waitUntil(timeout: Self.stateWaitTimeout) {
-            let statuses = await supervisor.status()
-            return statuses.first { $0.command == command }?.state == .installing
+        // The runner records the call and waits at the gate in one turn of its actor, thus after
+        // this wait the install waits at the gate.
+        try await waitUntil { await runner.invocations.count == 1 }
+
+        let shutdownTask = Task {
+            await supervisor.shutdown()
+            return await installEnded.value
         }
-
-        // Race shutdown() against the still-gated install.
-        let start = ContinuousClock.now
-        let shutdownTask = Task { await supervisor.shutdown() }
-
-        // Let shutdown()'s cancellation actually propagate before releasing the gate, so the race
-        // is genuine rather than trivially sequential.
-        try await Task.sleep(for: .milliseconds(20))
+        try await Task.sleep(for: Self.shutdownHeadStart)
         await runner.openGate()
+        let installEndedBeforeTheShutdownReturned = await shutdownTask.value
 
-        await shutdownTask.value
-        let elapsed = ContinuousClock.now - start
-        #expect(elapsed < .seconds(5), "shutdown() must resolve promptly once the gated install completes, took \(elapsed)")
-
-        // A fixed real-time settle window (mirroring the handshake-race test above), not a
-        // "wait until notStarted" poll: this catches a buggy `shutdown()` that returned before the
-        // install task's guarded `forceRestart()` could ever fire, which would otherwise let a
-        // delayed resurrection land after this assertion instead of before it.
-        try await Task.sleep(for: .milliseconds(100))
-
-        let stateAfterSettling = await supervisor.status().first { $0.command == command }?.state
-        #expect(
-            stateAfterSettling == .notStarted,
-            "no post-shutdown state transition must occur once the gated install finally resolves, got \(String(describing: stateAfterSettling))"
+        let stateAfterTheShutdown = await supervisor.status().first { $0.command == command }?.state
+        let installRestarts = try? metrics.expectCounter(
+            CodeContextTracing.MetricName.lspServerRestarts,
+            MetricsTests.restartDimensions(server: command, reason: "install")
         )
+        #expect(installEndedBeforeTheShutdownReturned, "shutdown() must wait for the install that is in progress")
+        #expect(
+            stateAfterTheShutdown == .notStarted,
+            "the shutdown must leave the daemon .notStarted, got \(String(describing: stateAfterTheShutdown))"
+        )
+        #expect(installRestarts == nil, "an install that ends during the shutdown must not restart the daemon")
     }
 }
 
