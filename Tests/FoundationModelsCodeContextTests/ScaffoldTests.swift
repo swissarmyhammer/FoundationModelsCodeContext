@@ -24,6 +24,27 @@ struct ScaffoldTests {
         }
     }
 
+    /// The server name of the metadata tests.
+    private static let metadataServerName = "rust-analyzer"
+
+    @Test
+    func theServerMetadataHoldsOnlyTheServerName() {
+        let metadata = Log.serverMetadata(server: Self.metadataServerName)
+        #expect(metadata.mapValues(\.description) == [CodeContextTracing.MetadataKey.lspServer: Self.metadataServerName])
+    }
+
+    @Test
+    func theServerFailureMetadataHoldsTheServerNameAndTheErrorType() {
+        let error = CodeContextError.notRunning
+        let metadata = Log.serverFailureMetadata(server: Self.metadataServerName, error: error)
+        #expect(
+            metadata.mapValues(\.description) == [
+                CodeContextTracing.MetadataKey.lspServer: Self.metadataServerName,
+                CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error).description,
+            ]
+        )
+    }
+
     @Test
     func codeContextErrorCasesConstruct() {
         let errors: [CodeContextError] = [

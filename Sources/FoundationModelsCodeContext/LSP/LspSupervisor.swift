@@ -358,7 +358,8 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
                     return
                 }
                 guard !Task.isCancelled else { return }
-                guard await Self.needsRestart(daemon) else { continue }
+                guard await !daemon.healthCheck() else { continue }
+                guard await Self.isFailed(daemon) else { continue }
                 // Re-checked immediately before the restart call: `shutdown()` cancels this task
                 // and then awaits its completion before tearing the daemon down, so bailing out
                 // here (rather than starting a restart that `shutdown()` would otherwise have to
@@ -370,12 +371,10 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         }
     }
 
-    /// Whether the health loop must restart `daemon`: a health check found the process dead,
-    /// and the daemon is in `.failed`.
-    /// - Parameter daemon: The daemon to health-check.
-    /// - Returns: `true` when the daemon is unhealthy and in `.failed`.
-    private static func needsRestart(_ daemon: LSPDaemon<Connection>) async -> Bool {
-        guard await !daemon.healthCheck() else { return false }
+    /// Whether `daemon` is in `.failed`. This function only reads the state of the daemon.
+    /// - Parameter daemon: The daemon to examine.
+    /// - Returns: `true` when the state of the daemon is `.failed`.
+    private static func isFailed(_ daemon: LSPDaemon<Connection>) async -> Bool {
         guard case .failed = await daemon.state() else { return false }
         return true
     }
@@ -397,7 +396,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
             if !hasWarnedGivingUp {
                 Log.lsp.warning(
                     "the language server daemon gives up the restarts after too many consecutive failures",
-                    metadata: [CodeContextTracing.MetadataKey.lspServer: .string(command)]
+                    metadata: Log.serverMetadata(server: command)
                 )
                 hasWarnedGivingUp = true
             }

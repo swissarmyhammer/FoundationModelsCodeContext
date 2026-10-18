@@ -33,22 +33,31 @@ extension LSPDaemonTests {
     /// The pid of the fake process of the crash loop tests.
     private static let crashLoopPid: Int32 = 11
 
-    /// Builds a daemon for the crash loop tests. Each handshake succeeds, and `processState`
+    /// Builds a daemon for the tests of a server that crashes again and again. `processState`
     /// tells whether the process is alive.
+    ///
+    /// Not private: the "gives up" warning tests in `LspSupervisorGivingUpTests.swift` use it too.
     /// - Parameters:
     ///   - clock: The clock of the backoff delays and of the uptime.
     ///   - processState: The liveness of the fake process.
+    ///   - configureConnection: Called with each new fake connection before the handshake, thus a
+    ///     test can make the handshake fail. Defaults to no change: each handshake succeeds.
     /// - Returns: A daemon with `crashLoopMinimumHealthyUptime` as its minimum healthy uptime.
-    private static func crashLoopDaemon(
+    static func crashLoopDaemon(
         clock: ManualClock,
-        processState: ProcessState
+        processState: ProcessState,
+        configureConnection: @escaping @Sendable (FakeLanguageServerConnection) async -> Void = { _ in }
     ) -> LSPDaemon<FakeLanguageServerConnection> {
         LSPDaemon<FakeLanguageServerConnection>(
             spec: serverSpec(),
             workspaceRoot: workspaceRoot,
             clock: clock,
             minimumHealthyUptime: crashLoopMinimumHealthyUptime,
-            connectionFactory: fakeConnectionFactory(pid: crashLoopPid, processState: processState)
+            connectionFactory: fakeConnectionFactory(
+                pid: crashLoopPid,
+                processState: processState,
+                configureConnection: configureConnection
+            )
         )
     }
 

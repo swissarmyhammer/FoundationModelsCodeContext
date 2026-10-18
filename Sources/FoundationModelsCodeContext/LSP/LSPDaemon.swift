@@ -600,7 +600,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
 
     /// The log metadata that names the server of this daemon.
     private var serverMetadata: Logger.Metadata {
-        [CodeContextTracing.MetadataKey.lspServer: .string(spec.command)]
+        Log.serverMetadata(server: spec.command)
     }
 
     /// Computes the exponential-backoff delay for the given zero-indexed consecutive-failure

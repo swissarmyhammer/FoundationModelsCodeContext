@@ -87,6 +87,14 @@ public enum Log {
         return metadata
     }
 
+    /// Gives the metadata of a record about a language server that has no other values.
+    ///
+    /// - Parameter server: The command name of the language server.
+    /// - Returns: The server name under `CodeContextTracing.MetadataKey.lspServer`.
+    internal static func serverMetadata(server: String) -> Logger.Metadata {
+        [CodeContextTracing.MetadataKey.lspServer: .string(server)]
+    }
+
     /// Gives the metadata of a record about a failure of a language server.
     ///
     /// - Parameters:
@@ -95,9 +103,8 @@ public enum Log {
     /// - Returns: The server name under `CodeContextTracing.MetadataKey.lspServer` and the error
     ///   type name under `CodeContextTracing.MetadataKey.errorType`.
     internal static func serverFailureMetadata(server: String, error: any Error) -> Logger.Metadata {
-        [
-            CodeContextTracing.MetadataKey.lspServer: .string(server),
-            CodeContextTracing.MetadataKey.errorType: errorType(of: error),
-        ]
+        var metadata = serverMetadata(server: server)
+        metadata[CodeContextTracing.MetadataKey.errorType] = errorType(of: error)
+        return metadata
     }
 }

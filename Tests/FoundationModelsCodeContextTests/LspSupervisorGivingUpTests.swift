@@ -52,6 +52,8 @@ extension LspSupervisorTests {
 
     /// Builds a started daemon whose process is dead and whose next handshakes fail, thus each
     /// restart of the health loop fails and the daemon uses all of its restart budget.
+    ///
+    /// The daemon comes from the shared fixture `LSPDaemonTests.crashLoopDaemon`.
     /// - Parameter clock: The clock of the daemon.
     /// - Returns: The daemon, in `.running` with a dead process.
     private static func daemonThatFailsEachRestart(
@@ -60,17 +62,11 @@ extension LspSupervisorTests {
         let processState = ProcessState()
         let shouldFailHandshake = Box(false)
         let scriptedFailure = CodeContextError.handshakeFailed("scripted")
-        let factory = fakeConnectionFactory(pid: givingUpPid, processState: processState) { connection in
+        let daemon = LSPDaemonTests.crashLoopDaemon(clock: clock, processState: processState) { connection in
             if await shouldFailHandshake.value {
                 await connection.setInitializeResult(to: .failure(scriptedFailure))
             }
         }
-        let daemon = LSPDaemon<FakeLanguageServerConnection>(
-            spec: serverSpec(),
-            workspaceRoot: workspaceRoot,
-            clock: clock,
-            connectionFactory: factory
-        )
         try await daemon.start()
         await shouldFailHandshake.set(true)
         await processState.setAlive(false)
