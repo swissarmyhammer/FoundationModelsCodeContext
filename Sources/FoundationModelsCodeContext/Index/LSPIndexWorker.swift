@@ -24,6 +24,33 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
     /// was indexed.
     let failedBatchSleep: Duration
 
+    /// The default maximum number of dirty files in one batch: 50, the same
+    /// value as `swissarmyhammer-code-context`'s `LspWorkerConfig::default`.
+    static let defaultBatchSize = 50
+
+    /// The default idle sleep, in milliseconds.
+    private static let idleSleepMilliseconds = 500
+
+    /// The default sleep when no dirty files remain.
+    static let defaultIdleSleep = Duration.milliseconds(idleSleepMilliseconds)
+
+    /// The default sleep, in seconds, when the session is not available.
+    private static let sessionUnavailableSleepSeconds = 5
+
+    /// The default sleep when dirty files exist but no session is available.
+    static let defaultSessionUnavailableSleep = Duration.seconds(sessionUnavailableSleepSeconds)
+
+    /// The default number of failed attempts for one file after which the
+    /// loop marks the file indexed.
+    static let defaultFailureLimit = 3
+
+    /// The default sleep, in seconds, after a batch in which no file was
+    /// indexed.
+    private static let failedBatchSleepSeconds = 5
+
+    /// The default sleep after a batch in which no file was indexed.
+    static let defaultFailedBatchSleep = Duration.seconds(failedBatchSleepSeconds)
+
     /// Creates a worker configuration.
     /// - Parameters:
     ///   - batchSize: Maximum dirty files drained per batch. Defaults to 50,
@@ -37,11 +64,11 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
     ///   - failedBatchSleep: Sleep duration after a batch in which no file was
     ///     indexed. Defaults to 5 seconds.
     init(
-        batchSize: Int = 50,
-        idleSleep: Duration = .milliseconds(500),
-        sessionUnavailableSleep: Duration = .seconds(5),
-        failureLimit: Int = 3,
-        failedBatchSleep: Duration = .seconds(5)
+        batchSize: Int = defaultBatchSize,
+        idleSleep: Duration = defaultIdleSleep,
+        sessionUnavailableSleep: Duration = defaultSessionUnavailableSleep,
+        failureLimit: Int = defaultFailureLimit,
+        failedBatchSleep: Duration = defaultFailedBatchSleep
     ) {
         self.batchSize = batchSize
         self.idleSleep = idleSleep
@@ -49,6 +76,15 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
         self.failureLimit = failureLimit
         self.failedBatchSleep = failedBatchSleep
     }
+}
+
+/// The SQLite limits of `LSPIndexWorker`.
+///
+/// A generic type cannot have a static stored property. This type is not
+/// generic, thus it holds the named constant that `LSPIndexWorker` uses.
+private enum LSPIndexSQLiteLimits {
+    /// The maximum number of `?` bind parameters in one `IN (...)` clause.
+    static let inChunkSize = 900
 }
 
 /// Drains `lsp_indexed = 0` files matching one language server's extensions,
@@ -116,7 +152,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// `IN (...)` clause, mirroring `swissarmyhammer-code-context::invalidation`'s
     /// `SQLITE_IN_CHUNK_SIZE` so a pathologically large symbol-deletion count
     /// never exceeds SQLite's bind-parameter limit.
-    private static var sqliteInChunkSize: Int { 900 }
+    private static var sqliteInChunkSize: Int { LSPIndexSQLiteLimits.inChunkSize }
 
     /// LSP symbol kinds whose call-hierarchy is collected, mirroring the
     /// Rust reference's `SymbolKind::FUNCTION | METHOD | CONSTRUCTOR` filter.
