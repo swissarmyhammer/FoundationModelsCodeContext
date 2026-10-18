@@ -76,10 +76,11 @@
 //
 // The framing code is not in this file. The tests join
 // `Sources/FoundationModelsCodeContext/LSP/Framing.swift` with this file into one script file
-// (see `Support/ScriptedLSPServerScript.swift`, and `ScriptedLSPServer` in the integration
-// package) and start that file. Thus `JSONRPCFraming` and `JSONRPCMessageDecoder` below are the
-// same code that the connection uses, and the package has one header parser. This file has no
-// `#!` line, because the joined file starts with `Framing.swift`. Do not start this file alone.
+// (see `ScriptedLSPServerScript` in `Tests/ScriptedLSPServerSupport/`, which the unit tests and
+// the integration package both use) and start that file. Thus `JSONRPCFraming` and
+// `JSONRPCMessageDecoder` below are the same code that the connection uses, and the package has
+// one header parser. This file has no `#!` line, because the joined file starts with
+// `Framing.swift`. Do not start this file alone.
 
 import Foundation
 

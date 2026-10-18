@@ -7,6 +7,13 @@ import PackageDescription
 // source of truth for each identifier.
 let packageName = "FoundationModelsCodeContext"
 
+// The test-support target that writes the script file of the scripted language server. The unit
+// test target and the test target of the `IntegrationTests` package both use it, thus the join of
+// the framing code and the server script has one body. It is a separate library product only
+// because a different package cannot depend on a target. The library product `packageName` does
+// not contain it.
+let scriptedLSPServerSupportName = "ScriptedLSPServerSupport"
+
 // Per-language tree-sitter grammar packages. `alex-pinkus/tree-sitter-swift`
 // does not commit generated parser sources on its default branch (SwiftPM
 // can't run the tree-sitter CLI codegen step), so it is pinned to the
@@ -149,7 +156,12 @@ let package = Package(
         .library(
             name: packageName,
             targets: [packageName]
-        )
+        ),
+        // Test support only. The `IntegrationTests` package needs a product to use the target.
+        .library(
+            name: scriptedLSPServerSupportName,
+            targets: [scriptedLSPServerSupportName]
+        ),
     ],
     dependencies: [
         // Referenced by URL, not by a local path. This is the CI convention of the
@@ -236,6 +248,12 @@ let package = Package(
         // reason that they are local.
         localGrammarTarget(name: treeSitterJavaScriptTargetName),
         localGrammarTarget(name: treeSitterPythonTargetName, includedSources: [treeSitterPythonScannerSource]),
+        // See `scriptedLSPServerSupportName`. It imports only Foundation and CryptoKit, and it
+        // reads the source files of the script from the disk.
+        .target(
+            name: scriptedLSPServerSupportName,
+            path: "Tests/\(scriptedLSPServerSupportName)"
+        ),
         .testTarget(
             name: "\(packageName)Tests",
             dependencies: [
@@ -264,6 +282,9 @@ let package = Package(
                 // The metrics tests give a `TestMetrics` factory to the code under test and read
                 // the recorded values from it. They do not bootstrap the global system.
                 .product(name: "MetricsTestKit", package: metricsPackage),
+                // `ConnectionTests` starts the scripted language server through the script file
+                // that this target writes.
+                .target(name: scriptedLSPServerSupportName),
             ],
             path: "Tests/\(packageName)Tests",
             // `scripted-lsp-server.swift` is a standalone script launched via

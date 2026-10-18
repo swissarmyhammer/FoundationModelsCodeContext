@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import ScriptedLSPServerSupport
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -9,8 +10,8 @@ import Testing
 /// Content-Length-framed JSON-RPC stub launched the same way a real
 /// language server is (`/usr/bin/env swift <script> <script-json>`). The
 /// started script is that file joined with the framing code of the library
-/// (see `ScriptedLSPServerScript`). See that file's header comment for the
-/// scripting DSL.
+/// (see `ScriptedLSPServerScript` in `ScriptedLSPServerSupport`). See the header comment of the
+/// script for the scripting DSL.
 ///
 /// Covers the behaviors that only a real process boundary can exercise:
 /// request/response over actual pipes, responses arriving out of order,
@@ -53,7 +54,7 @@ struct ConnectionTests {
         let scriptJSON = String(decoding: scriptData, as: UTF8.self)
         return try ProcessLanguageServerConnection(
             command: "swift",
-            arguments: [try ScriptedLSPServerScript.path(), scriptJSON],
+            arguments: [try ScriptedLSPServerScript.path(in: TemporaryItem.root), scriptJSON],
             requestTimeout: requestTimeout,
             clock: clock
         )

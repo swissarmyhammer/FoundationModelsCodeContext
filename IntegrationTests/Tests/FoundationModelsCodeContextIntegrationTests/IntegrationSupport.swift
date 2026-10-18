@@ -1,6 +1,6 @@
-import CryptoKit
 import Foundation
 import FoundationModelsExtras
+import ScriptedLSPServerSupport
 import Tracing
 
 @testable import FoundationModelsCodeContext
@@ -229,7 +229,7 @@ internal enum ScriptedLSPServer {
         let script = String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
         let connection = try ProcessLanguageServerConnection(
             command: command,
-            arguments: [try path(), script],
+            arguments: [try ScriptedLSPServerScript.path(in: scriptDirectory), script],
             requestTimeout: requestTimeout,
             metrics: metrics,
             tracer: tracer
@@ -255,55 +255,11 @@ internal enum ScriptedLSPServer {
         }
     }
 
-    /// The number of path components from this file to the root of the
-    /// repository. This file is at
-    /// `IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/IntegrationSupport.swift`.
-    private static let repositoryRootDepth = 4
-
-    /// The root directory of the repository.
-    private static let repositoryRoot: URL = {
-        var directory = URL(fileURLWithPath: #filePath)
-        for _ in 0..<repositoryRootDepth {
-            directory.deleteLastPathComponent()
-        }
-        return directory
-    }()
-
-    /// The framing code of the library that the script shares.
-    private static let framingSource = repositoryRoot.appending(path: "Sources/FoundationModelsCodeContext/LSP/Framing.swift")
-
-    /// The steps and the actions of the scripted server.
-    private static let serverSource = repositoryRoot.appending(
-        path: "Tests/FoundationModelsCodeContextTests/Support/scripted-lsp-server.swift"
-    )
-
-    /// The directory that holds the joined script file. It is the shared
-    /// directory of `withTemporaryWorkspace(_:)`.
+    /// The directory that holds the joined script file that
+    /// `ScriptedLSPServerScript.path(in:)` writes. It is the shared directory
+    /// of `withTemporaryWorkspace(_:)`.
     private static let scriptDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
         .appendingPathComponent("FoundationModelsCodeContextIntegrationTests-\(getuid())", isDirectory: true)
-
-    /// Writes the joined script file if it is not there yet, and gives its
-    /// path.
-    ///
-    /// `swift <file>` runs one file only, but the script uses the framing
-    /// code of the library, so that the package has one header parser. This
-    /// joins `Framing.swift` and the script into one file. Its name holds the
-    /// SHA-256 digest of its text, thus a run of changed sources never starts
-    /// an old file. The unit target has the same helper in
-    /// `ScriptedLSPServerScript`.
-    /// - Returns: The absolute path of the joined script file.
-    /// - Throws: The error of a read of a source file, or of the write of the
-    ///   joined file.
-    internal static func path() throws -> String {
-        let text = try String(contentsOf: framingSource, encoding: .utf8) + "\n" + String(contentsOf: serverSource, encoding: .utf8)
-        let digest = SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
-        let url = scriptDirectory.appending(path: "scripted-lsp-server-\(digest).swift")
-        if !FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.createDirectory(at: scriptDirectory, withIntermediateDirectories: true)
-            try Data(text.utf8).write(to: url, options: .atomic)
-        }
-        return url.path
-    }
 }
 
 /// A splitmix64 pseudo-random generator, seeded once and then producing a

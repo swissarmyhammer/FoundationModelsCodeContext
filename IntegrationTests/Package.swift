@@ -65,6 +65,9 @@ let package = Package(
             name: "FoundationModelsCodeContextIntegrationTests",
             dependencies: [
                 .product(name: "FoundationModelsCodeContext", package: "FoundationModelsCodeContext"),
+                // `ScriptedLSPServer` writes the script file of the scripted language server
+                // through the same helper as the unit tests of `../Package.swift`.
+                .product(name: "ScriptedLSPServerSupport", package: "FoundationModelsCodeContext"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "InMemoryLogging", package: "swift-log"),
                 .product(name: "MetricsTestKit", package: "swift-metrics"),
