@@ -473,7 +473,10 @@ state becomes actors.
      log `.error` with exit status, clear transport, `session.resetDocuments()`,
      state `.failed`, then restart with backoff **1, 2, 4, 8, 16, 32, 60 (cap)
      seconds**, giving up after **5 consecutive failures** (state stays
-     `.failed`, visible in `lspStatus()`). Success resets the counter.
+      `.failed`, visible in `lspStatus()`). A good handshake alone does not
+      reset the counter: a health check resets it only after the server ran
+      for a minimum healthy uptime (5 minutes by default, injectable). The
+      health loop writes the "gives up" warning one time.
      `forceRestart()` resets the counter and restarts immediately.
   5. Graceful shutdown: `shutdown` request → `exit` notification → wait,
      bounded by 5s grace, else SIGKILL.

@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 
 /// One managed daemon's command name paired with its current lifecycle state, as reported by
 /// `LspSupervisor.status()`.
@@ -332,6 +333,11 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// and — mirroring `swissarmyhammer-lsp`'s `should_attempt_restart` — attempts
     /// `restartWithBackoff()` only when the daemon is unhealthy *and* landed in `.failed`
     /// afterward, leaving `.notFound`, `.notStarted`, and `.shuttingDown` daemons untouched.
+    ///
+    /// When the daemon has used its restart budget, the loop does not call
+    /// `restartWithBackoff()`. It writes the "gives up" warning one time, not at each interval.
+    /// A `forceRestart()` gives the daemon a new budget, thus a later give-up writes the warning
+    /// again.
     /// - Parameters:
     ///   - command: The daemon's server command, used only for log messages.
     ///   - spec: The spec supplying the health-check pacing interval.
@@ -344,6 +350,7 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     ) -> Task<Void, Never> {
         let daemonClock = clock
         return Task {
+            var hasWarnedGivingUp = false
             while !Task.isCancelled {
                 do {
                     try await daemonClock.sleep(for: spec.healthCheckInterval)
@@ -351,26 +358,59 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
                     return
                 }
                 guard !Task.isCancelled else { return }
-
-                let isHealthy = await daemon.healthCheck()
-                guard !isHealthy else { continue }
-                guard case .failed = await daemon.state() else { continue }
+                guard await Self.needsRestart(daemon) else { continue }
                 // Re-checked immediately before the restart call: `shutdown()` cancels this task
                 // and then awaits its completion before tearing the daemon down, so bailing out
                 // here (rather than starting a restart that `shutdown()` would otherwise have to
                 // race) guarantees a shutdown that lands between the state check above and this
                 // point can never be undone by a subsequent restart.
                 guard !Task.isCancelled else { return }
-
-                do {
-                    try await daemon.restartWithBackoff()
-                } catch {
-                    Log.lsp.warning(
-                        "an attempt to start the language server daemon again failed",
-                        metadata: Log.serverFailureMetadata(server: command, error: error)
-                    )
-                }
+                await Self.restart(daemon, command: command, hasWarnedGivingUp: &hasWarnedGivingUp)
             }
+        }
+    }
+
+    /// Whether the health loop must restart `daemon`: a health check found the process dead,
+    /// and the daemon is in `.failed`.
+    /// - Parameter daemon: The daemon to health-check.
+    /// - Returns: `true` when the daemon is unhealthy and in `.failed`.
+    private static func needsRestart(_ daemon: LSPDaemon<Connection>) async -> Bool {
+        guard await !daemon.healthCheck() else { return false }
+        guard case .failed = await daemon.state() else { return false }
+        return true
+    }
+
+    /// Restarts `daemon` with backoff, or, when its restart budget is used, writes the "gives up"
+    /// warning if the loop did not write it yet.
+    /// - Parameters:
+    ///   - daemon: The daemon in `.failed`.
+    ///   - command: The daemon's server command, used only for log messages.
+    ///   - hasWarnedGivingUp: Whether the loop wrote the "gives up" warning for the current
+    ///     budget. This call sets it to `true` when it writes the warning, and to `false` when the
+    ///     daemon has a budget again.
+    private static func restart(
+        _ daemon: LSPDaemon<Connection>,
+        command: String,
+        hasWarnedGivingUp: inout Bool
+    ) async {
+        guard await !daemon.hasExhaustedRestarts() else {
+            if !hasWarnedGivingUp {
+                Log.lsp.warning(
+                    "the language server daemon gives up the restarts after too many consecutive failures",
+                    metadata: [CodeContextTracing.MetadataKey.lspServer: .string(command)]
+                )
+                hasWarnedGivingUp = true
+            }
+            return
+        }
+        hasWarnedGivingUp = false
+        do {
+            try await daemon.restartWithBackoff()
+        } catch {
+            Log.lsp.warning(
+                "an attempt to start the language server daemon again failed",
+                metadata: Log.serverFailureMetadata(server: command, error: error)
+            )
         }
     }
 

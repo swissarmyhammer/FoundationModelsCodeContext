@@ -18,7 +18,8 @@ struct LspSupervisorTests {
     /// utility — so `LSPDaemon`'s `$PATH` lookup (not mockable; a genuine filesystem check)
     /// succeeds on every test runner without actually being spawned: the connection factory always
     /// substitutes a `FakeLanguageServerConnection` before any real process would be launched.
-    private static func serverSpec(
+    /// Not private: the health loop tests in `LspSupervisorGivingUpTests.swift` use it too.
+    static func serverSpec(
         command: String = "true",
         healthCheckInterval: Duration = .seconds(60)
     ) -> ServerSpec {
@@ -32,7 +33,7 @@ struct LspSupervisorTests {
 
     /// A workspace root fixture for tests that never touch the filesystem-based project detection
     /// path (routing, health-loop, shutdown, force-restart tests all insert daemons directly).
-    private static let workspaceRoot = URL(fileURLWithPath: "/tmp/lsp-supervisor-tests")
+    static let workspaceRoot = URL(fileURLWithPath: "/tmp/lsp-supervisor-tests")
 
     // `ProcessState` and `fakeConnectionFactory` live in `Support/FakeDaemonProcess.swift`, shared
     // with `LSPDaemonTests`.
@@ -45,7 +46,7 @@ struct LspSupervisorTests {
     /// cooperative thread pool: `advance(by:)` resumes the suspended task, but the task is
     /// possibly not complete when the next line of the test runs. When the time elapses, the wait
     /// returns, and the assertion of the test that follows tells what did not occur.
-    private static let stateWaitTimeout: Duration = .seconds(5)
+    static let stateWaitTimeout: Duration = .seconds(5)
 
     // MARK: - start() / dedupe
 

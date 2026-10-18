@@ -37,7 +37,8 @@ public enum LSPDaemonState: Sendable, Equatable, Codable {
     case running(pid: Int32)
 
     /// The server exited unexpectedly, failed to spawn, or failed its handshake. `attempts` is
-    /// the number of consecutive failures recorded since the last successful start.
+    /// the number of consecutive failures recorded since the server last ran for the minimum
+    /// healthy uptime of the daemon. A good handshake alone does not set it back to zero.
     case failed(reason: String, attempts: Int)
 
     /// A graceful shutdown (`shutdown` request + `exit` notification) is in progress.
@@ -126,11 +127,14 @@ typealias ConnectionFactory<Connection: LanguageServerConnection> =
 /// `LspSupervisor`) calling `healthCheck()` and `restartWithBackoff()`.
 actor LSPDaemon<Connection: LanguageServerConnection> {
     /// Consecutive failures allowed before `restartWithBackoff()` refuses to retry further.
-    private static var maxConsecutiveFailures: Int { 5 }
+    private static var maxConsecutiveFailures: Int { LSPDaemonLimits.maxConsecutiveFailures }
 
     /// The default grace period `shutdown()` waits for the server to exit on its own before
     /// force-terminating it.
-    private static var defaultShutdownGrace: Duration { .seconds(5) }
+    private static var defaultShutdownGrace: Duration { LSPDaemonLimits.defaultShutdownGrace }
+
+    /// The default minimum healthy uptime. See `LSPDaemonLimits.defaultMinimumHealthyUptime`.
+    static var defaultMinimumHealthyUptime: Duration { LSPDaemonLimits.defaultMinimumHealthyUptime }
 
     /// The server specification this daemon spawns and monitors.
     private let spec: ServerSpec
@@ -147,13 +151,27 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// Gets 1 on the restart counter of this server for each restart attempt.
     private let metrics: CodeContextMetrics
 
+    /// The uptime that a health check must find before it sets `consecutiveFailures` to zero.
+    private let minimumHealthyUptime: Duration
+
+    /// Gives the time on `clock` since this daemon was created.
+    ///
+    /// An `any Clock<Duration>` cannot name its `Instant`, thus `init` opens the clock one time
+    /// and keeps its start instant in this closure.
+    private let elapsedTime: @Sendable () -> Duration
+
+    /// The value of `elapsedTime()` when the daemon went to `.running`, or `nil` when no process
+    /// runs.
+    private var runningSince: Duration?
+
     /// The currently running connection's process-level hooks, or `nil` when not running.
     private var handle: ConnectionHandle<Connection>?
 
     /// The session over the current connection, or `nil` when not running.
     private var currentSession: LspSession<Connection>?
 
-    /// The number of consecutive failures recorded since the last successful `start()`.
+    /// The number of consecutive failures recorded since the last health check that found a
+    /// healthy uptime, or since the last `forceRestart()` or `shutdown()`.
     private var consecutiveFailures = 0
 
     /// Whether the "binary not found" warning has already been logged, so repeated failed
@@ -186,6 +204,9 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     ///     wait against. Defaults to `ContinuousClock()`; tests inject a `ManualClock`.
     ///   - metrics: Gets 1 on the restart counter of this server for each restart attempt.
     ///     Defaults to `CodeContextMetrics()`.
+    ///   - minimumHealthyUptime: The uptime that a health check must find before it sets the
+    ///     consecutive failure count to zero. Defaults to `defaultMinimumHealthyUptime`; tests
+    ///     give a short value.
     ///   - connectionFactory: Spawns a fresh connection on every `start()` call. Production code
     ///     passes `processConnectionFactory()`; tests pass one backed by a fake connection.
     init(
@@ -193,12 +214,15 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
         workspaceRoot: URL,
         clock: any Clock<Duration> = ContinuousClock(),
         metrics: CodeContextMetrics = CodeContextMetrics(),
+        minimumHealthyUptime: Duration = defaultMinimumHealthyUptime,
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) {
         self.spec = spec
         self.workspaceRoot = workspaceRoot
         self.clock = clock
         self.metrics = metrics
+        self.minimumHealthyUptime = minimumHealthyUptime
+        self.elapsedTime = Self.stopwatch(on: clock)
         self.connectionFactory = connectionFactory
         self.shutdownGrace = Self.defaultShutdownGrace
         let (stream, continuation) = AsyncStream.makeStream(of: LSPDaemonState.self)
@@ -275,11 +299,13 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// somewhere not on `$PATH`), spawns a connection via the injected factory, and completes the
     /// `initialize`/`initialized` handshake bounded by `spec.startupTimeout`.
     ///
-    /// On success the state becomes `.running(pid:)` and `consecutiveFailures` resets to zero. On
-    /// failure the state becomes `.notFound` (binary missing everywhere — `consecutiveFailures` is
-    /// left untouched, matching `swissarmyhammer-lsp`'s `start`) or `.failed(reason:attempts:)`
-    /// (spawn failure, handshake failure, or handshake timeout — each increments
-    /// `consecutiveFailures`).
+    /// On success the state becomes `.running(pid:)` and the daemon records the start of the
+    /// uptime. A good handshake does not set `consecutiveFailures` to zero: a server that crashes
+    /// right after `initialize` must reach `maxConsecutiveFailures`. Only `healthCheck()` sets the
+    /// count to zero, after `minimumHealthyUptime`. On failure the state becomes `.notFound`
+    /// (binary missing everywhere — `consecutiveFailures` is left untouched, matching
+    /// `swissarmyhammer-lsp`'s `start`) or `.failed(reason:attempts:)` (spawn failure, handshake
+    /// failure, or handshake timeout — each increments `consecutiveFailures`).
     /// - Throws: `CodeContextError.binaryNotFound` if `spec.command` isn't found on `$PATH` or in
     ///   any of `spec.installer?.extraSearchDirectories`; `CodeContextError.handshakeFailed` if the
     ///   handshake fails or times out; whatever the connection factory throws if spawning the
@@ -332,11 +358,16 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
             serverName: spec.command,
             capabilities: capabilities
         )
-        consecutiveFailures = 0
+        runningSince = elapsedTime()
         currentState = .running(pid: spawnedHandle.pid)
     }
 
     /// Checks whether the currently running connection's process is still alive.
+    ///
+    /// When the process is alive and its uptime is at least `minimumHealthyUptime`, sets
+    /// `consecutiveFailures` to zero: the server is healthy, thus a later crash gets the full
+    /// restart budget again. The check uses the uptime at a check that found the process alive,
+    /// not the uptime at the crash, because the daemon finds a crash only at the next check.
     ///
     /// On an unexpected exit, tears down the connection, clears the current session's
     /// open-document set (a fresh process on the next `start()` knows nothing about what the dead
@@ -347,14 +378,23 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     func healthCheck() async -> Bool {
         guard let handle else { return false }
         if await handle.isAlive() {
+            resetFailuresAfterHealthyUptime()
             return true
         }
         Log.lsp.error("the language server exited unexpectedly", metadata: serverMetadata)
         await currentSession?.resetDocuments()
         self.handle = nil
         currentSession = nil
+        runningSince = nil
         recordFailure(reason: "process exited unexpectedly", error: nil)
         return false
+    }
+
+    /// Whether the failure budget is used: `restartWithBackoff()` does not start the server
+    /// again until `forceRestart()`.
+    /// - Returns: `true` when `consecutiveFailures` is at `maxConsecutiveFailures` or more.
+    func hasExhaustedRestarts() -> Bool {
+        consecutiveFailures >= Self.maxConsecutiveFailures
     }
 
     /// Attempts to restart the server after a failure, respecting the exponential-backoff policy.
@@ -370,7 +410,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// - Throws: `CodeContextError.handshakeFailed` if the failure budget is already exhausted;
     ///   otherwise whatever `start()` throws.
     func restartWithBackoff() async throws {
-        guard consecutiveFailures < Self.maxConsecutiveFailures else {
+        guard !hasExhaustedRestarts() else {
             throw CodeContextError.handshakeFailed(
                 "too many consecutive failures (\(consecutiveFailures)), giving up"
             )
@@ -441,6 +481,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
 
         self.handle = nil
         self.currentSession = nil
+        runningSince = nil
         currentState = .notStarted
     }
 
@@ -542,6 +583,21 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
         currentState = .failed(reason: reason, attempts: consecutiveFailures)
     }
 
+    /// Sets `consecutiveFailures` to zero when the running process has an uptime of at least
+    /// `minimumHealthyUptime`. Does nothing when no process runs.
+    private func resetFailuresAfterHealthyUptime() {
+        guard let runningSince, elapsedTime() - runningSince >= minimumHealthyUptime else { return }
+        consecutiveFailures = 0
+    }
+
+    /// Opens `clock` and gives a closure that returns the time on `clock` since this call.
+    /// - Parameter clock: The clock of the daemon.
+    /// - Returns: A closure that gives the elapsed time on `clock`.
+    private static func stopwatch<ClockType: Clock<Duration>>(on clock: ClockType) -> @Sendable () -> Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
+    }
+
     /// The log metadata that names the server of this daemon.
     private var serverMetadata: Logger.Metadata {
         [CodeContextTracing.MetadataKey.lspServer: .string(spec.command)]
@@ -555,13 +611,47 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// - Parameter attempt: The number of consecutive failures already recorded (0-indexed).
     /// - Returns: The delay to wait before the next restart attempt.
     static func backoffDuration(forAttempt attempt: Int) -> Duration {
-        let capSeconds: Int64 = 60
-        guard attempt >= 0, attempt < 62 else {
+        let capSeconds = LSPDaemonLimits.backoffCapSeconds
+        guard attempt >= 0, attempt < LSPDaemonLimits.backoffShiftLimit else {
             return .seconds(capSeconds)
         }
         let doubledSeconds = Int64(1) << attempt
         return .seconds(min(doubledSeconds, capSeconds))
     }
+}
+
+/// The named constants of the restart policy and of the shutdown of `LSPDaemon`.
+///
+/// `LSPDaemon` is generic, and a generic type cannot hold a static stored property, thus the
+/// constants are in this enum.
+private enum LSPDaemonLimits {
+    /// Consecutive failures allowed before `restartWithBackoff()` refuses to retry further.
+    static let maxConsecutiveFailures = 5
+
+    /// The number of seconds in `defaultShutdownGrace`.
+    static let defaultShutdownGraceSeconds = 5
+
+    /// The default grace period `shutdown()` waits for the server to exit on its own.
+    static let defaultShutdownGrace: Duration = .seconds(defaultShutdownGraceSeconds)
+
+    /// The number of seconds in `defaultMinimumHealthyUptime`.
+    static let defaultMinimumHealthyUptimeSeconds = 300
+
+    /// The default minimum healthy uptime: 5 minutes, the same value as `MIN_HEALTHY_UPTIME` of
+    /// `swissarmyhammer-lsp`.
+    ///
+    /// Each restart starts a full index again, thus a server must run for much longer than one
+    /// restart cycle before its failure count goes back to zero. 5 minutes is five health check
+    /// intervals of the default `ServerSpec.healthCheckInterval`, and five times the 60-second
+    /// backoff cap.
+    static let defaultMinimumHealthyUptime: Duration = .seconds(defaultMinimumHealthyUptimeSeconds)
+
+    /// The longest backoff delay, in seconds.
+    static let backoffCapSeconds: Int64 = 60
+
+    /// The failure count at and above which `backoffDuration(forAttempt:)` gives the cap
+    /// directly. `1 << attempt` stays in the range of `Int64` only below this count.
+    static let backoffShiftLimit = 62
 }
 
 extension LSPDaemon where Connection == ProcessLanguageServerConnection {

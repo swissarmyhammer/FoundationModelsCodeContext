@@ -20,8 +20,9 @@ struct LSPDaemonTests {
     /// Unix utility — so `LSPDaemon`'s `$PATH` lookup (which isn't mockable; it's a genuine
     /// filesystem check) succeeds on every test runner without actually being spawned: the
     /// connection factory always substitutes a `FakeLanguageServerConnection` before any real
-    /// process would be launched.
-    private static func serverSpec(
+    /// process would be launched. Not private: the crash loop tests in
+    /// `LSPDaemonCrashLoopTests.swift` use it too.
+    static func serverSpec(
         command: String = "true",
         startupTimeout: Duration = .seconds(5),
         installHint: String = "install the fake LSP server"
@@ -31,7 +32,7 @@ struct LSPDaemonTests {
 
     /// A workspace root fixture; `LSPDaemon` only uses this to build the `initialize` request's
     /// `rootUri`, so no real directory needs to exist on disk.
-    private static let workspaceRoot = URL(fileURLWithPath: "/tmp/lsp-daemon-tests")
+    static let workspaceRoot = URL(fileURLWithPath: "/tmp/lsp-daemon-tests")
 
     /// An error a scripted `FakeLanguageServerConnection` throws to simulate a handshake that
     /// the server actively rejects (distinct from a timeout, which never throws from the fake at
