@@ -76,10 +76,26 @@ comments:
     - evidence: swift test — 1008 tests in 90 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete, exit 0. Only warning: SwiftPM "missing creator for mutated node" for the mlx-swift_Cmlx.bundle dependency, not from this package.
     - next: commit
   timestamp: 2026-10-18T13:42:33.359470+00:00
+- actor: claude-code
+  id: 01m57m206rvs7d26xha0s3ywjj
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (6b4a501): 0 findings, 0 confirmed, 0 refuted, 7 attempted, 0 failed. The prior finding at RelativePath.swift (reuse/reuse) is checked. The private helper WorkspaceRoot.url(of:) now does the one URI parse.
+    - next: none. The task moved to done.
+  timestamp: 2026-10-18T13:43:42.552264+00:00
+- actor: claude-code
+  id: 01m57m28cyqw1tkze33tbfyw87
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 2 files (one WorkspaceRoot.url(of:) parse)
+    - test: green — swift test, 1008 passed
+    - commit: 6b4a501
+    - review: clean — 0 findings; 1 of 1 prior item checked
+  timestamp: 2026-10-18T13:43:50.942187+00:00
 depends_on:
 - 01M53GKH8NBN2B0MCXS2RNY171
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ef80
 title: Use WorkspaceRoot.relativePath for the LSP and query paths too
 ---
 ## Problem

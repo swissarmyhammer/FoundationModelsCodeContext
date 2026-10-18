@@ -7,7 +7,8 @@ import Testing
 /// Tests for the bounded `start()` of `CodeContext`, for `stop()` during the
 /// first index pass, for the rule that one index pass runs at a time, for the
 /// embedding layer that a host turns off, for the watcher that a host turns
-/// off, and for the calls that stop the language servers and start them again.
+/// off, for the calls that stop the language servers and start them again, and
+/// for the ignore rules of a context that has no watcher.
 ///
 /// Most fixtures have no project marker, thus no LSP daemon starts. The tests
 /// of `stopLanguageServers()` and `startLanguageServers()` write a Cargo
@@ -66,7 +67,7 @@ struct CodeContextStartTests {
     ///   - rootDirectory: The workspace root of the context.
     ///   - embedder: The embedder of the context, or `nil` to turn the embedding layer off.
     ///   - clock: The clock of the index loop and of the watcher.
-    ///   - eventSource: The file event source of the watcher.
+    ///   - eventSource: The file event source of the watcher, or `nil` to turn the watcher off.
     ///   - processState: The liveness of each fake server process.
     ///   - serverSpecs: Gives the server specs of the detected projects.
     ///   - configureConnection: Configures each fake connection before the daemon gets it.
@@ -74,7 +75,7 @@ struct CodeContextStartTests {
         rootDirectory: URL,
         embedder: PooledEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
-        eventSource: FakeFileEventSource = FakeFileEventSource(),
+        eventSource: FakeFileEventSource? = FakeFileEventSource(),
         processState: ProcessState = ProcessState(),
         serverSpecs: @escaping ServerSpecsForProjects = ProjectDetection.serverSpecs(for:),
         configureConnection: @escaping @Sendable (FakeLanguageServerConnection) async -> Void = { _ in }
@@ -431,6 +432,7 @@ struct CodeContextStartTests {
     ///   - processState: The liveness of the fake server process.
     ///   - embedder: The embedder of the context, or `nil` to turn the embedding layer off.
     ///   - clock: The clock of the context, of its supervisor and of each daemon.
+    ///   - eventSource: The file event source of the watcher, or `nil` to turn the watcher off.
     ///   - configureConnection: Configures each fake connection before the daemon gets it.
     /// - Returns: The context. The caller starts it and stops it.
     private static func makeRustContext(
@@ -439,6 +441,7 @@ struct CodeContextStartTests {
         processState: ProcessState = ProcessState(),
         embedder: PooledEmbedding? = nil,
         clock: any Clock<Duration> = ContinuousClock(),
+        eventSource: FakeFileEventSource? = FakeFileEventSource(),
         configureConnection: @escaping @Sendable (FakeLanguageServerConnection) async -> Void = { _ in }
     ) async throws -> CodeContext<FakeLanguageServerConnection> {
         try writeRustProjectMarker(in: root)
@@ -447,6 +450,7 @@ struct CodeContextStartTests {
             rootDirectory: root,
             embedder: embedder,
             clock: clock,
+            eventSource: eventSource,
             processState: processState,
             serverSpecs: serverSpecs(searching: binaryDirectory),
             configureConnection: configureConnection
@@ -711,6 +715,62 @@ struct CodeContextStartTests {
                 #expect(stopped == [ServerStatus(command: Self.rustServerCommand, state: .notStarted)])
                 #expect(servers == [Self.runningRustServer])
                 #expect(published == servers)
+            }
+        }
+    }
+
+    // MARK: - Ignore rules with no watcher
+
+    /// The rule file text that ignores the `build-out/` directory.
+    private static let buildOutRule = "build-out/\n"
+
+    /// The path of a Rust file that `buildOutRule` ignores.
+    private static let ignoredRustPath = "build-out/generated.rs"
+
+    /// The line of the hover position in each file of the ignore-rule test.
+    private static let hoverLine = 0
+
+    /// The character of the hover position: a character in the name `greet`.
+    private static let hoverCharacter = 3
+
+    /// Gives the paths of the documents that `connection` got a `didOpen` for.
+    /// - Parameter connection: The fake connection.
+    /// - Returns: The file paths of the document URIs, in call order.
+    private static func openedPaths(_ connection: FakeLanguageServerConnection) async -> [String] {
+        let uris = await connection.uris { if case .didOpen(let uri, _, _, _) = $0 { uri } else { nil } }
+        return uris.compactMap { URL(string: $0.value)?.path }
+    }
+
+    /// A context with no event source has no watcher. Its `start()` still loads the rules of the
+    /// rule files into the shared path filter, thus a live operation does not send `didOpen` for
+    /// a file that only a `.gitignore` rule ignores.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func aContextWithNoEventSourceSendsNoDidOpenForAFileThatOnlyAGitignoreRuleIgnores() async throws {
+        try await withTemporaryWorkspace { root in
+            try await withTemporaryWorkspace { binaryDirectory in
+                try Self.writeRustSource(in: root)
+                try write(Self.buildOutRule, to: ".gitignore", in: root)
+                try write("fn generated() {}\n", to: Self.ignoredRustPath, in: root)
+                let connectionBox = Box<FakeLanguageServerConnection?>(nil)
+                let context = try await Self.makeRustContext(
+                    root: root,
+                    binaryDirectory: binaryDirectory,
+                    eventSource: nil,
+                    configureConnection: { connection in await connectionBox.set(connection) }
+                )
+                try await context.start()
+
+                for path in [Self.ignoredRustPath, Self.rustSourceFileName] {
+                    _ = try await context.hover(filePath: path, line: Self.hoverLine, character: Self.hoverCharacter)
+                }
+                let connection = await connectionBox.value
+                let isWatching = await context.isWatching
+                await context.stop()
+
+                let openedPaths = await Self.openedPaths(try #require(connection))
+                #expect(!isWatching)
+                #expect(openedPaths.contains { $0.hasSuffix("/\(Self.rustSourceFileName)") })
+                #expect(!openedPaths.contains { $0.hasSuffix("/\(Self.ignoredRustPath)") })
             }
         }
     }

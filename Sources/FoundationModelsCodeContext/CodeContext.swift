@@ -416,10 +416,15 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///
     /// `Watcher.start()` starts the event source off the Swift cooperative pool, thus a slow
     /// FSEvents start does not block a cooperative thread.
+    ///
+    /// `Watcher.start()` also loads the rules of the rule files into `pathFilter`. When the host
+    /// gives no event source, no watcher does this, thus this method loads the rules one time.
+    /// `SharedPathFilter.reload()` loads them off this actor.
     /// - Returns: The started watcher, or `nil` when the host turned the watcher off with a `nil`
     ///   event source.
     private func startWatcher() async -> Watcher? {
         guard let eventSource else {
+            await pathFilter.reload()
             return nil
         }
         let watcher = Watcher(
