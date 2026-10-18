@@ -67,7 +67,7 @@ struct WorkspaceRoot: Sendable, Equatable {
     ///   file is not below the root or the canonical root (for example a
     ///   library outside the workspace).
     func relativePath(ofURI uri: DocumentURI) -> String? {
-        URL(string: uri.value).flatMap(relativePath(of:))
+        Self.url(of: uri).flatMap(relativePath(of:))
     }
 
     /// Gives the path of the file of `uri` relative to the root, or a path
@@ -81,10 +81,19 @@ struct WorkspaceRoot: Sendable, Equatable {
     ///   not below the root or the canonical root, the absolute file path. When
     ///   `uri` is not a URL, the raw value of `uri`.
     func relativeFilePath(fromURI uri: DocumentURI) -> String {
-        guard let url = URL(string: uri.value) else {
+        guard let url = Self.url(of: uri) else {
             return uri.value
         }
         return relativePath(of: url) ?? url.path
+    }
+
+    /// Gives the URL of `uri`. `relativePath(ofURI:)` and
+    /// `relativeFilePath(fromURI:)` use this one parse, thus they cannot make
+    /// different URLs from one URI.
+    /// - Parameter uri: A document URI from a language server.
+    /// - Returns: The URL, or `nil` when `uri` is not a URL.
+    private static func url(of uri: DocumentURI) -> URL? {
+        URL(string: uri.value)
     }
 
     /// Gives the path components of `url` relative to the root.

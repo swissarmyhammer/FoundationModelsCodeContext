@@ -48,6 +48,16 @@ struct PathFilterTests {
     }
 
     @Test
+    func relativeFilePathOfAURIThatIsNotAURLIsTheRawValue() async throws {
+        try await withSymlinkedWorkspace { link, _ in
+            let notAURL = DocumentURI("")
+
+            #expect(WorkspaceRoot(link).relativeFilePath(fromURI: notAURL) == notAURL.value)
+            #expect(WorkspaceRoot(link).relativePath(ofURI: notAURL) == nil)
+        }
+    }
+
+    @Test
     func aPathThatTheFilterCannotExamineIsIgnored() async throws {
         try await withTemporaryWorkspace { root in
             let filter = PathFilter(rootDirectory: root)
