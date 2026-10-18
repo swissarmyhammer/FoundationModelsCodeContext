@@ -36,8 +36,10 @@ extension JSONRPCFraming {
     }
 
     /// Peeks at a raw message's `id` and `method` without decoding a typed
-    /// payload, to route it to a pending request (has `id`, no `method`) or
-    /// a server-initiated notification (has `method`, no `id`).
+    /// payload, to route it to a pending request (has `id`, no `method`), to
+    /// the reply of a server request (has `id` and `method`) or to a
+    /// server-initiated notification (has `method`, no `id`). See
+    /// `JSONRPCEnvelopePeek.route`.
     static func peek(message data: Data) throws -> JSONRPCEnvelopePeek {
         try JSONDecoder().decode(JSONRPCEnvelopePeek.self, from: data)
     }
@@ -119,7 +121,7 @@ struct JSONRPCResponseEnvelope<Result: Decodable>: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decodeIfPresent(Int.self, forKey: .id)
+        id = try container.decodeIfPresent(JSONRPCID.self, forKey: .id)?.requestNumber
         error = try container.decodeIfPresent(JSONRPCErrorPayload.self, forKey: .error)
         if container.contains(.result) {
             result = try container.decode(Result.self, forKey: .result)
@@ -129,18 +131,118 @@ struct JSONRPCResponseEnvelope<Result: Decodable>: Decodable {
     }
 }
 
-/// The `error` object of a JSON-RPC 2.0 error response.
-struct JSONRPCErrorPayload: Decodable {
+/// The `error` object of a JSON-RPC 2.0 error response. The client decodes it
+/// in a response of the server, and encodes it in an error reply to a server
+/// request.
+struct JSONRPCErrorPayload: Codable {
     let code: Int
     let message: String
 }
 
+/// The `id` of a JSON-RPC 2.0 message. The specification permits a number or
+/// a string.
+///
+/// The client sends only number ids (see `JSONRPCRequestEnvelope`), but a
+/// server can send a string id: in its own requests to the client, and in a
+/// response. A reply to a server request must hold the same id in the same
+/// form, thus this type keeps the form and encodes it back without a change.
+enum JSONRPCID: Codable, Sendable, Equatable, CustomStringConvertible,
+    ExpressibleByIntegerLiteral, ExpressibleByStringLiteral
+{
+    /// A number id, such as `5`.
+    case number(Int)
+
+    /// A string id, such as `"5"` or `"progress-1"`.
+    case string(String)
+
+    /// Makes a number id from an integer literal.
+    init(integerLiteral value: Int) {
+        self = .number(value)
+    }
+
+    /// Makes a string id from a string literal.
+    init(stringLiteral value: String) {
+        self = .string(value)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let number = try? container.decode(Int.self) {
+            self = .number(number)
+        } else {
+            self = .string(try container.decode(String.self))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .number(let number): try container.encode(number)
+        case .string(let text): try container.encode(text)
+        }
+    }
+
+    /// The number of the client request that this id can answer: the number
+    /// of a number id, or the decimal number that a string id holds (some
+    /// servers send the id `"5"` in the response to the request `5`). `nil`
+    /// for a string id that holds no decimal number: no client request has
+    /// such an id.
+    var requestNumber: Int? {
+        switch self {
+        case .number(let number): number
+        case .string(let text): Int(text)
+        }
+    }
+
+    /// The id as the log records show it: the number, or the string.
+    var description: String {
+        switch self {
+        case .number(let number): String(number)
+        case .string(let text): text
+        }
+    }
+}
+
+/// Where the reader loop sends one message from the server.
+enum JSONRPCRoute: Equatable {
+    /// A response to the pending client request with this number id.
+    case response(id: Int)
+
+    /// A request from the server to the client. The client must reply to it
+    /// with the same `id`.
+    case serverRequest(id: JSONRPCID, method: String)
+
+    /// A notification from the server. It gets no reply.
+    case notification(method: String)
+
+    /// A message that no part of the client can use: a response whose id
+    /// matches no client request, or a message with no `id` and no `method`.
+    case unroutable
+}
+
 /// A minimal, untyped peek at a raw JSON-RPC message: enough to tell a
-/// response (`id` present) from a server-initiated notification (`method`
-/// present, no `id`) before decoding a fully typed payload.
+/// response, a server request and a server notification apart (see `route`)
+/// before decoding a fully typed payload.
 struct JSONRPCEnvelopePeek: Decodable {
-    let id: Int?
+    let id: JSONRPCID?
     let method: String?
+
+    /// Where the message goes. A message with an `id` and a `method` is a
+    /// server request, never a response: a response has no `method`. Thus a
+    /// server request with the id of a pending client request never resolves
+    /// that client request.
+    var route: JSONRPCRoute {
+        switch (id, method) {
+        case (let id?, let method?):
+            .serverRequest(id: id, method: method)
+        case (let id?, nil):
+            id.requestNumber.map { .response(id: $0) } ?? .unroutable
+        case (nil, let method?):
+            .notification(method: method)
+        case (nil, nil):
+            .unroutable
+        }
+    }
 }
 
 /// An empty JSON object (`{}`), used for payloads that carry no data on the

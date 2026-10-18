@@ -337,6 +337,10 @@ struct CallerDefinedEmbedder: PooledEmbedding {
 
 /// The JSON helpers of the test target.
 enum TestJSON {
+    /// The JSON-RPC 2.0 error code `MethodNotFound`, as the specification gives it. The tests
+    /// compare the replies of the client with this value, not with the constant of the package.
+    static let methodNotFoundCode = -32601
+
     /// Encodes `value` with `.sortedKeys` and returns the JSON text.
     ///
     /// The tools encode each result with `.sortedKeys`, so this text is the

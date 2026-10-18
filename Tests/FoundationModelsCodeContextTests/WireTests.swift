@@ -272,6 +272,60 @@ struct WireTests {
         #expect(peek.method == nil)
     }
 
+    // MARK: - String ids and routes
+
+    /// The number of the pending request in the string-id tests.
+    private static let pendingRequestNumber = 5
+
+    @Test
+    func peekDecodesAStringID() throws {
+        let raw = Data(#"{"jsonrpc":"2.0","id":"progress-1","method":"window/workDoneProgress/create","params":{}}"#.utf8)
+        let peek = try JSONRPCFraming.peek(message: raw)
+
+        #expect(peek.id == .string("progress-1"))
+    }
+
+    @Test
+    func decodeResultMatchesAStringIDThatHoldsTheNumberOfTheRequest() throws {
+        let raw = Data(#"{"jsonrpc":"2.0","id":"5","result":{"value":"ok"}}"#.utf8)
+        struct Result: Decodable, Equatable { let value: String }
+
+        let decoded = try JSONRPCFraming.decodeResult(as: Result.self, from: raw, expectedID: Self.pendingRequestNumber)
+        #expect(decoded == Result(value: "ok"))
+    }
+
+    @Test
+    func aMessageWithAnIDAndAMethodRoutesAsAServerRequest() throws {
+        let raw = Data(#"{"jsonrpc":"2.0","id":5,"method":"workspace/configuration","params":{"items":[]}}"#.utf8)
+        let route = try JSONRPCFraming.peek(message: raw).route
+
+        #expect(route == .serverRequest(id: .number(Self.pendingRequestNumber), method: "workspace/configuration"))
+    }
+
+    @Test
+    func aResponseWithAStringIDRoutesToThePendingRequestOfThatNumber() throws {
+        let raw = Data(#"{"jsonrpc":"2.0","id":"5","result":null}"#.utf8)
+        let route = try JSONRPCFraming.peek(message: raw).route
+
+        #expect(route == .response(id: Self.pendingRequestNumber))
+    }
+
+    @Test
+    func aResponseWithAStringIDThatIsNotANumberMatchesNoRequest() throws {
+        let raw = Data(#"{"jsonrpc":"2.0","id":"progress-1","result":null}"#.utf8)
+        let route = try JSONRPCFraming.peek(message: raw).route
+
+        #expect(route == .unroutable)
+    }
+
+    @Test
+    func aMessageWithAMethodAndNoIDRoutesAsANotification() throws {
+        let raw = Data(#"{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":3,"message":"hi"}}"#.utf8)
+        let route = try JSONRPCFraming.peek(message: raw).route
+
+        #expect(route == .notification(method: "window/logMessage"))
+    }
+
     // MARK: - WireError descriptions
 
     @Test

@@ -77,7 +77,7 @@ final class PendingRequestTable: @unchecked Sendable {
     /// buffers `response` so the next `register(id:continuation:)` call for the same `id`
     /// delivers it immediately instead of leaving that registration to wait forever.
     ///
-    /// Used exclusively by the reader loop's `route(message:serverName:pendingRequests:notificationContinuation:)`
+    /// Used exclusively by the reader loop's `route(message:serverName:sinks:)`
     /// — the one caller whose response can legitimately arrive before the matching request has
     /// finished registering its continuation. `sendRequest` writes a request to the child
     /// process's stdin, then separately spawns the task that registers a continuation to await
@@ -124,8 +124,9 @@ final class PendingRequestTable: @unchecked Sendable {
 ///
 /// Owns the process's three pipes: writes typed requests/notifications to
 /// stdin, decodes stdout through `JSONRPCMessageDecoder` on a background
-/// reader loop that routes each message to either a pending request (by id)
-/// or `serverNotifications`, and drains stderr into an in-memory tail buffer. The stderr
+/// reader loop that routes each message to a pending request (by id), to a
+/// reply (a request from the server, see `ServerRequestReply`) or to
+/// `serverNotifications`, and drains stderr into an in-memory tail buffer. The stderr
 /// text stays only in that buffer: the log gets only the server name and the byte count of
 /// each chunk, at `.debug` in `Log.lsp`. The wire messages go to `Log.lspWire` at `.trace`
 /// with only their method name, request id, direction and byte size, never the payload.
@@ -140,7 +141,18 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     private let stdoutHandle: FileHandle
     private let stderrHandle: FileHandle
     private nonisolated let pendingRequests = PendingRequestTable()
-    private nonisolated let stderrTailBuffer = BoundedTailBuffer(maxChunks: 20)
+
+    /// The count of the most recent stderr chunks that `recentStderrTail()` keeps.
+    private static let stderrTailChunkLimit = 20
+
+    /// The time in seconds that a request waits for its response when the caller gives no
+    /// timeout.
+    static let defaultRequestTimeoutSeconds = 30
+
+    /// The time that a request waits for its response when the caller gives no timeout.
+    static let defaultRequestTimeout: Duration = .seconds(defaultRequestTimeoutSeconds)
+
+    private nonisolated let stderrTailBuffer = BoundedTailBuffer(maxChunks: stderrTailChunkLimit)
     private let requestTimeout: Duration
     private let clock: any Clock<Duration>
 
@@ -153,6 +165,15 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     private var nextRequestID = 0
     private var readerTask: Task<Void, Never>?
     private var stderrTask: Task<Void, Never>?
+
+    /// Writes the reply to each server request to the server, in the order of the requests. See
+    /// `writeReply(_:)`.
+    ///
+    /// `nonisolated(unsafe)`, the same as `LspSession.notificationConsumerTask`: `init` creates
+    /// the task that captures `self`, and after that point `init` can write only nonisolated
+    /// members of `self`. `init` assigns it one time, and only `close()` reads it after that, thus
+    /// no two accesses occur at the same time. The task body does not touch it.
+    private nonisolated(unsafe) var replyTask: Task<Void, Never>?
     private var isClosed = false
 
     /// The spawned child process's id, captured once at launch (a process's id never changes
@@ -164,6 +185,9 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     private nonisolated let serverName: String
 
     private let notificationContinuation: AsyncStream<ServerNotification>.Continuation
+
+    /// Gets the reply to each server request from the reader loop. `replyTask` reads the stream.
+    private let replyContinuation: AsyncStream<ServerReply>.Continuation
 
     /// Server-initiated notifications (currently just `publishDiagnostics`), fanned out as they arrive.
     public nonisolated let serverNotifications: AsyncStream<ServerNotification>
@@ -187,7 +211,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     init(
         command: String,
         arguments: [String] = [],
-        requestTimeout: Duration = .seconds(30),
+        requestTimeout: Duration = defaultRequestTimeout,
         clock: any Clock<Duration> = ContinuousClock(),
         metrics: CodeContextMetrics = CodeContextMetrics(),
         tracer: (any Tracer)? = nil
@@ -225,6 +249,8 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         let (notificationStream, continuation) = AsyncStream.makeStream(of: ServerNotification.self)
         self.serverNotifications = notificationStream
         self.notificationContinuation = continuation
+        let (replyStream, replyContinuation) = AsyncStream.makeStream(of: ServerReply.self)
+        self.replyContinuation = replyContinuation
 
         // Captured once, here, while the handles are definitely still open:
         // `ProcessUtilities.readChunk(from:bufferSize:)` operates on these raw descriptors rather
@@ -237,15 +263,10 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         // for each open connection can fill the pool on a machine with few cores, and then no
         // request timeout and no `close()` can run. See
         // `ProcessUtilities.runOnDedicatedThread(name:_:)`.
-        let pendingRequests = self.pendingRequests
+        let sinks = MessageSinks(pendingRequests: self.pendingRequests, notifications: continuation, replies: replyContinuation)
         let stdoutFileDescriptor = self.stdoutHandle.fileDescriptor
         self.readerTask = ProcessUtilities.runOnDedicatedThread(name: "lsp-reader \(command)") {
-            let isOutOfStep = Self.runReaderLoop(
-                serverName: command,
-                stdoutFileDescriptor: stdoutFileDescriptor,
-                pendingRequests: pendingRequests,
-                notificationContinuation: continuation
-            )
+            let isOutOfStep = Self.runReaderLoop(serverName: command, stdoutFileDescriptor: stdoutFileDescriptor, sinks: sinks)
             guard isOutOfStep else { return }
             Self.closeOutOfStepConnection(process: process, notificationContinuation: continuation)
         }
@@ -254,6 +275,19 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         let stderrTailBuffer = self.stderrTailBuffer
         self.stderrTask = ProcessUtilities.runOnDedicatedThread(name: "lsp-stderr \(command)") {
             Self.runStderrDrainLoop(serverName: command, stderrFileDescriptor: stderrFileDescriptor, tailBuffer: stderrTailBuffer)
+        }
+
+        // The reader loop runs on its own thread and must not write to stdin: a write blocks
+        // while the stdin pipe of the server is full, and the server can block at the same time
+        // on its full stdout pipe, which only the reader loop empties. Thus the reader loop only
+        // puts each reply in `replyStream`, and this task writes it through the actor, in the
+        // same serial order as each other write. The task holds `self` only for each write, thus
+        // it does not keep the connection alive. The loop stops when the stream finishes: when
+        // the reader loop stops or when `close()` runs.
+        self.replyTask = Task { [weak self] in
+            for await reply in replyStream {
+                await self?.writeReply(reply)
+            }
         }
     }
 
@@ -273,13 +307,16 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// `readerTask`/`stderrTask` are still
     /// cancelled here too, so an already-finished loop doesn't linger as a live (if inert) task.
     /// Fails every still-pending request with `CodeContextError.notRunning` and finishes
-    /// `serverNotifications`. Safe to call more than once.
+    /// `serverNotifications`. Drops each reply to a server request that is not written yet.
+    /// Safe to call more than once.
     func close() {
         guard !isClosed else { return }
         isClosed = true
 
         readerTask?.cancel()
         stderrTask?.cancel()
+        replyContinuation.finish()
+        replyTask?.cancel()
 
         if process.isRunning {
             kill(process.processIdentifier, SIGKILL)
@@ -660,7 +697,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         let payload = try JSONEncoder().encode(envelope)
         span.attributes[CodeContextTracing.AttributeKey.lspRequestBytes] = payload.count
         try writeToStdin(JSONRPCFraming.frame(payload: payload))
-        Self.logWireMessage(.toServer, serverName: serverName, method: method, id: id, byteCount: payload.count)
+        Self.logWireMessage(.toServer, serverName: serverName, method: method, id: .number(id), byteCount: payload.count)
         return try await awaitResponse(id: id)
     }
 
@@ -674,6 +711,27 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         let payload = try JSONEncoder().encode(envelope)
         try writeToStdin(JSONRPCFraming.frame(payload: payload))
         Self.logWireMessage(.toServer, serverName: serverName, method: method, id: nil, byteCount: payload.count)
+    }
+
+    /// Writes one reply to a server request to the server.
+    ///
+    /// A reply that cannot be written is dropped with one `.debug` record: the write fails only
+    /// when the connection closes or the server exits, and then no server waits for the reply.
+    /// - Parameter reply: The reply to write.
+    private func writeReply(_ reply: ServerReply) {
+        guard !isClosed else { return }
+        do {
+            try writeToStdin(JSONRPCFraming.frame(payload: reply.payload))
+            Self.logWireMessage(.toServer, serverName: serverName, method: nil, id: reply.id, byteCount: reply.payload.count)
+        } catch {
+            Log.lspWire.debug(
+                "a reply to a server request was not written; the language server is not running",
+                metadata: [
+                    CodeContextTracing.MetadataKey.lspServer: .string(serverName),
+                    CodeContextTracing.MetadataKey.lspRequestId: .stringConvertible(reply.id),
+                ]
+            )
+        }
     }
 
     /// Allocates the next monotonically increasing JSON-RPC request id.
@@ -790,31 +848,30 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     // MARK: - Background loops
 
     /// Reads framed messages from the child process's stdout until EOF, routing each one to a
-    /// pending request (by id) or to `notificationContinuation` (server-initiated notification).
+    /// pending request (by id), to the reply stream (server request) or to the notification
+    /// stream (server-initiated notification). See `route(message:serverName:sinks:)`.
     ///
-    /// Runs on a dedicated thread, outside actor isolation: every value it touches
-    /// (`pendingRequests`, `notificationContinuation`) is `Sendable`, so no actor hop is needed
-    /// per received message. On EOF (the process exited), fails every still-pending request with
-    /// `CodeContextError.notRunning`.
+    /// Runs on a dedicated thread, outside actor isolation: every value it touches (`sinks`) is
+    /// `Sendable`, so no actor hop is needed per received message. On EOF (the process exited),
+    /// fails every still-pending request with `CodeContextError.notRunning` and finishes the reply
+    /// stream.
     ///
     /// A frame header that tells no correct body length (see `JSONRPCFrameError`) puts the stream
     /// out of step. The loop then writes one `.error` record to `Log.lspWire`, fails every
-    /// still-pending request with `CodeContextError.notRunning`, and stops. It does not read the
-    /// next bytes as a header. The caller must then close the connection.
+    /// still-pending request with `CodeContextError.notRunning`, finishes the reply stream, and
+    /// stops. It does not read the next bytes as a header. The caller must then close the
+    /// connection.
     /// - Parameters:
     ///   - serverName: The command name of the language server, for the wire log records.
     ///   - stdoutFileDescriptor: The child process's stdout read end's raw file descriptor.
-    ///   - pendingRequests: The table that gets each response.
-    ///   - notificationContinuation: The stream that gets each server notification.
+    ///   - sinks: The places that get the messages.
     /// - Returns: `true` when the loop stopped at a bad frame header; `false` when it stopped at
     ///   EOF.
-    private static func runReaderLoop(
-        serverName: String,
-        stdoutFileDescriptor: Int32,
-        pendingRequests: PendingRequestTable,
-        notificationContinuation: AsyncStream<ServerNotification>.Continuation
-    ) -> Bool {
-        defer { pendingRequests.failAll(with: CodeContextError.notRunning) }
+    private static func runReaderLoop(serverName: String, stdoutFileDescriptor: Int32, sinks: MessageSinks) -> Bool {
+        defer {
+            sinks.pendingRequests.failAll(with: CodeContextError.notRunning)
+            sinks.replies.finish()
+        }
         var decoder = JSONRPCMessageDecoder()
         while let chunk = ProcessUtilities.readChunk(from: stdoutFileDescriptor, bufferSize: ProcessUtilities.defaultChunkSize) {
             let messages: [Data]
@@ -825,12 +882,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
                 return true
             }
             for message in messages {
-                route(
-                    message: message,
-                    serverName: serverName,
-                    pendingRequests: pendingRequests,
-                    notificationContinuation: notificationContinuation
-                )
+                route(message: message, serverName: serverName, sinks: sinks)
             }
         }
         return false
@@ -876,7 +928,12 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         )
     }
 
-    /// Routes one decoded JSON-RPC message to a pending request or a server notification.
+    /// Routes one decoded JSON-RPC message to a pending request, to the reply stream or to the
+    /// notification stream, as `JSONRPCEnvelopePeek.route` tells.
+    ///
+    /// A message with an `id` and a `method` is a server request: it gets a reply (see
+    /// `ServerRequestReply`) and never resolves a pending request, also when its id is the id of a
+    /// pending request. A message with an `id` and no `method` is a response.
     ///
     /// Each message writes one `.trace` record to `Log.lspWire` with its method name, request
     /// id, direction and byte size. A message that is not valid JSON-RPC writes one `.error`
@@ -884,14 +941,8 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// - Parameters:
     ///   - message: The raw message bytes.
     ///   - serverName: The command name of the language server, for the wire log records.
-    ///   - pendingRequests: The table that gets a response.
-    ///   - notificationContinuation: The stream that gets a server notification.
-    private static func route(
-        message: Data,
-        serverName: String,
-        pendingRequests: PendingRequestTable,
-        notificationContinuation: AsyncStream<ServerNotification>.Continuation
-    ) {
+    ///   - sinks: The places that get the messages.
+    private static func route(message: Data, serverName: String, sinks: MessageSinks) {
         guard let peek = try? JSONRPCFraming.peek(message: message) else {
             Log.lspWire.error(
                 "a JSON-RPC message from the language server is not valid",
@@ -905,14 +956,59 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         }
         logWireMessage(.fromServer, serverName: serverName, method: peek.method, id: peek.id, byteCount: message.count)
 
-        if let id = peek.id {
-            pendingRequests.resolveOrBuffer(id: id, response: message)
-            return
+        switch peek.route {
+        case .response(let id):
+            sinks.pendingRequests.resolveOrBuffer(id: id, response: message)
+        case .serverRequest(let id, let method):
+            replyToServerRequest(message, id: id, method: method, serverName: serverName, replies: sinks.replies)
+        case .notification(let method):
+            publishNotification(message, method: method, notifications: sinks.notifications)
+        case .unroutable:
+            // A response whose id is not a number of a client request, or a message with no id
+            // and no method: no part of the client waits for it.
+            break
         }
+    }
 
-        guard let method = peek.method else {
-            return
+    /// Makes the reply to one server request and puts it in the reply stream.
+    /// - Parameters:
+    ///   - message: The raw bytes of the server request.
+    ///   - id: The id of the server request.
+    ///   - method: The method of the server request.
+    ///   - serverName: The command name of the language server, for the log record.
+    ///   - replies: The stream that gets the reply.
+    private static func replyToServerRequest(
+        _ message: Data,
+        id: JSONRPCID,
+        method: String,
+        serverName: String,
+        replies: AsyncStream<ServerReply>.Continuation
+    ) {
+        do {
+            let payload = try ServerRequestReply.payload(answering: message, id: id, method: method)
+            replies.yield(ServerReply(id: id, payload: payload))
+        } catch {
+            Log.lspWire.error(
+                "the reply to a server request could not be encoded",
+                metadata: [
+                    CodeContextTracing.MetadataKey.lspServer: .string(serverName),
+                    CodeContextTracing.MetadataKey.lspMethod: .string(method),
+                    CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
+                ]
+            )
         }
+    }
+
+    /// Puts one server notification in the notification stream, when the package uses it.
+    /// - Parameters:
+    ///   - message: The raw bytes of the notification.
+    ///   - method: The method of the notification.
+    ///   - notifications: The stream that gets the notification.
+    private static func publishNotification(
+        _ message: Data,
+        method: String,
+        notifications: AsyncStream<ServerNotification>.Continuation
+    ) {
         guard method == "textDocument/publishDiagnostics" else {
             // Every other server-initiated notification (window/logMessage, $/progress, ...) is
             // out of this package's v1 scope and dropped.
@@ -921,7 +1017,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         guard let notification = decodePublishDiagnostics(from: message) else {
             return
         }
-        notificationContinuation.yield(notification)
+        notifications.yield(notification)
     }
 
     /// Decodes a `textDocument/publishDiagnostics` notification's `{ uri, diagnostics }` params.
@@ -971,6 +1067,29 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         }
     }
 
+    // MARK: - Reader loop sinks
+
+    /// The reply to one server request, ready to write to the server.
+    private struct ServerReply: Sendable {
+        /// The id of the server request. The reply holds the same id.
+        let id: JSONRPCID
+
+        /// The JSON payload of the reply, not framed.
+        let payload: Data
+    }
+
+    /// The places where the reader loop sends the messages from the server.
+    private struct MessageSinks: Sendable {
+        /// The table that gets each response.
+        let pendingRequests: PendingRequestTable
+
+        /// The stream that gets each server notification that the package uses.
+        let notifications: AsyncStream<ServerNotification>.Continuation
+
+        /// The stream that gets the reply to each server request.
+        let replies: AsyncStream<ServerReply>.Continuation
+    }
+
     // MARK: - Wire log
 
     /// The direction of one JSON-RPC wire message, for the `Log.lspWire` records.
@@ -992,7 +1111,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///   - method: The JSON-RPC method name, or `nil` for a response.
     ///   - id: The JSON-RPC request id, or `nil` for a notification.
     ///   - byteCount: The size of the message payload, in bytes.
-    private static func logWireMessage(_ direction: WireDirection, serverName: String, method: String?, id: Int?, byteCount: Int) {
+    private static func logWireMessage(_ direction: WireDirection, serverName: String, method: String?, id: JSONRPCID?, byteCount: Int) {
         var metadata: Logger.Metadata = [
             CodeContextTracing.MetadataKey.lspServer: .string(serverName),
             CodeContextTracing.MetadataKey.lspDirection: .string(direction.rawValue),

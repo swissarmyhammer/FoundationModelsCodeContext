@@ -32,6 +32,12 @@
 //     `params.textDocument.uri` equals `expectURI`, exiting with a stderr
 //     message otherwise. Combines with `expectMethod` on the same step.
 //
+//   {"action": "read", "expectID": <any JSON>, "expectResult": <any JSON>, "expectErrorCode": <Int>}
+//     Same as plain "read", but additionally asserts the `id`, the `result`
+//     and the `error.code` of the message. Each key is optional. Use these
+//     keys to read the reply of the client to a "request" step. A JSON
+//     number never equals a JSON string: the id 1 is not the id "1".
+//
 //   {"action": "respond", "which": <Int>, "result": <any JSON>}
 //     Writes a framed JSON-RPC response for the `which`-th request read so
 //     far (0-based, in read order — not necessarily response order, so a
@@ -56,6 +62,11 @@
 //   {"action": "notify", "method": <String>, "params": <any JSON>}
 //     Writes a framed JSON-RPC notification (no id), simulating a
 //     server-initiated push such as `textDocument/publishDiagnostics`.
+//
+//   {"action": "request", "id": <Int or String>, "method": <String>, "params": <any JSON>}
+//     Writes a framed JSON-RPC request from the server to the client, such as
+//     `workspace/configuration`. The client must reply with the same id. Use
+//     a "read" step with `expectID` to read that reply.
 //
 //   {"action": "writeRaw", "text": <String>}
 //     Writes the UTF-8 bytes of `text` to stdout with no framing — used to
@@ -86,6 +97,10 @@ import Foundation
 
 let standardInput = FileHandle.standardInput
 let standardOutput = FileHandle.standardOutput
+
+/// The time of one sleep of a "hang" step, in seconds. The step sleeps again and again, thus
+/// the value only keeps the count of wakeups low.
+let hangSleepInterval: TimeInterval = 3600
 
 /// Reads the framed JSON-RPC messages that the client writes to stdin.
 struct StandardInputMessageReader {
@@ -174,8 +189,36 @@ func assertExpectedURI(expecting expectURI: String, message: Data) {
     }
 }
 
+/// Asserts that the JSON value `actual` of a message equals the JSON value
+/// `expected` of a "read" step, exiting with a stderr message otherwise.
+///
+/// The values come from `JSONSerialization`, thus `isEqual` compares them:
+/// a JSON number never equals a JSON string.
+func assertJSONValue(_ actual: Any?, equals expected: Any, stepKey: String) {
+    guard let actual, (actual as AnyObject).isEqual(expected) else {
+        FileHandle.standardError.write(Data("scripted-lsp-server: \(stepKey) \(expected) does not match \(actual ?? "nil")\n".utf8))
+        exit(1)
+    }
+}
+
+/// Validates a "read" step's optional `expectID`/`expectResult`/
+/// `expectErrorCode` assertions against the reply that the client wrote.
+func validateReplyExpectations(step: [String: Any], message: Data) {
+    let object = (try? JSONSerialization.jsonObject(with: message)) as? [String: Any] ?? [:]
+    let checks: [(stepKey: String, actual: Any?)] = [
+        ("expectID", object["id"]),
+        ("expectResult", object["result"]),
+        ("expectErrorCode", (object["error"] as? [String: Any])?["code"]),
+    ]
+    for check in checks {
+        if let expected = step[check.stepKey] {
+            assertJSONValue(check.actual, equals: expected, stepKey: check.stepKey)
+        }
+    }
+}
+
 /// Validates a "read" step's optional `expectMethod`/`expectURI` assertions
-/// against the actual message read from stdin.
+/// and its reply assertions against the actual message read from stdin.
 func validateReadExpectations(step: [String: Any], message: Data) {
     if let expectMethod = step["expectMethod"] as? String {
         assertExpectedMethod(expecting: expectMethod, message: message)
@@ -183,6 +226,7 @@ func validateReadExpectations(step: [String: Any], message: Data) {
     if let expectURI = step["expectURI"] as? String {
         assertExpectedURI(expecting: expectURI, message: message)
     }
+    validateReplyExpectations(step: step, message: message)
 }
 
 /// Resolves the JSON-RPC id for a "respond" step keyed by `uri`: whichever
@@ -217,15 +261,23 @@ func resolveTargetID(step: [String: Any], requestsReadSoFar: [ReadRequest]) -> A
     return resolveTargetID(forIndex: which, requestsReadSoFar: requestsReadSoFar)
 }
 
-/// Writes a framed JSON-RPC response for the request that a "respond" or
-/// "respondError" step names. The response holds `fields` beside its
-/// `jsonrpc` and `id` fields: a `result` or an `error`.
-func writeResponse(step: [String: Any], requestsReadSoFar: [ReadRequest], fields: [String: Any]) {
-    var envelope: [String: Any] = ["jsonrpc": "2.0", "id": resolveTargetID(step: step, requestsReadSoFar: requestsReadSoFar)]
+/// Writes one JSON-RPC 2.0 message to stdout with `Content-Length` framing.
+/// The message holds `fields` beside its `jsonrpc` field.
+func writeEnvelope(_ fields: [String: Any]) {
+    var envelope: [String: Any] = ["jsonrpc": "2.0"]
     envelope.merge(fields) { _, field in field }
     if let payload = try? JSONSerialization.data(withJSONObject: envelope) {
         writeMessage(payload: payload)
     }
+}
+
+/// Writes a framed JSON-RPC response for the request that a "respond" or
+/// "respondError" step names. The response holds `fields` beside its
+/// `jsonrpc` and `id` fields: a `result` or an `error`.
+func writeResponse(step: [String: Any], requestsReadSoFar: [ReadRequest], fields: [String: Any]) {
+    var response = fields
+    response["id"] = resolveTargetID(step: step, requestsReadSoFar: requestsReadSoFar)
+    writeEnvelope(response)
 }
 
 guard CommandLine.arguments.count > 1,
@@ -258,12 +310,10 @@ for step in steps {
         writeResponse(step: step, requestsReadSoFar: requestsReadSoFar, fields: ["error": error])
 
     case "notify":
-        let method = step["method"] as? String ?? ""
-        let params = step["params"] ?? [String: Any]()
-        let envelope: [String: Any] = ["jsonrpc": "2.0", "method": method, "params": params]
-        if let payload = try? JSONSerialization.data(withJSONObject: envelope) {
-            writeMessage(payload: payload)
-        }
+        writeEnvelope(["method": step["method"] ?? "", "params": step["params"] ?? [String: Any]()])
+
+    case "request":
+        writeEnvelope(["id": step["id"] ?? NSNull(), "method": step["method"] ?? "", "params": step["params"] ?? [String: Any]()])
 
     case "writeRaw":
         let text = step["text"] as? String ?? ""
@@ -271,7 +321,7 @@ for step in steps {
 
     case "hang":
         while true {
-            Thread.sleep(forTimeInterval: 3600)
+            Thread.sleep(forTimeInterval: hangSleepInterval)
         }
 
     case "stderr":

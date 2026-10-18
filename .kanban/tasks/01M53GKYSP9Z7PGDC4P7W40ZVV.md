@@ -83,8 +83,24 @@ comments:
     - evidence: swift test — 939 tests in 84 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete, exit 0. Only warning is a SwiftPM bundle message about mlx-swift_Cmlx.bundle (dependency, not this package).
     - next: commit
   timestamp: 2026-10-18T07:32:05.837302+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m56z0qa1ka6hkgd2j7hmes27
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (c37e921). 0 findings, 0 confirmed, 0 refuted. 7 pairs attempted, 0 failed. All 3 items in the prior Review Findings section are checked, and the code shows each fix: `needsRestart` is gone; `Log.serverMetadata(server:)` is the shared helper for `LSPDaemon.serverMetadata` and the LspSupervisor warning; `daemonThatFailsEachRestart` calls the shared `LSPDaemonTests.crashLoopDaemon`.
+    - next: none. The task is in done.
+  timestamp: 2026-10-18T07:36:00.577644+00:00
+- actor: claude-code
+  id: 01m56z12pazw3cjds1h0hbvg38
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 6 files (isFailed, shared Log.serverMetadata, shared crashLoopDaemon fixture)
+    - test: green — swift test, 939 passed
+    - commit: c37e921
+    - review: clean — 0 findings; 3 of 3 prior items checked
+  timestamp: 2026-10-18T07:36:12.234561+00:00
+position_column: done
+position_ordinal: e880
 title: 'Limit LSP crash restarts: reset the failure count only after a healthy uptime'
 ---
 ## Problem

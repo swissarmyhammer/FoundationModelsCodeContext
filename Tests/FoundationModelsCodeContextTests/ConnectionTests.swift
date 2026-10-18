@@ -40,6 +40,14 @@ struct ConnectionTests {
     /// took more than 30 seconds on a machine with many other interpreter subprocesses.
     private static let stderrCaptureTimeout: Duration = .seconds(60)
 
+    /// The JSON-RPC id of the first request that a new connection sends. A server request with
+    /// this id has the same id as that pending client request. The scripts assert this id on the
+    /// first read, thus a change of the first id fails the test and does not hide the collision.
+    private static let firstClientRequestID = 0
+
+    /// The JSON-RPC id of the unknown server request. It is not the id of a client request.
+    private static let unknownServerRequestID = 41
+
     /// Spawns a `ProcessLanguageServerConnection` against the scripted subprocess.
     /// - Parameters:
     ///   - steps: The subprocess's script, per `scripted-lsp-server.swift`'s DSL.
@@ -269,6 +277,67 @@ struct ConnectionTests {
             #expect(diagnostics.first?.message == "boom")
             #expect(diagnostics.first?.severity == .error)
         }
+    }
+
+    /// Sends one `documentSymbols` request while the server runs `exchange`, and gives the
+    /// symbols that the request gets.
+    ///
+    /// The script reads the client request (and asserts its id `firstClientRequestID`), runs
+    /// `exchange`, and then answers the client request with one symbol named `widget`. When a
+    /// read step of `exchange` finds a missing or wrong reply, the script stops, and the request
+    /// fails. Thus a test that gets `widget` proves the reply and the true response both.
+    /// - Parameter exchange: The server steps between the read and the answer of the request.
+    /// - Returns: The symbols that the client request gets.
+    private static func documentSymbols(around exchange: [[String: Any]]) async throws -> [DocumentSymbol] {
+        let steps: [[String: Any]] =
+            [["action": "read", "expectID": Self.firstClientRequestID]]
+            + exchange
+            + [["action": "respond", "which": 0, "result": [Self.documentSymbolJSON(name: "widget")]]]
+        return try await Self.withConnection(steps: steps) { connection in
+            try await connection.documentSymbols(in: DocumentURI("file:///a.swift"))
+        }
+    }
+
+    @Test
+    func aServerRequestWithThePendingIDGetsAReplyAndTheRequestGetsItsTrueResponse() async throws {
+        // The server asks for configuration with the id of the pending client request. The
+        // client must reply to the server, and must not take the server request as the response.
+        let symbols = try await Self.documentSymbols(around: [
+            [
+                "action": "request",
+                "id": Self.firstClientRequestID,
+                "method": "workspace/configuration",
+                "params": ["items": [["section": "python"], ["section": "rust"]]],
+            ],
+            ["action": "read", "expectID": Self.firstClientRequestID, "expectResult": [NSNull(), NSNull()]],
+        ])
+
+        #expect(symbols.map(\.name) == ["widget"])
+    }
+
+    @Test
+    func aServerRequestWithAStringIDGetsAReplyWithTheSameStringID() async throws {
+        let symbols = try await Self.documentSymbols(around: [
+            [
+                "action": "request",
+                "id": "progress-1",
+                "method": "window/workDoneProgress/create",
+                "params": ["token": "indexing"],
+            ],
+            ["action": "read", "expectID": "progress-1", "expectResult": NSNull()],
+        ])
+
+        #expect(symbols.map(\.name) == ["widget"])
+    }
+
+    @Test
+    func anUnknownServerRequestGetsAMethodNotFoundError() async throws {
+        let symbols = try await Self.documentSymbols(around: [
+            ["action": "request", "id": Self.unknownServerRequestID, "method": "custom/unknownMethod", "params": [String: Any]()],
+            ["action": "read", "expectID": Self.unknownServerRequestID, "expectErrorCode": TestJSON.methodNotFoundCode],
+        ])
+
+        #expect(symbols.map(\.name) == ["widget"])
     }
 
     @Test
