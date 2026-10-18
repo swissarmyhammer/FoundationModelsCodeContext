@@ -195,8 +195,7 @@ struct WireTests {
     func requestEnvelopeEncodesJsonrpcIdMethodAndParams() throws {
         struct Params: Encodable { let uri: String }
         let request = JSONRPCRequestEnvelope(id: 7, method: "textDocument/hover", params: Params(uri: "file:///a.swift"))
-        let data = try JSONEncoder().encode(request)
-        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let object = try TestJSON.encodedObject(request)
 
         #expect(object["jsonrpc"] as? String == "2.0")
         #expect(object["id"] as? Int == 7)
@@ -209,8 +208,7 @@ struct WireTests {
     func notificationEnvelopeOmitsId() throws {
         struct Params: Encodable { let text: String }
         let notification = JSONRPCNotificationEnvelope(method: "textDocument/didSave", params: Params(text: "hi"))
-        let data = try JSONEncoder().encode(notification)
-        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let object = try TestJSON.encodedObject(notification)
 
         #expect(object["id"] == nil)
         #expect(object["method"] as? String == "textDocument/didSave")
@@ -361,18 +359,11 @@ struct WireTests {
     @Test
     func initializeParamsEncodesRootUriAndEmptyCapabilities() throws {
         let params = InitializeParams(processID: 1234, rootURI: DocumentURI("file:///repo"))
-        let data = try JSONEncoder().encode(params)
-        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let object = try TestJSON.encodedObject(params)
 
         #expect(object["processId"] as? Int == 1234)
         #expect(object["rootUri"] as? String == "file:///repo")
         #expect(object["capabilities"] as? [String: Any] != nil)
-    }
-
-    /// Encodes `params` and returns the JSON object of the `initialize` params.
-    private static func encodedObject(of params: InitializeParams) throws -> NSDictionary {
-        let data = try JSONEncoder().encode(params)
-        return try #require(try JSONSerialization.jsonObject(with: data) as? NSDictionary)
     }
 
     /// The client capabilities that the `initialize` request must declare as `true`, as key
@@ -405,7 +396,7 @@ struct WireTests {
 
     @Test
     func initializeParamsDeclareTheClientCapabilitiesThatTheClientHandles() throws {
-        let object = try Self.encodedObject(of: InitializeParams(processID: nil, rootURI: DocumentURI("file:///repo")))
+        let object = try TestJSON.encodedObject(InitializeParams(processID: nil, rootURI: DocumentURI("file:///repo")))
 
         for keyPath in Self.declaredClientCapabilities {
             #expect(object.value(forKeyPath: keyPath) as? Bool == true, "\(keyPath) is not true")
@@ -417,7 +408,7 @@ struct WireTests {
 
     @Test
     func initializeParamsDeclareCodeActionLiteralsAndResolveOfTheEdit() throws {
-        let object = try Self.encodedObject(of: InitializeParams(processID: nil, rootURI: DocumentURI("file:///repo")))
+        let object = try TestJSON.encodedObject(InitializeParams(processID: nil, rootURI: DocumentURI("file:///repo")))
 
         let kinds = object.value(forKeyPath: "capabilities.textDocument.codeAction.codeActionLiteralSupport.codeActionKind.valueSet")
         #expect((kinds as? [String])?.contains("quickfix") == true)
@@ -427,7 +418,7 @@ struct WireTests {
 
     @Test
     func initializeParamsSendTheRootAsTheOneWorkspaceFolder() throws {
-        let object = try Self.encodedObject(of: InitializeParams(processID: nil, rootURI: DocumentURI("file:///work/repo")))
+        let object = try TestJSON.encodedObject(InitializeParams(processID: nil, rootURI: DocumentURI("file:///work/repo")))
 
         let folders = try #require(object["workspaceFolders"] as? [[String: String]])
         #expect(folders == [["uri": "file:///work/repo", "name": "repo"]])
@@ -435,7 +426,7 @@ struct WireTests {
 
     @Test
     func initializeParamsWithNoRootSendNoWorkspaceFolders() throws {
-        let object = try Self.encodedObject(of: InitializeParams(processID: nil, rootURI: nil))
+        let object = try TestJSON.encodedObject(InitializeParams(processID: nil, rootURI: nil))
 
         #expect(object["workspaceFolders"] == nil)
     }
@@ -452,7 +443,7 @@ struct WireTests {
 
     @Test
     func initializeParamsWithNoOptionsSendNoInitializationOptionsField() throws {
-        let object = try Self.encodedObject(of: InitializeParams(processID: nil, rootURI: DocumentURI("file:///repo")))
+        let object = try TestJSON.encodedObject(InitializeParams(processID: nil, rootURI: DocumentURI("file:///repo")))
 
         #expect(object["initializationOptions"] == nil)
     }
@@ -530,8 +521,7 @@ struct WireTests {
         let params = DidOpenTextDocumentParams(
             textDocument: TextDocumentItem(uri: DocumentURI("file:///a.rs"), languageID: "rust", version: 1, text: "fn main() {}")
         )
-        let data = try JSONEncoder().encode(params)
-        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let object = try TestJSON.encodedObject(params)
         let textDocument = try #require(object["textDocument"] as? [String: Any])
 
         #expect(textDocument["uri"] as? String == "file:///a.rs")
@@ -546,8 +536,7 @@ struct WireTests {
             textDocument: VersionedTextDocumentIdentifier(uri: DocumentURI("file:///a.rs"), version: 2),
             contentChanges: [TextDocumentContentChangeEvent(text: "fn main() { println!(\"hi\"); }")]
         )
-        let data = try JSONEncoder().encode(params)
-        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let object = try TestJSON.encodedObject(params)
         let changes = try #require(object["contentChanges"] as? [[String: Any]])
 
         #expect(changes.count == 1)
@@ -558,8 +547,7 @@ struct WireTests {
     @Test
     func didCloseParamsSendsOnlyTextDocumentIdentifier() throws {
         let params = DidCloseTextDocumentParams(textDocument: TextDocumentIdentifier(uri: DocumentURI("file:///a.rs")))
-        let data = try JSONEncoder().encode(params)
-        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let object = try TestJSON.encodedObject(params)
 
         #expect(object.count == 1)
         #expect((object["textDocument"] as? [String: Any])?["uri"] as? String == "file:///a.rs")
@@ -837,8 +825,7 @@ struct WireTests {
             position: Position(line: 1, character: 2),
             newName: "renamed"
         )
-        let data = try JSONEncoder().encode(params)
-        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let object = try TestJSON.encodedObject(params)
         #expect(object["newName"] as? String == "renamed")
     }
 
@@ -906,8 +893,7 @@ struct WireTests {
     @Test
     func workspaceSymbolParamsEncodesQuery() throws {
         let params = WorkspaceSymbolParams(query: "Store")
-        let data = try JSONEncoder().encode(params)
-        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let object = try TestJSON.encodedObject(params)
         #expect(object["query"] as? String == "Store")
     }
 

@@ -489,8 +489,8 @@ struct CodeSearchToolTests {
     @Test
     func sharedParameterDescriptionsAreTheSharedText() async throws {
         try await Self.withIndexedTool { tool, _ in
-            let schema = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(tool.parameters))
-            let properties = try #require((schema as? [String: Any])?["properties"] as? [String: Any])
+            let schema = try TestJSON.encodedObject(tool.parameters)
+            let properties = try #require(schema["properties"] as? [String: Any])
             let descriptions: [(name: String, expected: String)] = [
                 (name: "query", expected: Self.queryDescription),
                 (name: "symbol", expected: Self.symbolDescription),
@@ -507,8 +507,8 @@ struct CodeSearchToolTests {
     @Test
     func fusedSchemaHasAstQueryParameter() async throws {
         try await Self.withIndexedTool { tool, _ in
-            let schema = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(tool.parameters))
-            let properties = try #require((schema as? [String: Any])?["properties"] as? [String: Any])
+            let schema = try TestJSON.encodedObject(tool.parameters)
+            let properties = try #require(schema["properties"] as? [String: Any])
             let astQuery = try #require(properties["astQuery"] as? [String: Any])
 
             #expect(astQuery["description"] as? String == Self.astQueryDescription)

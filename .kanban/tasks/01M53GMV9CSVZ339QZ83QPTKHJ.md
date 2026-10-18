@@ -29,6 +29,48 @@ comments:
     - evidence: swift test: 961 tests in 85 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests: Build complete. Only warning: "missing creator for mutated node" for the mlx-swift_Cmlx.bundle (dependency build artifact, not this package).
     - next: commit
   timestamp: 2026-10-18T08:29:11.214568+00:00
+- actor: claude-code
+  id: 01m572aykktj1hrv27hqktvfnd
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (b708579). 1 finding, 1 confirmed, 0 refuted. Tests/FoundationModelsCodeContextTests/WireTests.swift:373 (reuse/reuse).
+    - acceptance: the change sends real client capabilities, workspaceFolders and the configured initializationOptions. The new tests examine these items. The acceptance criteria are satisfied.
+    - next: Use one shared encodedObject test helper (it must return NSDictionary). Then do the review again. The task stays in review.
+  timestamp: 2026-10-18T08:34:01.459701+00:00
+- actor: claude-code
+  id: 01m572b89h3yc3v38znep6f837
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 9 files
+    - test: green — swift test, 961 passed
+    - commit: b708579
+    - review: findings — Tests/FoundationModelsCodeContextTests/WireTests.swift:373
+  timestamp: 2026-10-18T08:34:11.377751+00:00
+- actor: claude-code
+  id: 01m572s0db0zpnxpd2w6p3vcng
+  text: |-
+    Fix of the reuse/reuse finding:
+    - New shared helper `TestJSON.encodedObject(_:)` in Tests/FoundationModelsCodeContextTests/TestSupport.swift. It is generic over any Encodable and returns NSDictionary, thus `value(forKeyPath:)` works. TestSupport.swift now imports Testing for `#require`.
+    - Removed `WireTests.encodedObject(of:)` and `ResultEncodingTests.encodedObject(_:)`. All call sites use the shared helper.
+    - The same encode-then-JSONSerialization step was also in 8 more WireTests tests (request, notification, initialize, didOpen, didChange, didClose, rename, workspaceSymbol params) and in 2 CodeSearchToolTests schema tests. All now call the shared helper. A search of Tests and IntegrationTests finds no other `jsonObject(with:)` after an encode (scripted-lsp-server.swift parses wire input, not an encoded value).
+    - ResultEncodingTests: NSDictionary has no `keys`, thus the top-level key checks use `json.allKeys.compactMap { $0 as? String }`.
+    - Note: the files edit tool did not apply `replace_all`; it changed only one occurrence. Each site needed its own edit.
+  timestamp: 2026-10-18T08:41:42.059270+00:00
+- actor: claude-code
+  id: 01m572s31h2b8n0s8s399tav1n
+  text: |-
+    ### implement — changed
+    - evidence: 4 files — Tests/FoundationModelsCodeContextTests/TestSupport.swift, WireTests.swift, ResultEncodingTests.swift, CodeSearchToolTests.swift. `swift test --filter "WireTests|ResultEncodingTests|CodeSearchToolTests"`: 113 tests in 3 suites passed. `swift test`: 961 tests in 85 suites passed, 0 failed. Only warning: the known mlx-swift_Cmlx.bundle "missing creator for mutated node" (dependency).
+    - finding WireTests.swift:373 reuse/reuse is checked.
+    - next: /review
+  timestamp: 2026-10-18T08:41:44.753241+00:00
+- actor: claude-code
+  id: 01m5735jnkt6jyaj3fm5wh02n7
+  text: |-
+    ### test — green
+    - evidence: swift test: 961 tests in 85 suites passed, 0 failures, 0 skipped; swift build --package-path IntegrationTests --build-tests: Build complete; forced recompile of all test files: 0 warnings from this package (only a SwiftPM "missing creator for mutated node" notice for the mlx-swift_Cmlx dependency bundle)
+    - next: commit
+  timestamp: 2026-10-18T08:48:33.971297+00:00
 depends_on:
 - 01M53GMNX7EAT4AWQ756WN1DJV
 position_column: doing
@@ -53,3 +95,15 @@ title: Send real client capabilities and the configured initializationOptions in
 - [x] The tests above pass.
 
 #lsp-fix
+
+## Review Findings (2026-10-18 03:29)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 8 file(s) reviewed, 5 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `plan.md` — no validator matches this file
+
+- [x] `Tests/FoundationModelsCodeContextTests/WireTests.swift:373` `reuse/reuse` — The new private helper `encodedObject(of:)` repeats the encode-then-parse-to-JSON-object step that already exists as `ResultEncodingTests.encodedObject(_:)`. Two copies of the same capability can drift apart. The existing helper is also generic over any Encodable, while this one is fixed to `InitializeParams`. Move the generic helper to a shared test support file, or make the new helper a thin call to it. The return type must stay NSDictionary, not [String: Any], because the tests call `value(forKeyPath:)`, which only NSDictionary provides. Make the generic helper return NSDictionary, or keep this fork and note in a comment why the return type differs.

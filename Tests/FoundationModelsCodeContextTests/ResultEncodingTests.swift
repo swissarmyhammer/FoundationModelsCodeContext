@@ -36,16 +36,6 @@ struct ResultEncodingTests {
         try #require(String(data: try encodeSorted(value), encoding: .utf8))
     }
 
-    /// Encodes `value` with `.sortedKeys` and parses the JSON object again.
-    ///
-    /// - Parameter value: The value to encode. It must encode as a JSON object.
-    /// - Returns: The parsed JSON object.
-    /// - Throws: An `EncodingError` when `value` cannot be encoded, or an
-    ///   expectation failure when the JSON is not an object.
-    private static func encodedObject<Value: Encodable>(_ value: Value) throws -> [String: Any] {
-        try #require(try JSONSerialization.jsonObject(with: try encodeSorted(value)) as? [String: Any])
-    }
-
     // MARK: - SearchCodeResult
 
     @Test
@@ -63,9 +53,9 @@ struct ResultEncodingTests {
             let result = try await SearchCode.run(corpus: SearchCorpus(store: store), embedder: nil, query: "validate")
             let match = try #require(result.hits.first)
 
-            let json = try Self.encodedObject(result)
+            let json = try TestJSON.encodedObject(result)
 
-            #expect(Set(json.keys) == ["query", "hits", "indexingProgress"])
+            #expect(Set(json.allKeys.compactMap { $0 as? String }) == ["query", "hits", "indexingProgress"])
             #expect(json["query"] as? String == "validate")
             let hits = try #require(json["hits"] as? [[String: Any]])
             #expect(hits.count == result.hits.count)
@@ -166,9 +156,9 @@ struct ResultEncodingTests {
             )
             let similarity = try #require(result.groups.first?.duplicates.first?.similarity)
 
-            let json = try Self.encodedObject(result)
+            let json = try TestJSON.encodedObject(result)
 
-            #expect(Set(json.keys) == ["scope", "groups", "sourceChunks", "comparedChunks"])
+            #expect(Set(json.allKeys.compactMap { $0 as? String }) == ["scope", "groups", "sourceChunks", "comparedChunks"])
             #expect(json["scope"] as? [String: String] == ["kind": "file", "path": "A.swift"])
             #expect(json["sourceChunks"] as? Int == 1)
             #expect(json["comparedChunks"] as? Int == 2)
@@ -213,9 +203,9 @@ struct ResultEncodingTests {
                 query: "(function_item name: (identifier) @name)"
             )
 
-            let json = try Self.encodedObject(result)
+            let json = try TestJSON.encodedObject(result)
 
-            #expect(Set(json.keys) == ["matches", "filesScanned", "truncated"])
+            #expect(Set(json.allKeys.compactMap { $0 as? String }) == ["matches", "filesScanned", "truncated"])
             #expect(json["filesScanned"] as? Int == 1)
             #expect(json["truncated"] as? Bool == false)
             let matches = try #require(json["matches"] as? [[String: Any]])
@@ -258,9 +248,9 @@ struct ResultEncodingTests {
             pending: true
         )
 
-        let json = try Self.encodedObject(report)
+        let json = try TestJSON.encodedObject(report)
 
-        #expect(Set(json.keys) == ["records", "counts", "pending"])
+        #expect(Set(json.allKeys.compactMap { $0 as? String }) == ["records", "counts", "pending"])
         #expect(json["pending"] as? Bool == true)
         #expect(json["counts"] as? [String: Int] == ["errors": 1, "warnings": 1])
         let records = try #require(json["records"] as? [[String: Any]])
@@ -289,7 +279,7 @@ struct ResultEncodingTests {
         #expect(try severities.map { try Self.encodedText($0) } == ["1", "2", "3", "4"])
 
         let record = DiagnosticRecord(path: "a.swift", range: Self.diagnosticRange, severity: .hint, message: "m")
-        let json = try Self.encodedObject(record)
+        let json = try TestJSON.encodedObject(record)
         #expect(json["severity"] as? Int == 4)
         #expect(json["severity"] as? String == nil)
     }

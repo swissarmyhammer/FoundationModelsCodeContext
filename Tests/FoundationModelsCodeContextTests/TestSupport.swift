@@ -2,6 +2,7 @@ import Foundation
 import FoundationModelsCodeContext
 import FoundationModelsExtras
 import GRDB
+import Testing
 
 /// The place of each temporary item of the test target.
 ///
@@ -353,6 +354,19 @@ enum TestJSON {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         return String(decoding: try encoder.encode(value), as: UTF8.self)
+    }
+
+    /// Encodes `value` and parses the JSON object again.
+    ///
+    /// The result is an `NSDictionary`, thus a test can read a nested value with
+    /// `value(forKeyPath:)`.
+    ///
+    /// - Parameter value: The value to encode. It must encode as a JSON object.
+    /// - Returns: The parsed JSON object.
+    /// - Throws: An `EncodingError` when `value` cannot be encoded, or an
+    ///   expectation failure when the JSON is not an object.
+    static func encodedObject<Value: Encodable>(_ value: Value) throws -> NSDictionary {
+        try #require(try JSONSerialization.jsonObject(with: try JSONEncoder().encode(value)) as? NSDictionary)
     }
 }
 
