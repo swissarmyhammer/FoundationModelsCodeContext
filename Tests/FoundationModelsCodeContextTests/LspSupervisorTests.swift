@@ -475,6 +475,12 @@ struct LspSupervisorTests {
         #expect(statuses.allSatisfy { $0.state == .notStarted })
     }
 
+    /// The real time that `shutdownRacingAnInFlightRestartHandshakeAlwaysWinsAndLeavesTheDaemonNotStarted`
+    /// waits after the shutdown, before it reads the state of the daemon. A defective `shutdown()`
+    /// lets a restart change the state after this time starts, thus the wait gives that change
+    /// time to occur.
+    private static let restartRaceSettleWindow: Duration = .milliseconds(200)
+
     @Test
     func shutdownRacingAnInFlightRestartHandshakeAlwaysWinsAndLeavesTheDaemonNotStarted() async throws {
         let clock = ManualClock()
@@ -557,7 +563,7 @@ struct LspSupervisorTests {
         // restart's own failure handling overwrites it to `.failed` moments later. Polling for
         // "notStarted" would catch that transient value and declare victory too early; waiting a
         // fixed window instead lets any such delayed corruption actually land before we check.
-        try? await Task.sleep(for: .milliseconds(200))
+        try await Task.sleep(for: Self.restartRaceSettleWindow)
 
         let state = await deadDaemon.state()
         #expect(
@@ -608,7 +614,7 @@ struct LspSupervisorTests {
 
         let runner = FakeInstallRunner()
         await runner.setOnRun { _, _ in
-            try? Self.materializeFakeBinary(named: command, in: tempDirectory)
+            #expect(throws: Never.self) { try Self.materializeFakeBinary(named: command, in: tempDirectory) }
         }
 
         let supervisor = LspSupervisor<FakeLanguageServerConnection>(
@@ -827,16 +833,50 @@ struct LspSupervisorTests {
         let installEndedBeforeTheShutdownReturned = await shutdownTask.value
 
         let stateAfterTheShutdown = await supervisor.status().first { $0.command == command }?.state
-        let installRestarts = try? metrics.expectCounter(
-            CodeContextTracing.MetricName.lspServerRestarts,
-            MetricsTests.restartDimensions(server: command, reason: "install")
-        )
         #expect(installEndedBeforeTheShutdownReturned, "shutdown() must wait for the install that is in progress")
         #expect(
             stateAfterTheShutdown == .notStarted,
             "the shutdown must leave the daemon .notStarted, got \(String(describing: stateAfterTheShutdown))"
         )
-        #expect(installRestarts == nil, "an install that ends during the shutdown must not restart the daemon")
+
+        // The positive control: the lookup finds the counter of one install restart that the
+        // package records. Thus a wrong label or a wrong dimension makes the test fail, and the
+        // `missingMetric` error below can only mean that no install restart occurred.
+        let control = TestMetrics()
+        CodeContextMetrics(factory: control).addServerRestart(server: command, reason: .install)
+        let controlRestarts = try Self.installRestarts(of: command, in: control)
+        #expect(controlRestarts.totalValue == 1, "the lookup must find the install restart of the control")
+
+        let lookupError = #expect(throws: TestMetricsError.self) {
+            try Self.installRestarts(of: command, in: metrics)
+        }
+        #expect(
+            Self.isMissingMetric(lookupError),
+            "an install that ends during the shutdown must not restart the daemon, got \(String(describing: lookupError))"
+        )
+    }
+
+    /// Finds the counter of the install restarts of `command` in `metrics`.
+    ///
+    /// The test of the shutdown during an install uses this one lookup for its positive control
+    /// and for the factory of the supervisor, thus the two checks use the same label and dimensions.
+    /// - Parameters:
+    ///   - command: The command of the language server.
+    ///   - metrics: The factory to read.
+    /// - Returns: The counter.
+    /// - Throws: `TestMetricsError.missingMetric` when `metrics` has no such counter.
+    private static func installRestarts(of command: String, in metrics: TestMetrics) throws -> TestCounter {
+        try metrics.expectCounter(
+            CodeContextTracing.MetricName.lspServerRestarts,
+            MetricsTests.restartDimensions(server: command, reason: CodeContextMetrics.RestartReason.install.rawValue)
+        )
+    }
+
+    /// Tells if `error` is the error that `TestMetrics` gives for a metric that it does not have.
+    /// - Parameter error: The error that an `#expect(throws:)` call gives, or `nil`.
+    /// - Returns: `true` only for `TestMetricsError.missingMetric`.
+    private static func isMissingMetric(_ error: TestMetricsError?) -> Bool {
+        if case .missingMetric? = error { true } else { false }
     }
 }
 
