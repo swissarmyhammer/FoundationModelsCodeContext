@@ -49,6 +49,8 @@ extension LSPIndexWorker {
     ///   - contents: The text of `filePath`, where the name of each symbol is found.
     ///   - flatSymbols: The file's flattened symbols.
     ///   - rootDirectory: The workspace root reference uris are resolved against.
+    ///   - pathFilter: The path filter of the workspace. A file that holds a
+    ///     reference is opened only when the filter accepts it.
     ///   - session: The live session to send the requests through.
     /// - Returns: One edge for each (caller, callee) pair, in no particular order.
     static func collectReferenceEdges(
@@ -57,6 +59,7 @@ extension LSPIndexWorker {
         contents: String,
         flatSymbols: [FlatSymbol],
         rootDirectory: URL,
+        pathFilter: PathFilter,
         session: LspSession<Connection>
     ) async -> [PendingCallEdge] {
         let lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
@@ -72,6 +75,7 @@ extension LSPIndexWorker {
                 into: callee,
                 locations: locations,
                 rootDirectory: rootDirectory,
+                pathFilter: pathFilter,
                 session: session,
                 callableSymbolsByFile: &callableSymbolsByFile
             )
@@ -118,6 +122,8 @@ extension LSPIndexWorker {
     ///   - callee: The symbol the references point at.
     ///   - locations: The reference locations of `callee`.
     ///   - rootDirectory: The workspace root the location uris are resolved against.
+    ///   - pathFilter: The path filter that each file that holds a reference
+    ///     must pass before it is opened.
     ///   - session: The live session to read the symbols of other files through.
     ///   - callableSymbolsByFile: The callable symbols read so far in this pass;
     ///     a file read here is added to it.
@@ -127,6 +133,7 @@ extension LSPIndexWorker {
         into callee: FlatSymbol,
         locations: [Location],
         rootDirectory: URL,
+        pathFilter: PathFilter,
         session: LspSession<Connection>,
         callableSymbolsByFile: inout CallableSymbolsByFile
     ) async -> [PendingCallEdge] {
@@ -138,6 +145,7 @@ extension LSPIndexWorker {
             let candidates = await callableSymbols(
                 in: callerFile,
                 rootDirectory: rootDirectory,
+                pathFilter: pathFilter,
                 session: session,
                 callableSymbolsByFile: &callableSymbolsByFile
             )
@@ -170,19 +178,22 @@ extension LSPIndexWorker {
     /// - Parameters:
     ///   - relativePath: The file to read the symbols of.
     ///   - rootDirectory: The workspace root `relativePath` is relative to.
+    ///   - pathFilter: The path filter that the file must pass before it is opened.
     ///   - session: The live session to read the symbols through.
     ///   - callableSymbolsByFile: The callable symbols read so far in this pass.
-    /// - Returns: The callable symbols of the file; empty when it cannot be read.
+    /// - Returns: The callable symbols of the file; empty when it cannot be
+    ///   read or the path filter does not accept it.
     private static func callableSymbols(
         in relativePath: String,
         rootDirectory: URL,
+        pathFilter: PathFilter,
         session: LspSession<Connection>,
         callableSymbolsByFile: inout CallableSymbolsByFile
     ) async -> [FlatSymbol] {
         if let known = callableSymbolsByFile[relativePath] {
             return known
         }
-        let symbols = await fetchCallableSymbols(of: relativePath, rootDirectory: rootDirectory, session: session)
+        let symbols = await fetchCallableSymbols(of: relativePath, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session)
         callableSymbolsByFile[relativePath] = symbols
         return symbols
     }
@@ -190,20 +201,24 @@ extension LSPIndexWorker {
     /// Reads the callable symbols of a file that holds a reference: syncs its
     /// disk text, asks for its document symbols, then closes it.
     ///
-    /// A path that is not a safe relative path (see
-    /// `RelativePath.isSafeRelativePath(_:)`) or a file that cannot be read
-    /// gives no symbols, the same rule `processFile` uses.
+    /// A path that the path filter does not accept (see
+    /// `PathFilter.acceptsDocument(relativePath:)`: a path that is not a safe
+    /// relative path, that the ignore rules ignore, or whose real path is not
+    /// in the root) or a file that cannot be read gives no symbols and no
+    /// `didOpen`, the same rule `processFile` uses.
     /// - Parameters:
     ///   - relativePath: The file to read.
     ///   - rootDirectory: The workspace root `relativePath` is relative to.
+    ///   - pathFilter: The path filter that the file must pass before it is opened.
     ///   - session: The live session to send the requests through.
     /// - Returns: The callable symbols of the file; empty on any failure.
     private static func fetchCallableSymbols(
         of relativePath: String,
         rootDirectory: URL,
+        pathFilter: PathFilter,
         session: LspSession<Connection>
     ) async -> [FlatSymbol] {
-        guard RelativePath.isSafeRelativePath(relativePath),
+        guard pathFilter.acceptsDocument(relativePath: relativePath),
             let contents = readFileContents(relativePath: relativePath, rootDirectory: rootDirectory)
         else {
             return []

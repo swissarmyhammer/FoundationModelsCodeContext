@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Logging
 
 /// Idle/backoff pacing knobs for `LSPIndexWorker.run(store:rootDirectory:extensions:sessionProvider:configuration:clock:)`.
 ///
@@ -54,7 +55,7 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
 /// - Unlike the Rust reference — whose worker doc comment states it "never
 ///   sends `didClose`" because the daemon-owned session keeps every file
 ///   open indefinitely — this port's worker closes each file's document
-///   after querying it (see `processFile(relativePath:rootDirectory:session:store:)`),
+///   after querying it (see `processFile(relativePath:rootDirectory:pathFilter:session:store:)`),
 ///   trading a `didClose` round trip per file for a bounded open-document
 ///   set on the server. This is a deliberate divergence for this Swift port,
 ///   not an oversight.
@@ -125,6 +126,9 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// - Parameters:
     ///   - store: The workspace's index store to drain and write into.
     ///   - rootDirectory: The workspace root dirty file paths are relative to.
+    ///   - pathFilter: The one path filter instance of the workspace, the same
+    ///     instance that the watcher uses. A dirty file that it does not accept
+    ///     is not opened (see `processFile(relativePath:rootDirectory:pathFilter:session:store:)`).
     ///   - extensions: The file extensions (without a leading dot) this
     ///     server's session covers; only dirty files matching one of these
     ///     are drained.
@@ -141,6 +145,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     static func run(
         store: Store,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         extensions: [String],
         sessionProvider: @escaping @Sendable () async -> LspSession<Connection>?,
         configuration: LSPIndexWorkerConfiguration = LSPIndexWorkerConfiguration(),
@@ -159,7 +164,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
                 continue
             }
 
-            await indexFiles(dirtyPaths, rootDirectory: rootDirectory, session: session, store: store, metrics: metrics)
+            await indexFiles(dirtyPaths, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session, store: store, metrics: metrics)
         }
     }
 
@@ -167,11 +172,13 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
 
     /// Drains one batch (up to `configuration.batchSize`) of `lsp_indexed = 0`
     /// files matching `extensions` through `session`, without looping or
-    /// sleeping — the building block `run(store:rootDirectory:extensions:sessionProvider:configuration:clock:)`
+    /// sleeping — the building block `run(store:rootDirectory:pathFilter:extensions:sessionProvider:configuration:clock:metrics:)`
     /// repeats, and the entry point tests drive directly.
     /// - Parameters:
     ///   - store: The workspace's index store to drain and write into.
     ///   - rootDirectory: The workspace root dirty file paths are relative to.
+    ///   - pathFilter: The one path filter instance of the workspace. A dirty
+    ///     file that it does not accept is not opened.
     ///   - extensions: The file extensions (without a leading dot) this
     ///     server's session covers; only dirty files matching one of these
     ///     are drained.
@@ -189,13 +196,14 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     static func drainBatch(
         store: Store,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         extensions: [String],
         session: LspSession<Connection>,
         configuration: LSPIndexWorkerConfiguration = LSPIndexWorkerConfiguration(),
         metrics: CodeContextMetrics = CodeContextMetrics()
     ) async throws -> Int {
         let dirtyPaths = try await dirtyFiles(store: store, extensions: extensions, limit: configuration.batchSize)
-        return await indexFiles(dirtyPaths, rootDirectory: rootDirectory, session: session, store: store, metrics: metrics)
+        return await indexFiles(dirtyPaths, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session, store: store, metrics: metrics)
     }
 
     /// Indexes each file of one batch in order, then adds the count of the
@@ -209,6 +217,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///   - relativePaths: The dirty files of the batch, relative to
     ///     `rootDirectory`.
     ///   - rootDirectory: The workspace root the paths are relative to.
+    ///   - pathFilter: The one path filter instance of the workspace.
     ///   - session: The live session to index through.
     ///   - store: The workspace's index store to write into.
     ///   - metrics: Gets the count of the indexed files.
@@ -217,6 +226,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     private static func indexFiles(
         _ relativePaths: [String],
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         session: LspSession<Connection>,
         store: Store,
         metrics: CodeContextMetrics
@@ -224,7 +234,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         var indexedCount = 0
         for relativePath in relativePaths {
             guard !Task.isCancelled else { break }
-            if await processFile(relativePath: relativePath, rootDirectory: rootDirectory, session: session, store: store) {
+            if await processFile(relativePath: relativePath, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session, store: store) {
                 indexedCount += 1
             }
         }
@@ -287,6 +297,15 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// layer doesn't trust data flowing back out of the store any more
     /// than it trusts other store-sourced input elsewhere in this file.
     ///
+    /// Then the shared path filter examines the path (see
+    /// `PathFilter.acceptsDocument(relativePath:)`). A path that the ignore
+    /// rules ignore, or a path whose real path is not in the root, is not
+    /// opened. The worker marks the file indexed with nothing written, thus
+    /// the dirty-file query does not select the row again. This is not an
+    /// error: the watcher and the reconcile remove the row later. The worker
+    /// reads the filter one time for each file, and gives the same filter to
+    /// the references fallback, which opens the files that hold a reference.
+    ///
     /// A file that can't be read (missing, non-UTF-8) is marked indexed with
     /// nothing written — mirroring `TreeSitterWorker`'s handling of an
     /// unreadable file, there is nothing meaningful to retry. A `syncOpen`
@@ -301,32 +320,47 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// - Parameters:
     ///   - relativePath: The file's workspace-relative path.
     ///   - rootDirectory: The workspace root `relativePath` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace.
     ///   - session: The live session to index through.
     ///   - store: The workspace's index store to write into.
     /// - Returns: `true` if the file is now `lsp_indexed = 1` (whether
-    ///   because it was fully indexed or because it was unreadable); `false`
-    ///   if a connection error left it dirty for a later retry.
+    ///   because it was fully indexed, because the path filter does not
+    ///   accept it, or because it was unreadable); `false` if a connection
+    ///   error left it dirty for a later retry.
     @discardableResult
     private static func processFile(
         relativePath: String,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         session: LspSession<Connection>,
         store: Store
     ) async -> Bool {
         guard RelativePath.isSafeRelativePath(relativePath) else {
-            Log.lsp.warning(
-                "the LSP index worker rejects a relative path that is not safe and marks the file indexed",
-                metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
+            return await skipFile(
+                relativePath: relativePath,
+                store: store,
+                level: .warning,
+                message: "the LSP index worker rejects a relative path that is not safe and marks the file indexed"
             )
-            return await markIndexedIgnoringErrors(relativePath: relativePath, store: store)
+        }
+
+        let filter = await pathFilter.filter
+        guard filter.acceptsDocument(relativePath: relativePath) else {
+            return await skipFile(
+                relativePath: relativePath,
+                store: store,
+                level: .debug,
+                message: "the LSP index worker does not open a file that the path filter does not accept and marks the file indexed"
+            )
         }
 
         guard let contents = readFileContents(relativePath: relativePath, rootDirectory: rootDirectory) else {
-            Log.lsp.warning(
-                "the LSP index worker cannot read a file and marks the file indexed",
-                metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
+            return await skipFile(
+                relativePath: relativePath,
+                store: store,
+                level: .warning,
+                message: "the LSP index worker cannot read a file and marks the file indexed"
             )
-            return await markIndexedIgnoringErrors(relativePath: relativePath, store: store)
         }
 
         let fileURL = rootDirectory.appendingPathComponent(relativePath)
@@ -350,6 +384,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             contents: contents,
             flatSymbols: flatSymbols,
             rootDirectory: rootDirectory,
+            pathFilter: filter,
             session: session
         )
         let callSiteTargets = await collectCallSiteTargets(
@@ -385,7 +420,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// Syncs `contents` to the session then requests `textDocument/documentSymbol`,
     /// logging and returning `nil` if either step throws.
     ///
-    /// Factored out of `processFile(relativePath:rootDirectory:session:store:)`
+    /// Factored out of `processFile(relativePath:rootDirectory:pathFilter:session:store:)`
     /// so its two "leave dirty on failure" branches share one early-return
     /// shape at the call site instead of duplicating it. Not `private`: the
     /// references fallback uses it too, to read the symbols of a file that
@@ -448,17 +483,26 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         return contents
     }
 
-    /// Marks `relativePath` `lsp_indexed = 1`, logging (rather than
-    /// propagating) any storage failure — used for both of `processFile`'s
-    /// permanent-skip paths (an unreadable file and an unsafe/traversal
-    /// relative path, per `RelativePath.isSafeRelativePath(_:)`), where there is nothing
-    /// left to retry even if the mark itself fails.
+    /// Logs why `processFile` skips `relativePath`, then marks the file
+    /// `lsp_indexed = 1`, logging (rather than propagating) any storage
+    /// failure.
+    ///
+    /// `processFile` has three permanent-skip paths: an unsafe/traversal
+    /// relative path (per `RelativePath.isSafeRelativePath(_:)`), a path that
+    /// the path filter does not accept, and an unreadable file. For each one
+    /// there is nothing left to retry, also when the mark itself fails. The
+    /// mark is necessary: a row that stays dirty comes back in each later
+    /// batch.
     /// - Parameters:
     ///   - relativePath: The file's workspace-relative path.
     ///   - store: The workspace's index store to write into.
+    ///   - level: The log level of the record. A path that the path filter
+    ///     does not accept is not an error, thus it has the debug level.
+    ///   - message: Why the worker skips the file.
     /// - Returns: `true` unconditionally, matching this path's "nothing to
     ///   retry" contract even when the mark write itself fails.
-    private static func markIndexedIgnoringErrors(relativePath: String, store: Store) async -> Bool {
+    private static func skipFile(relativePath: String, store: Store, level: Logger.Level, message: Logger.Message) async -> Bool {
+        Log.lsp.log(level: level, message, metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)])
         do {
             try await store.markIndexed(filePath: relativePath, layer: .lsp)
         } catch {
@@ -636,7 +680,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// outgoing calls of each symbol, via `prepareCallHierarchy` then
     /// `outgoingCalls`. When it does not, no call-hierarchy request is sent:
     /// the edges are the callers of each symbol, via `textDocument/references`
-    /// (see `collectReferenceEdges(filePath:uri:contents:flatSymbols:rootDirectory:session:)`).
+    /// (see `collectReferenceEdges(filePath:uri:contents:flatSymbols:rootDirectory:pathFilter:session:)`).
     ///
     /// A request failure for one symbol is logged and skipped rather than
     /// propagated — mirroring the Rust reference's "edge-collection failures
@@ -652,6 +696,8 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///     finds the name of each symbol.
     ///   - flatSymbols: The file's flattened symbols.
     ///   - rootDirectory: The workspace root symbol uris are resolved against.
+    ///   - pathFilter: The path filter that the references fallback examines
+    ///     each file with before it opens the file.
     ///   - session: The live session to issue the requests through.
     /// - Returns: Every collected edge, in no particular order.
     private static func collectCallEdges(
@@ -660,6 +706,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         contents: String,
         flatSymbols: [FlatSymbol],
         rootDirectory: URL,
+        pathFilter: PathFilter,
         session: LspSession<Connection>
     ) async -> [PendingCallEdge] {
         guard session.capabilities.callHierarchy else {
@@ -669,6 +716,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
                 contents: contents,
                 flatSymbols: flatSymbols,
                 rootDirectory: rootDirectory,
+                pathFilter: pathFilter,
                 session: session
             )
         }
@@ -691,7 +739,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
 
     /// Collects one callable symbol's outgoing call edges, via
     /// `prepareCallHierarchy` then `outgoingCalls` — the per-symbol body
-    /// `collectCallEdges(filePath:uri:flatSymbols:rootDirectory:session:)`
+    /// `collectCallEdges(filePath:uri:contents:flatSymbols:rootDirectory:pathFilter:session:)`
     /// loops over for every callable symbol in a file.
     ///
     /// A `prepareCallHierarchy`/`outgoingCalls` failure is logged and

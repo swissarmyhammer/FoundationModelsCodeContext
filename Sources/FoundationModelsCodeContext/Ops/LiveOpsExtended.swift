@@ -183,6 +183,8 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     /// - Parameters:
     ///   - session: The live session to query, or `nil` if no live layer is available.
     ///   - rootDirectory: The workspace root `filePath` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace. The live
+    ///     layer does not open a file that it does not accept.
     ///   - filePath: The file containing the range, relative to `rootDirectory`.
     ///   - startLine: The zero-based start line of the range.
     ///   - startCharacter: The zero-based start character offset.
@@ -195,6 +197,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     static func codeActions(
         session: LspSession<Connection>?,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         startLine: Int,
         startCharacter: Int,
@@ -210,7 +213,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
         return try await LiveOpsCore<Connection>.cascade(
             liveLayer: {
                 try await liveCodeActions(
-                    session: session, rootDirectory: rootDirectory, filePath: filePath,
+                    session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath,
                     range: range, diagnostics: diagnostics, only: only
                 )
             },
@@ -224,12 +227,13 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     private static func liveCodeActions(
         session: LspSession<Connection>?,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         range: LSPRange,
         diagnostics: [Diagnostic],
         only: [String]?
     ) async throws -> CodeActionsResult? {
-        guard let session, let uri = await LiveOpsCore<Connection>.syncLiveDocument(session: session, rootDirectory: rootDirectory, filePath: filePath) else {
+        guard let session, let uri = await LiveOpsCore<Connection>.syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
             return nil
         }
         let rawActions: [CodeActionItem]
@@ -269,6 +273,8 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     /// - Parameters:
     ///   - session: The live session to query, or `nil` if no live layer is available.
     ///   - rootDirectory: The workspace root `filePath` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace. The live
+    ///     layer does not open a file that it does not accept.
     ///   - filePath: The file containing the cursor position, relative to `rootDirectory`.
     ///   - line: The zero-based cursor line.
     ///   - character: The zero-based cursor character offset.
@@ -278,6 +284,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     static func renameEdits(
         session: LspSession<Connection>?,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int,
@@ -285,7 +292,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     ) async throws -> RenameEditsResult {
         let cannotRename = RenameEditsResult(canRename: false, placeholder: nil, edit: nil)
 
-        guard let session, let uri = await LiveOpsCore<Connection>.syncLiveDocument(session: session, rootDirectory: rootDirectory, filePath: filePath) else {
+        guard let session, let uri = await LiveOpsCore<Connection>.syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
             return cannotRename
         }
 
@@ -331,6 +338,8 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     ///   - store: The workspace's index store to query.
     ///   - session: The live session to query, or `nil` if no live layer is available.
     ///   - rootDirectory: The workspace root `filePath` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace. The live
+    ///     layer does not open a file that it does not accept.
     ///   - filePath: The file containing the cursor position, relative to `rootDirectory`.
     ///   - line: The zero-based cursor line.
     ///   - character: The zero-based cursor character offset.
@@ -340,6 +349,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
         store: Store,
         session: LspSession<Connection>?,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int
@@ -347,7 +357,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
         try await LiveOpsCore<Connection>.cascade(
             liveLayer: {
                 try await liveInboundCalls(
-                    session: session, store: store, rootDirectory: rootDirectory,
+                    session: session, store: store, rootDirectory: rootDirectory, pathFilter: pathFilter,
                     filePath: filePath, line: line, character: character
                 )
             },
@@ -362,11 +372,12 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
         session: LspSession<Connection>?,
         store: Store,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int
     ) async throws -> InboundCallsResult? {
-        guard let session, let uri = await LiveOpsCore<Connection>.syncLiveDocument(session: session, rootDirectory: rootDirectory, filePath: filePath) else {
+        guard let session, let uri = await LiveOpsCore<Connection>.syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
             return nil
         }
         let position = Position(line: line, character: character)

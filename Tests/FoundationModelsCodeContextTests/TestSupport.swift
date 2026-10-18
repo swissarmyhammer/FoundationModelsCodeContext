@@ -132,6 +132,23 @@ func write(_ content: String, to relativePath: String, in root: URL) throws {
     try content.write(to: url, atomically: true, encoding: .utf8)
 }
 
+/// Writes `content` to a file in `outside`, and makes a symbolic link to that
+/// file at `linkPath` below `root`. The link is in the root, but its target is
+/// not.
+/// - Parameters:
+///   - content: The text of the target file.
+///   - linkPath: The path of the link, relative to `root`.
+///   - root: The workspace root.
+///   - outside: A directory that is not below `root`.
+/// - Throws: The error of the write or of the link creation.
+func writeLinkOutOfRoot(_ content: String, at linkPath: String, in root: URL, outside: URL) throws {
+    let targetName = "outside-\(UUID().uuidString).swift"
+    try write(content, to: targetName, in: outside)
+    let link = root.appendingPathComponent(linkPath)
+    try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside.appendingPathComponent(targetName))
+}
+
 /// A workspace tree that holds each kind of ignore rule: a root `.gitignore`
 /// with a directory rule, an anchored rule and a negation, a nested
 /// `.gitignore`, an `.ignore` file, a `.git/info/exclude` file, the hard skip

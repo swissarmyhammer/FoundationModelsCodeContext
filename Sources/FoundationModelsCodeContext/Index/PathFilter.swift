@@ -3,7 +3,10 @@ import Logging
 
 /// The one path filter of a workspace. `Walker`, `Reconciler` (through the
 /// walk) and `Watcher` use it, thus the walk and the watcher accept the same
-/// paths and make the same row key for each path.
+/// paths and make the same row key for each path. The LSP index worker, the
+/// live operations and the diagnostics operation use it too, through
+/// `acceptsDocument(relativePath:)`, before they open a document on a
+/// language server.
 ///
 /// The filter ignores a path when one of its components is ignored:
 /// - a hidden component (a name that starts with `.`),
@@ -135,6 +138,36 @@ struct PathFilter: Sendable {
         acceptedRelativePath(of: url, isDirectory: isDirectory) == nil
     }
 
+    /// Whether a language server may open the document at `relativePath`.
+    ///
+    /// The LSP index worker, the live operations and the diagnostics operation
+    /// call this check before `textDocument/didOpen`. The check accepts the
+    /// path only when all of these conditions are true:
+    /// - `RelativePath.isSafeRelativePath(_:)` accepts the path.
+    /// - The filter does not ignore the path or one of its ancestor directories.
+    /// - The real path of the document from `realpath(3)` is below the
+    ///   canonical root. Thus a symbolic link that points out of the root, or a
+    ///   path through such a link, is not accepted.
+    ///
+    /// A document that does not exist has no real path, thus it is not
+    /// accepted.
+    /// - Parameter relativePath: The path of the document relative to the root.
+    /// - Returns: `true` when a language server may open the document.
+    func acceptsDocument(relativePath: String) -> Bool {
+        guard RelativePath.isSafeRelativePath(relativePath) else {
+            return false
+        }
+        let relativeComponents = relativePath.split(separator: "/").map(String.init)
+        guard !isIgnored(relativeComponents: relativeComponents, isDirectory: false) else {
+            return false
+        }
+        let documentURL = relativeComponents.reduce(root.url) { $0.appendingPathComponent($1) }
+        guard let realDocumentURL = WorkspaceRoot.realURL(of: documentURL) else {
+            return false
+        }
+        return RelativePath.components(RelativePath.components(of: realDocumentURL), after: root.canonicalComponents) != nil
+    }
+
     /// Whether the filter ignores the path with `relativeComponents`: it
     /// examines each ancestor directory as a directory, and then the path.
     /// - Parameters:
@@ -259,9 +292,10 @@ struct PathFilter: Sendable {
 /// The one path filter instance of a workspace, which the rules of the rule
 /// files can change while the workspace runs.
 ///
-/// `CodeContext` makes one instance and gives it to the watcher. The LSP
-/// index worker must use the same instance, thus it never opens a path that
-/// the current rules ignore.
+/// `CodeContext` makes one instance and gives it to the watcher, the LSP index
+/// worker, the live operations and the diagnostics operation. They all use the
+/// same instance, thus no one of them opens a path that the current rules
+/// ignore.
 ///
 /// `reload()` loads the rules off this actor, on a detached task, because the
 /// load walks the tree. While a load runs, `filter` waits for it, thus a reader
@@ -297,6 +331,16 @@ actor SharedPathFilter {
             }
             return await pendingLoad.value
         }
+    }
+
+    /// Whether a language server may open the document at `relativePath`,
+    /// with the current filter. See `PathFilter.acceptsDocument(relativePath:)`.
+    ///
+    /// The check reads `realpath(3)`, thus it runs off this actor.
+    /// - Parameter relativePath: The path of the document relative to the root.
+    /// - Returns: `true` when a language server may open the document.
+    nonisolated func acceptsDocument(relativePath: String) async -> Bool {
+        await filter.acceptsDocument(relativePath: relativePath)
     }
 
     /// Loads the rules again, off this actor.

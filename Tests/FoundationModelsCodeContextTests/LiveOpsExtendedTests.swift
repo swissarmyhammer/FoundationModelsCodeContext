@@ -88,10 +88,10 @@ struct LiveOpsExtendedTests {
             let session = LspSession(connection: connection, languageID: "swift")
 
             async let first = LiveOpsExtended<FakeLanguageServerConnection>.renameEdits(
-                session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5, newName: "renamedA"
+                session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5, newName: "renamedA"
             )
             async let second = LiveOpsExtended<FakeLanguageServerConnection>.renameEdits(
-                session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5, newName: "renamedB"
+                session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5, newName: "renamedB"
             )
             let (resultA, resultB) = try await (first, second)
 
@@ -130,7 +130,7 @@ struct LiveOpsExtendedTests {
             try write("func sample() {}\n", to: "Sample.swift", in: root)
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.renameEdits(
-                session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5, newName: "renamed"
+                session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5, newName: "renamed"
             )
 
             #expect(!result.canRename)
@@ -148,7 +148,7 @@ struct LiveOpsExtendedTests {
             let session = LspSession(connection: connection, languageID: "swift")
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.renameEdits(
-                session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5, newName: "renamed"
+                session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5, newName: "renamed"
             )
 
             #expect(!result.canRename)
@@ -171,7 +171,7 @@ struct LiveOpsExtendedTests {
             let session = LspSession(connection: connection, languageID: "swift")
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.renameEdits(
-                session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5, newName: "renamed"
+                session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5, newName: "renamed"
             )
 
             #expect(!result.canRename)
@@ -193,7 +193,7 @@ struct LiveOpsExtendedTests {
             let session = LspSession(connection: connection, languageID: "swift")
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.codeActions(
-                session: session, rootDirectory: root, filePath: "Sample.swift",
+                session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift",
                 startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 10
             )
 
@@ -215,7 +215,7 @@ struct LiveOpsExtendedTests {
             try write("func sample() {}\n", to: "Sample.swift", in: root)
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.codeActions(
-                session: nil, rootDirectory: root, filePath: "Sample.swift",
+                session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift",
                 startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 10
             )
 
@@ -257,7 +257,7 @@ struct LiveOpsExtendedTests {
             let session = LspSession(connection: connection, languageID: "swift")
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.inboundCalls(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5
             )
 
             #expect(result.sourceLayer == .liveLSP)
@@ -280,7 +280,7 @@ struct LiveOpsExtendedTests {
             try await Self.insertCallEdge(store: store, callerID: 2, calleeID: 1, filePath: "Sample.swift")
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.inboundCalls(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5
             )
 
             #expect(result.sourceLayer == .lspIndex)
@@ -297,7 +297,7 @@ struct LiveOpsExtendedTests {
             try await store.markDirty(filePath: "Sample.swift", contentHash: Data("Sample.swift".utf8), fileSize: 20)
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.inboundCalls(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5
             )
 
             #expect(result.sourceLayer == .none)

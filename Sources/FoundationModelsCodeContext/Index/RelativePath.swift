@@ -84,6 +84,15 @@ struct WorkspaceRoot: Sendable, Equatable {
     /// - Parameter url: A file URL.
     /// - Returns: The real path as a file URL.
     private static func canonicalURL(of url: URL) -> URL {
+        realURL(of: url) ?? url.resolvingSymlinksInPath()
+    }
+
+    /// Gives the real path of `url` from `realpath(3)`: each symbolic link is
+    /// resolved, and the `/private` prefix of `/var` and `/tmp` stays.
+    /// - Parameter url: A file URL.
+    /// - Returns: The real path as a file URL, or `nil` when `realpath(3)`
+    ///   fails (for example, the item does not exist).
+    static func realURL(of url: URL) -> URL? {
         let resolvedPath = url.standardizedFileURL.path.withCString { pointer -> String? in
             guard let buffer = realpath(pointer, nil) else {
                 return nil
@@ -91,10 +100,7 @@ struct WorkspaceRoot: Sendable, Equatable {
             defer { free(buffer) }
             return String(cString: buffer)
         }
-        guard let resolvedPath else {
-            return url.resolvingSymlinksInPath()
-        }
-        return URL(fileURLWithPath: resolvedPath)
+        return resolvedPath.map { URL(fileURLWithPath: $0) }
     }
 }
 

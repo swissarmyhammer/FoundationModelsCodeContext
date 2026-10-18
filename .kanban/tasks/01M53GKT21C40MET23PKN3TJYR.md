@@ -1,10 +1,50 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m563y246mpv4p3n4xzkvt4xw
+  text: |-
+    Research:
+    - `CodeContext` owns one `SharedPathFilter` (`pathFilter`) and gives it to the watcher. The watcher loads the rules in `Watcher.start()`.
+    - The `syncOpen` points: `LSPIndexWorker.syncAndFetchSymbols` (called by `processFile` and by the references fallback `fetchCallableSymbols`), `LiveOpsCore.syncLiveDocument` (8 live ops in `LiveOpsCore` and `LiveOpsExtended`), and `DiagnosticsOps.syncAndPull`.
+    - The references fallback also opens files that a `textDocument/references` answer names. These paths come from the server, thus the fallback must use the same check. Plan: `processFile` reads the filter one time and gives the value to the fallback.
+    - Plan: add `PathFilter.acceptsDocument(relativePath:)` (safe relative path, not ignored, real path from `realpath(3)` in the root) and a `SharedPathFilter` form. Add a required `pathFilter: SharedPathFilter` parameter to `LSPIndexWorker.run`/`drainBatch`, the live ops and `DiagnosticsOps.diagnostics`. No default value, because a default makes a separate copy of the filter.
+    - Gap found: when the host gives no event source, `CodeContext` makes no watcher, thus nothing loads the rules and the filter has only the hidden-path and hard-skip rules. This is outside the Change list of this card. I record it as a new task.
+  timestamp: 2026-10-17T23:42:41.798421+00:00
+- actor: claude-code
+  id: 01m564eehc4jnvf1tmndhyx9h1
+  text: |-
+    Progress:
+    - Added `PathFilter.acceptsDocument(relativePath:)` and `SharedPathFilter.acceptsDocument(relativePath:)`, and `WorkspaceRoot.realURL(of:)` (the `realpath(3)` code moved out of `canonicalURL(of:)`). The PathFilterTests for these failed first (no member), then passed (15 tests).
+    - Added the required `pathFilter: SharedPathFilter` parameter to `LSPIndexWorker.run/drainBatch/indexFiles/processFile`, the 8 live ops, `syncLiveDocument` and `DiagnosticsOps.diagnostics`. No behavior change yet.
+    - New test file Tests/FoundationModelsCodeContextTests/LSPPathCheckTests.swift for the worker, the references fallback, a live op and diagnostics.
+    - Note: the sah `files` tool `replace_all` flag did not replace more than one match in this session; each edit changed one match.
+  timestamp: 2026-10-17T23:51:38.796640+00:00
+- actor: claude-code
+  id: 01m565dghh2ac6vdp4t3qjb3sy
+  text: |-
+    Implementation landed:
+    - `LSPIndexWorker.processFile` reads the shared filter one time and calls `PathFilter.acceptsDocument(relativePath:)` before it reads the file. A path that the filter does not accept is marked LSP-indexed (debug log, not an error). The three skip paths now use one helper `skipFile(relativePath:store:level:message:)` (it replaces `markIndexedIgnoringErrors`). The same filter value goes to the references fallback, thus `fetchCallableSymbols` does not open an ignored file that a `references` answer names.
+    - `LiveOpsCore.syncLiveDocument` and `DiagnosticsOps.syncAndPull` call `SharedPathFilter.acceptsDocument(relativePath:)` first. `syncAndPull` then sends no `didOpen` and pulls no diagnostics.
+    - `CodeContext` gives its one `pathFilter` (the watcher instance) to the worker, the 8 live ops and diagnostics.
+    - RED: 7 of the 9 new LSPPathCheckTests failed before the guards (didOpen/pull seen). GREEN after the guards.
+
+    ### implement — changed
+    - evidence: `swift test` 904 tests in 80 suites passed; `swift test --filter LSPPathCheckTests` 9 passed; `swift test --filter PathFilterTests` 15 passed. Files: Sources/FoundationModelsCodeContext/{CodeContext.swift, Diagnostics/Diagnose.swift, Index/LSPIndexWorker.swift, Index/LSPIndexWorker+References.swift, Index/PathFilter.swift, Index/RelativePath.swift, Ops/LiveOpsCore.swift, Ops/LiveOpsExtended.swift}; Tests: LSPPathCheckTests.swift (new), PathFilterTests.swift, TestSupport.swift, and the call sites in DiagnosticsTests, LSPIndexWorkerTests, LSPIndexWorkerReferencesTests, LayeredOpsTests, LiveOpsExtendedTests, MetricsTests, TelemetryContentSafetyTests.
+    - next: /review. Follow-up task ^pc7m1z6 records the no-watcher gap (the filter has no rule-file rules when CodeContext has no event source).
+  timestamp: 2026-10-18T00:08:36.657336+00:00
+- actor: claude-code
+  id: 01m5663m2zbtr6eqfjewsq5bky
+  text: |-
+    ### test — green
+    - evidence: swift test — 904 tests in 80 suites passed, 0 failed, 0 skipped, 0 warnings from this package (only the SwiftPM build-system note "missing creator for mutated node" on the mlx-swift_Cmlx.bundle dependency); swift build --package-path IntegrationTests --build-tests — Build complete, 0 errors. An earlier full run had 2 timing failures in LspSupervisorTests (unchanged code) while the IntegrationTests build ran at the same time and starved the host; they passed alone (22/22) and the clean full re-run passed.
+    - next: commit
+  timestamp: 2026-10-18T00:20:41.183507+00:00
 depends_on:
 - 01M53GKH8NBN2B0MCXS2RNY171
-position_column: todo
-position_ordinal: '8180'
+position_column: doing
+position_ordinal: '80'
 title: Do not send ignored paths or paths outside the root to the LSP
 ---
 ## Problem
@@ -28,7 +68,7 @@ No code checks the ignore rules before it sends `textDocument/didOpen` to a lang
 - `Diagnose` does not pull diagnostics for a path that fails the check.
 
 ## Acceptance criteria
-- [ ] No `didOpen` for ignored paths or for paths outside the root.
-- [ ] The tests above pass.
+- [x] No `didOpen` for ignored paths or for paths outside the root.
+- [x] The tests above pass.
 
 #lsp-fix

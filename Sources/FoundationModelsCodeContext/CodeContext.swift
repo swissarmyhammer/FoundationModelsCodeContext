@@ -332,6 +332,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
                     try? await LSPIndexWorker<Connection>.run(
                         store: self.store,
                         rootDirectory: self.rootDirectory,
+                        pathFilter: self.pathFilter,
                         extensions: extensions,
                         sessionProvider: { [weak self] in
                             await self?.supervisor.session(forFileExtension: extensions[0])
@@ -711,7 +712,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     public func definition(filePath: String, line: Int, character: Int, includeSource: Bool = CodeContextDefaults.includeSource) async throws -> DefinitionResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.definition(
-            store: store, session: session, rootDirectory: rootDirectory,
+            store: store, session: session, rootDirectory: rootDirectory, pathFilter: pathFilter,
             filePath: filePath, line: line, character: character, includeSource: includeSource
         )
     }
@@ -720,7 +721,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     public func typeDefinition(filePath: String, line: Int, character: Int, includeSource: Bool = CodeContextDefaults.includeSource) async throws -> DefinitionResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.typeDefinition(
-            store: store, session: session, rootDirectory: rootDirectory,
+            store: store, session: session, rootDirectory: rootDirectory, pathFilter: pathFilter,
             filePath: filePath, line: line, character: character, includeSource: includeSource
         )
     }
@@ -729,7 +730,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     public func hover(filePath: String, line: Int, character: Int) async throws -> HoverResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.hover(
-            store: store, session: session, rootDirectory: rootDirectory, filePath: filePath, line: line, character: character
+            store: store, session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath, line: line, character: character
         )
     }
 
@@ -743,7 +744,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ) async throws -> ReferencesResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.references(
-            store: store, session: session, rootDirectory: rootDirectory, filePath: filePath, line: line, character: character,
+            store: store, session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath, line: line, character: character,
             includeDeclaration: includeDeclaration, maxResults: maxResults
         )
     }
@@ -758,7 +759,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ) async throws -> ImplementationsResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsCore<Connection>.implementations(
-            store: store, session: session, rootDirectory: rootDirectory, filePath: filePath, line: line, character: character,
+            store: store, session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath, line: line, character: character,
             includeSource: includeSource, maxResults: maxResults
         )
     }
@@ -775,7 +776,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ) async throws -> CodeActionsResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsExtended<Connection>.codeActions(
-            session: session, rootDirectory: rootDirectory, filePath: filePath,
+            session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath,
             startLine: startLine, startCharacter: startCharacter, endLine: endLine, endCharacter: endCharacter,
             diagnostics: diagnostics, only: only
         )
@@ -785,7 +786,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     public func renameEdits(filePath: String, line: Int, character: Int, newName: String) async throws -> RenameEditsResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsExtended<Connection>.renameEdits(
-            session: session, rootDirectory: rootDirectory, filePath: filePath, line: line, character: character, newName: newName
+            session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath, line: line, character: character, newName: newName
         )
     }
 
@@ -793,7 +794,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     public func inboundCalls(filePath: String, line: Int, character: Int) async throws -> InboundCallsResult {
         let session = await session(forFilePath: filePath)
         return try await LiveOpsExtended<Connection>.inboundCalls(
-            store: store, session: session, rootDirectory: rootDirectory, filePath: filePath, line: line, character: character
+            store: store, session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath, line: line, character: character
         )
     }
 
@@ -820,7 +821,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ) async throws -> DiagnosticsReport {
         let session = await supervisor.anySession()
         return try await DiagnosticsOps<Connection>.diagnostics(
-            store: store, session: session, rootDirectory: rootDirectory, scope: scope,
+            store: store, session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, scope: scope,
             severity: severity, includeDependents: includeDependents,
             settleWindow: settleWindow, hardTimeout: hardTimeout, perReportCap: perReportCap, clock: clock
         )

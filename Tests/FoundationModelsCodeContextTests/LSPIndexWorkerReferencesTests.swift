@@ -89,7 +89,7 @@ struct LSPIndexWorkerReferencesTests {
     @discardableResult
     private static func drainPython(store: Store, root: URL, session: LspSession<FakeLanguageServerConnection>) async throws -> Int {
         try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-            store: store, rootDirectory: root, extensions: ["py"], session: session
+            store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["py"], session: session
         )
     }
 
@@ -201,7 +201,7 @@ struct LSPIndexWorkerReferencesTests {
             try await Self.drainPython(store: store, root: root, session: LspSession.makePylsp(over: connection))
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.inboundCalls(
-                store: store, session: nil, rootDirectory: root, filePath: "sample.py", line: 0, character: 4
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "sample.py", line: 0, character: 4
             )
 
             #expect(result.sourceLayer == .lspIndex)
@@ -242,7 +242,7 @@ struct LSPIndexWorkerReferencesTests {
             try await Self.drainPython(store: store, root: root, session: session)
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.inboundCalls(
-                store: store, session: session, rootDirectory: root, filePath: "sample.py", line: 0, character: 4
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "sample.py", line: 0, character: 4
             )
 
             #expect(result.sourceLayer == .liveLSP)
@@ -510,7 +510,7 @@ struct LSPIndexWorkerReferencesTests {
 
         let indexTask = Task {
             try await LSPIndexWorker<FakeLanguageServerConnection>.run(
-                store: store, rootDirectory: root, extensions: ["py"], sessionProvider: { session }
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["py"], sessionProvider: { session }
             )
         }
         var requests = requestStarted.makeAsyncIterator()

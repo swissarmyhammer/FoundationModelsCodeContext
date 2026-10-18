@@ -301,6 +301,7 @@ internal struct TelemetryContentSafetyTests {
         let indexed = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
             store: store,
             rootDirectory: root,
+            pathFilter: SharedPathFilter(rootDirectory: root),
             extensions: ["swift"],
             session: session,
             metrics: CodeContextMetrics(factory: capture.metrics)

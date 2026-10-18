@@ -216,6 +216,8 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - store: The workspace's index store to query.
     ///   - session: The live session to query, or `nil` if no live layer is available.
     ///   - rootDirectory: The workspace root `filePath` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace. The live
+    ///     layer does not open a file that it does not accept.
     ///   - filePath: The file containing the cursor position, relative to `rootDirectory`.
     ///   - line: The zero-based cursor line.
     ///   - character: The zero-based cursor character offset.
@@ -226,6 +228,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         store: Store,
         session: LspSession<Connection>?,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int,
@@ -234,7 +237,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         try await cascade(
             liveLayer: {
                 try await liveDefinition(
-                    session: session, store: store, rootDirectory: rootDirectory,
+                    session: session, store: store, rootDirectory: rootDirectory, pathFilter: pathFilter,
                     filePath: filePath, line: line, character: character, includeSource: includeSource,
                     method: { try await $0.definition(uri: $1, at: $2) }
                 )
@@ -258,6 +261,8 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - store: The workspace's index store to query.
     ///   - session: The live session to query, or `nil` if no live layer is available.
     ///   - rootDirectory: The workspace root `filePath` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace. The live
+    ///     layer does not open a file that it does not accept.
     ///   - filePath: The file containing the cursor position, relative to `rootDirectory`.
     ///   - line: The zero-based cursor line.
     ///   - character: The zero-based cursor character offset.
@@ -268,6 +273,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         store: Store,
         session: LspSession<Connection>?,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int,
@@ -276,7 +282,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         try await cascade(
             liveLayer: {
                 try await liveDefinition(
-                    session: session, store: store, rootDirectory: rootDirectory,
+                    session: session, store: store, rootDirectory: rootDirectory, pathFilter: pathFilter,
                     filePath: filePath, line: line, character: character, includeSource: includeSource,
                     method: { try await $0.typeDefinition(uri: $1, at: $2) }
                 )
@@ -299,13 +305,14 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         session: LspSession<Connection>?,
         store: Store,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int,
         includeSource: Bool,
         method: (LspSession<Connection>, DocumentURI, Position) async throws -> [Location]
     ) async throws -> DefinitionResult? {
-        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, filePath: filePath) else {
+        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
             return nil
         }
         let rawLocations: [Location]
@@ -363,6 +370,8 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - store: The workspace's index store to query.
     ///   - session: The live session to query, or `nil` if no live layer is available.
     ///   - rootDirectory: The workspace root `filePath` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace. The live
+    ///     layer does not open a file that it does not accept.
     ///   - filePath: The file containing the cursor position, relative to `rootDirectory`.
     ///   - line: The zero-based cursor line.
     ///   - character: The zero-based cursor character offset.
@@ -372,13 +381,14 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         store: Store,
         session: LspSession<Connection>?,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int
     ) async throws -> HoverResult {
         try await cascade(
             liveLayer: {
-                try await liveHover(session: session, store: store, rootDirectory: rootDirectory, filePath: filePath, line: line, character: character)
+                try await liveHover(session: session, store: store, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath, line: line, character: character)
             },
             indexedLayers: {
                 try await indexedHover(store: store, filePath: filePath, line: line, character: character)
@@ -391,11 +401,12 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         session: LspSession<Connection>?,
         store: Store,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int
     ) async throws -> HoverResult? {
-        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, filePath: filePath) else {
+        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
             return nil
         }
         let hover: Hover?
@@ -470,6 +481,8 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - store: The workspace's index store to query.
     ///   - session: The live session to query, or `nil` if no live layer is available.
     ///   - rootDirectory: The workspace root `filePath` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace. The live
+    ///     layer does not open a file that it does not accept.
     ///   - filePath: The file containing the cursor position, relative to `rootDirectory`.
     ///   - line: The zero-based cursor line.
     ///   - character: The zero-based cursor character offset.
@@ -481,6 +494,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         store: Store,
         session: LspSession<Connection>?,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int,
@@ -490,7 +504,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         try await cascade(
             liveLayer: {
                 try await liveReferences(
-                    session: session, store: store, rootDirectory: rootDirectory, filePath: filePath,
+                    session: session, store: store, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath,
                     line: line, character: character, includeDeclaration: includeDeclaration, maxResults: maxResults
                 )
             },
@@ -505,13 +519,14 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         session: LspSession<Connection>?,
         store: Store,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int,
         includeDeclaration: Bool,
         maxResults: Int?
     ) async throws -> ReferencesResult? {
-        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, filePath: filePath) else {
+        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
             return nil
         }
         let rawLocations: [Location]
@@ -651,6 +666,8 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     ///   - store: The workspace's index store to query.
     ///   - session: The live session to query, or `nil` if no live layer is available.
     ///   - rootDirectory: The workspace root `filePath` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace. The live
+    ///     layer does not open a file that it does not accept.
     ///   - filePath: The file containing the cursor position, relative to `rootDirectory`.
     ///   - line: The zero-based cursor line.
     ///   - character: The zero-based cursor character offset.
@@ -666,6 +683,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         store: Store,
         session: LspSession<Connection>?,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int,
@@ -677,7 +695,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         // why the server gave none. `cascade` always calls its live layer
         // first and one time, thus the order of the layers does not change.
         let live = try await liveImplementations(
-            session: session, store: store, rootDirectory: rootDirectory, filePath: filePath,
+            session: session, store: store, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath,
             line: line, character: character, includeSource: includeSource, maxResults: maxResults
         )
         let result = try await cascade(
@@ -724,6 +742,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         session: LspSession<Connection>?,
         store: Store,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         filePath: String,
         line: Int,
         character: Int,
@@ -731,7 +750,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         maxResults: Int
     ) async throws -> LiveImplementations {
         let noLiveAnswer = LiveImplementations(result: nil, notSupportedReason: nil)
-        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, filePath: filePath) else {
+        guard let session, let uri = await syncLiveDocument(session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath) else {
             return noLiveAnswer
         }
         let rawLocations: [Location]
@@ -820,6 +839,12 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     /// content before every live request" contract this task's acceptance
     /// criteria requires.
     ///
+    /// Before the read, the shared path filter examines `filePath` (see
+    /// `PathFilter.acceptsDocument(relativePath:)`). A path that the ignore
+    /// rules ignore, or a path whose real path is not in the root, is not
+    /// opened: the method returns `nil`, thus the op uses the next layer.
+    /// This is not an error.
+    ///
     /// Any failure (the file can't be read, or `syncOpen` itself throws — a
     /// connection failure) is swallowed into `nil`: per `LiveOpsCore`'s
     /// type-level doc comment, a live-layer failure falls through to the
@@ -834,14 +859,22 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
     /// - Parameters:
     ///   - session: The session to sync the document to.
     ///   - rootDirectory: The workspace root `filePath` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace.
     ///   - filePath: The file to sync, relative to `rootDirectory`.
     /// - Returns: The synced document's URI, or `nil` on any failure.
     ///
     /// Not `private`: `LiveOpsExtended` reuses this exact "sync current disk
     /// content before a live request" helper for `codeActions`/`renameEdits`/
     /// `inboundCalls` rather than duplicating it.
-    static func syncLiveDocument(session: LspSession<Connection>, rootDirectory: URL, filePath: String) async -> DocumentURI? {
-        guard let contents = readFileContents(relativePath: filePath, rootDirectory: rootDirectory) else {
+    static func syncLiveDocument(
+        session: LspSession<Connection>,
+        rootDirectory: URL,
+        pathFilter: SharedPathFilter,
+        filePath: String
+    ) async -> DocumentURI? {
+        guard await pathFilter.acceptsDocument(relativePath: filePath),
+            let contents = readFileContents(relativePath: filePath, rootDirectory: rootDirectory)
+        else {
             return nil
         }
         let uri = DocumentURI(rootDirectory.appendingPathComponent(filePath).absoluteString)

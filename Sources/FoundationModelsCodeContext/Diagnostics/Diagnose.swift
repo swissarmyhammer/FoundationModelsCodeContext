@@ -18,6 +18,9 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
     ///   - store: The workspace's index store — used to resolve one-hop dependents via `blastRadius`.
     ///   - session: The live session to sync/pull/settle through, or `nil` if no live layer is available.
     ///   - rootDirectory: The workspace root `scope` is resolved against.
+    ///   - pathFilter: The one path filter instance of the workspace. A file
+    ///     that it does not accept is not opened, and its diagnostics are not
+    ///     pulled.
     ///   - scope: Which files to diagnose.
     ///   - severity: The severity floor: records less severe than this are excluded. Defaults to `.warning`
     ///     (excludes `.information`/`.hint`); lower to `.hint` to include everything.
@@ -32,6 +35,7 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
         store: Store,
         session: LspSession<Connection>?,
         rootDirectory: URL,
+        pathFilter: SharedPathFilter,
         scope: DiagnosticsScope,
         severity: DiagnosticSeverity = CodeContextDefaults.diagnosticsSeverity,
         includeDependents: Bool = CodeContextDefaults.diagnosticsIncludeDependents,
@@ -50,7 +54,7 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
 
         if let session {
             for file in allFiles {
-                await syncAndPull(file: file, rootDirectory: rootDirectory, session: session)
+                await syncAndPull(file: file, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session)
             }
 
             let watchedURIs = allFiles.map { documentURI(forRelativePath: $0, rootDirectory: rootDirectory) }
@@ -137,13 +141,23 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
     /// server's current answer rather than depending solely on the
     /// watcher's own async pulls, matching the fix noted in the Rust
     /// reference's git history ("pull target files in diagnose").
+    ///
+    /// Before both steps, the shared path filter examines `file` (see
+    /// `PathFilter.acceptsDocument(relativePath:)`). For a path that the
+    /// ignore rules ignore, or a path whose real path is not in the root, the
+    /// method sends no `didOpen` and pulls no diagnostics. This is not an
+    /// error: the report has no records for that file.
     /// - Parameters:
     ///   - file: The file to sync and pull, relative to `rootDirectory`.
     ///   - rootDirectory: The workspace root `file` is relative to.
+    ///   - pathFilter: The one path filter instance of the workspace.
     ///   - session: The session to sync and pull through.
-    private static func syncAndPull(file: String, rootDirectory: URL, session: LspSession<Connection>) async {
+    private static func syncAndPull(file: String, rootDirectory: URL, pathFilter: SharedPathFilter, session: LspSession<Connection>) async {
+        guard await pathFilter.acceptsDocument(relativePath: file) else {
+            return
+        }
         let uri = documentURI(forRelativePath: file, rootDirectory: rootDirectory)
-        if RelativePath.isSafeRelativePath(file), let text = readFileContents(relativePath: file, rootDirectory: rootDirectory) {
+        if let text = readFileContents(relativePath: file, rootDirectory: rootDirectory) {
             try? await session.syncOpen(uri: uri, text: text)
         }
         _ = try? await session.pullDiagnostics(uri: uri)

@@ -132,6 +132,7 @@ internal struct MetricsTests {
             try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
                 store: store,
                 rootDirectory: root,
+                pathFilter: SharedPathFilter(rootDirectory: root),
                 extensions: ["swift"],
                 session: LspSession(connection: connection, languageID: "swift"),
                 metrics: CodeContextMetrics(factory: metrics)

@@ -107,7 +107,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(definition: [liveLocation])
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.definition(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5
             )
 
             #expect(result.sourceLayer == .liveLSP)
@@ -124,7 +124,7 @@ struct LayeredOpsTests {
             try await Self.insertLspSymbol(store: store, id: 1, name: "sample", filePath: "Sample.swift", startLine: 0, endLine: 0)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.definition(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .lspIndex)
@@ -140,7 +140,7 @@ struct LayeredOpsTests {
             try await insertChunk(store: store, filePath: "Sample.swift", symbolPath: "sample", text: "func sample() {}", startLine: 0, endLine: 0)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.definition(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .treeSitter)
@@ -155,7 +155,7 @@ struct LayeredOpsTests {
             try await Self.seedFile(store: store, root: root, relativePath: "Sample.swift", content: "func sample() {}\n")
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.definition(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .none)
@@ -178,7 +178,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(typeDefinition: [liveLocation])
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.typeDefinition(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .liveLSP)
@@ -194,7 +194,7 @@ struct LayeredOpsTests {
             try await Self.insertLspSymbol(store: store, id: 1, name: "Sample", kind: "struct", filePath: "Sample.swift", startLine: 0, endLine: 0)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.typeDefinition(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .lspIndex)
@@ -209,7 +209,7 @@ struct LayeredOpsTests {
             try await insertChunk(store: store, filePath: "Sample.swift", symbolPath: "Sample", text: "struct Sample {}", kind: .type, startLine: 0, endLine: 0)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.typeDefinition(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .treeSitter)
@@ -223,7 +223,7 @@ struct LayeredOpsTests {
             try await Self.seedFile(store: store, root: root, relativePath: "Sample.swift", content: "struct Sample {}\n")
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.typeDefinition(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .none)
@@ -242,7 +242,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(hover: Hover(contents: "func sample()", range: nil))
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.hover(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5
             )
 
             #expect(result.sourceLayer == .liveLSP)
@@ -260,7 +260,7 @@ struct LayeredOpsTests {
             )
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.hover(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .lspIndex)
@@ -276,7 +276,7 @@ struct LayeredOpsTests {
             try await insertChunk(store: store, filePath: "Sample.swift", symbolPath: "sample", text: "func sample() {}", startLine: 0, endLine: 0)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.hover(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .treeSitter)
@@ -291,7 +291,7 @@ struct LayeredOpsTests {
             try await Self.seedFile(store: store, root: root, relativePath: "Sample.swift", content: "func sample() {}\n")
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.hover(
-                store: store, session: nil, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .none)
@@ -314,7 +314,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(references: [liveLocation])
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.references(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5
             )
 
             #expect(result.sourceLayer == .liveLSP)
@@ -334,7 +334,7 @@ struct LayeredOpsTests {
             try await Self.insertCallEdge(store: store, callerID: 2, calleeID: 1, filePath: "Caller.swift")
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.references(
-                store: store, session: nil, rootDirectory: root, filePath: "Lib.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Lib.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .lspIndex)
@@ -354,7 +354,7 @@ struct LayeredOpsTests {
             try await insertChunk(store: store, filePath: "User.swift", symbolPath: "caller", text: "myFunction()", startLine: 0, endLine: 0)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.references(
-                store: store, session: nil, rootDirectory: root, filePath: "Target.swift", line: 0, character: 5
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Target.swift", line: 0, character: 5
             )
 
             #expect(result.sourceLayer == .treeSitter)
@@ -368,7 +368,7 @@ struct LayeredOpsTests {
             let store = try Store(rootDirectory: root)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.references(
-                store: store, session: nil, rootDirectory: root, filePath: "Nonexistent.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Nonexistent.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .none)
@@ -393,7 +393,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(implementations: [liveLocation])
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 9
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 9
             )
 
             #expect(result.sourceLayer == .liveLSP)
@@ -409,7 +409,7 @@ struct LayeredOpsTests {
             try await Self.insertLspSymbol(store: store, id: 1, name: "Drawable", kind: "interface", filePath: "Drawable.swift", startLine: 0, endLine: 0)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: nil, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .lspIndex)
@@ -429,7 +429,7 @@ struct LayeredOpsTests {
             )
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: nil, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 9
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 9
             )
 
             #expect(result.sourceLayer == .treeSitter)
@@ -444,7 +444,7 @@ struct LayeredOpsTests {
             try await Self.seedFile(store: store, root: root, relativePath: "Drawable.swift", content: "protocol Drawable {}\n")
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: nil, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .none)
@@ -464,7 +464,7 @@ struct LayeredOpsTests {
             let session = LspSession.makePylsp(over: connection)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 0
             )
 
             #expect(result.notSupportedReason == "The language server pylsp does not have implementations.")
@@ -488,7 +488,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession()
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .none)
@@ -504,7 +504,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(induceError: true)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 0
             )
 
             #expect(result.notSupportedReason == nil, "only a method the server does not have sets the reason")
@@ -523,7 +523,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(induceError: true)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.definition(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .lspIndex, "a live connection failure must fall through, not surface")
@@ -540,7 +540,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(induceError: true)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.hover(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .treeSitter, "a live connection failure must fall through, not surface")
@@ -556,7 +556,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(induceError: true)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.references(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .none, "an induced connection failure must never surface as a thrown error")
@@ -579,7 +579,7 @@ struct LayeredOpsTests {
             let (session, connection) = await Self.liveSession(definition: [liveLocation])
 
             _ = try await LiveOpsCore<FakeLanguageServerConnection>.definition(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5
             )
 
             let calls = await connection.calls
@@ -611,7 +611,7 @@ struct LayeredOpsTests {
             let (session, connection) = await Self.liveSession(references: [liveLocation])
 
             _ = try await LiveOpsCore<FakeLanguageServerConnection>.references(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5
             )
 
             let calls = await connection.calls
@@ -633,7 +633,7 @@ struct LayeredOpsTests {
             let (session, connection) = await Self.liveSession(hover: Hover(contents: "func sample()", range: nil))
 
             _ = try await LiveOpsCore<FakeLanguageServerConnection>.hover(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 5
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 5
             )
 
             let calls = await connection.calls
@@ -659,7 +659,7 @@ struct LayeredOpsTests {
             let (session, connection) = await Self.liveSession(typeDefinition: [liveLocation])
 
             _ = try await LiveOpsCore<FakeLanguageServerConnection>.typeDefinition(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             let calls = await connection.calls
@@ -685,7 +685,7 @@ struct LayeredOpsTests {
             let (session, connection) = await Self.liveSession(implementations: [liveLocation])
 
             _ = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 9
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 9
             )
 
             let calls = await connection.calls
@@ -710,7 +710,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(induceError: true)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.typeDefinition(
-                store: store, session: session, rootDirectory: root, filePath: "Sample.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Sample.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .lspIndex, "a live connection failure must fall through, not surface")
@@ -727,7 +727,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(induceError: true)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .lspIndex, "a live connection failure must fall through, not surface")
@@ -754,7 +754,7 @@ struct LayeredOpsTests {
             try await Self.insertCallEdge(store: store, callerID: 2, calleeID: 1, filePath: "Caller.swift", fromRanges: "[[1,4,1,11]]")
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.references(
-                store: store, session: nil, rootDirectory: root, filePath: "Lib.swift", line: 0, character: 0
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Lib.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .lspIndex)
@@ -790,7 +790,7 @@ struct LayeredOpsTests {
             let (session, connection) = await Self.liveSession(definition: [liveLocation])
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.definition(
-                store: store, session: session, rootDirectory: root, filePath: "../secret.swift", line: 0, character: 0
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "../secret.swift", line: 0, character: 0
             )
 
             #expect(result.sourceLayer == .none, "a path-traversal filePath must never be resolved against disk")
@@ -813,7 +813,7 @@ struct LayeredOpsTests {
             )
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: nil, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 9
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 9
             )
 
             #expect(result.sourceLayer == .treeSitter)
@@ -833,7 +833,7 @@ struct LayeredOpsTests {
             )
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: nil, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 9, includeSource: true
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 9, includeSource: true
             )
 
             #expect(result.sourceLayer == .treeSitter)
@@ -849,7 +849,7 @@ struct LayeredOpsTests {
             try await Self.insertLspSymbol(store: store, id: 1, name: "Drawable", kind: "interface", filePath: "Drawable.swift", startLine: 0, endLine: 0)
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: nil, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 0, includeSource: true
+                store: store, session: nil, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 0, includeSource: true
             )
 
             #expect(result.sourceLayer == .lspIndex)
@@ -870,7 +870,7 @@ struct LayeredOpsTests {
             let (session, _) = await Self.liveSession(implementations: [liveLocation])
 
             let result = try await LiveOpsCore<FakeLanguageServerConnection>.implementations(
-                store: store, session: session, rootDirectory: root, filePath: "Drawable.swift", line: 0, character: 9, includeSource: true
+                store: store, session: session, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), filePath: "Drawable.swift", line: 0, character: 9, includeSource: true
             )
 
             #expect(result.sourceLayer == .liveLSP)

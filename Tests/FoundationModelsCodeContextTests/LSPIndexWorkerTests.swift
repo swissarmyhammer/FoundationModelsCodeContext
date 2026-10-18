@@ -89,6 +89,7 @@ struct LSPIndexWorkerTests {
             let indexedCount = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
                 store: store,
                 rootDirectory: root,
+                pathFilter: SharedPathFilter(rootDirectory: root),
                 extensions: ["swift"],
                 session: session
             )
@@ -124,6 +125,7 @@ struct LSPIndexWorkerTests {
             try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
                 store: store,
                 rootDirectory: root,
+                pathFilter: SharedPathFilter(rootDirectory: root),
                 extensions: ["swift"],
                 session: session
             )
@@ -156,7 +158,7 @@ struct LSPIndexWorkerTests {
                 .success([Self.documentSymbol(name: "helper", kind: .function, startLine: 0, endLine: 0)])
             )
             _ = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
 
             // Now mark B dirty and drain it: its own symbol is `caller`, and
@@ -177,7 +179,7 @@ struct LSPIndexWorkerTests {
                 ]))
 
             let indexedCount = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
             #expect(indexedCount == 1)
 
@@ -222,7 +224,7 @@ struct LSPIndexWorkerTests {
                     Self.documentSymbol(name: "other", kind: .function, startLine: 1, endLine: 1),
                 ]))
             _ = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
 
             // Now mark B dirty: it calls A's `helper`, producing an
@@ -243,7 +245,7 @@ struct LSPIndexWorkerTests {
                     )
                 ]))
             _ = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
 
             let edgeCountBeforeShrink = try await store.read { db in
@@ -272,7 +274,7 @@ struct LSPIndexWorkerTests {
             await connection.setPrepareCallHierarchyResult(.success([]))
             await connection.setOutgoingCallsResult(.success([]))
             _ = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
 
             // B held an edge into the now-deleted `helper` symbol, so it must
@@ -308,7 +310,7 @@ struct LSPIndexWorkerTests {
 
             let session = LspSession(connection: connection, languageID: "swift")
             let indexedCount = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
 
             #expect(indexedCount == 0)
@@ -345,7 +347,7 @@ struct LSPIndexWorkerTests {
             let session = LspSession(connection: connection, languageID: "swift")
 
             _ = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
             #expect(try await store.drainLspDirty() == ["A.swift"])
 
@@ -353,7 +355,7 @@ struct LSPIndexWorkerTests {
                 .success([Self.documentSymbol(name: "fromA", kind: .function, startLine: 0, endLine: 0)])
             )
             let indexedCount = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
 
             #expect(indexedCount == 1)
@@ -378,7 +380,7 @@ struct LSPIndexWorkerTests {
             let session = LspSession(connection: connection, languageID: "swift")
 
             let indexedCount = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
 
             #expect(indexedCount == 1)
@@ -414,7 +416,7 @@ struct LSPIndexWorkerTests {
             let session = LspSession(connection: connection, languageID: "swift")
 
             let indexedCount = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
 
             #expect(indexedCount == 1)
@@ -441,7 +443,7 @@ struct LSPIndexWorkerTests {
             let session = LspSession(connection: connection, languageID: "swift")
 
             let indexedCount = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
-                store: store, rootDirectory: root, extensions: ["swift"], session: session
+                store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
             )
 
             #expect(indexedCount == 0)
@@ -464,6 +466,7 @@ struct LSPIndexWorkerTests {
                 try await LSPIndexWorker<FakeLanguageServerConnection>.run(
                     store: store,
                     rootDirectory: root,
+                    pathFilter: SharedPathFilter(rootDirectory: root),
                     extensions: ["swift"],
                     sessionProvider: { session },
                     configuration: configuration,
@@ -516,6 +519,7 @@ struct LSPIndexWorkerTests {
                 try await LSPIndexWorker<FakeLanguageServerConnection>.run(
                     store: store,
                     rootDirectory: root,
+                    pathFilter: SharedPathFilter(rootDirectory: root),
                     extensions: ["swift"],
                     sessionProvider: { await sessionBox.current },
                     configuration: configuration,
