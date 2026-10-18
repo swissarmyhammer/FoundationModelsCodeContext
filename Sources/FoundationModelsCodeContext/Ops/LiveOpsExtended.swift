@@ -314,7 +314,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     /// LSP-index layer. A server that does not advertise call hierarchy (for
     /// example `pylsp`) gets no call-hierarchy request: its live layer asks
     /// for `textDocument/references` instead (see
-    /// `referenceInboundCalls(session:store:rootDirectory:uri:position:)`),
+    /// `referenceInboundCalls(session:store:root:uri:position:)`),
     /// and its index layer holds the edges that the references fallback of
     /// `LSPIndexWorker` wrote. The LSP-index layer reuses `LayeredContext.lspCallersOf` — the same
     /// "callers of this symbol" query `LiveOpsCore.references`' own
@@ -380,7 +380,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
             let outcome = await LiveOpsCore<Connection>.withLiveDocument(
                 session: session, rootDirectory: rootDirectory, pathFilter: pathFilter, filePath: filePath
             ) { uri in
-                try await referenceInboundCalls(session: session, store: store, rootDirectory: rootDirectory, uri: uri, position: position)
+                try await referenceInboundCalls(session: session, store: store, root: pathFilter.root, uri: uri, position: position)
             }
             // A connection failure gives `nil` inside `referenceInboundCalls`, thus
             // the error of the outcome is a storage error, and it goes to the caller.
@@ -396,7 +396,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
 
         let calls = try await store.read { db in
             try rawCalls.map { call -> InboundCall in
-                let path = RelativePath.relativeFilePath(fromURI: call.from.uri, rootDirectory: rootDirectory)
+                let path = pathFilter.root.relativeFilePath(fromURI: call.from.uri)
                 let symbol = try LayeredContext.enrichLocation(db: db, filePath: path, range: call.from.range).symbol
                 return InboundCall(callerName: call.from.name, filePath: path, range: call.from.range, callSites: call.fromRanges, symbol: symbol)
             }
@@ -415,7 +415,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     /// - Parameters:
     ///   - session: The live session, already synced with the document.
     ///   - store: The workspace's index store, to find the caller of each reference.
-    ///   - rootDirectory: The workspace root the reference uris are made relative to.
+    ///   - root: The workspace root the reference uris are made relative to.
     ///   - uri: The document of the symbol.
     ///   - position: The position of the symbol.
     /// - Returns: The callers, or `nil` (try the next layer) when the request
@@ -424,7 +424,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     private static func referenceInboundCalls(
         session: LspSession<Connection>,
         store: Store,
-        rootDirectory: URL,
+        root: WorkspaceRoot,
         uri: DocumentURI,
         position: Position
     ) async throws -> InboundCallsResult? {
@@ -436,7 +436,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
         }
 
         let calls = try await store.read { db in
-            try inboundCalls(fromReferences: locations, db: db, rootDirectory: rootDirectory)
+            try inboundCalls(fromReferences: locations, db: db, root: root)
         }
         guard !calls.isEmpty else { return nil }
         return InboundCallsResult(calls: calls, sourceLayer: .liveLSP)
@@ -466,13 +466,13 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     /// - Parameters:
     ///   - locations: The reference locations.
     ///   - db: The database connection to find the callers through.
-    ///   - rootDirectory: The workspace root the location uris are made relative to.
+    ///   - root: The workspace root the location uris are made relative to.
     /// - Returns: One inbound call for each caller, with the references as
     ///   its call sites, ordered by the file and the line of the caller.
     /// - Throws: Rethrows any error the queries throw.
-    private static func inboundCalls(fromReferences locations: [Location], db: Database, rootDirectory: URL) throws -> [InboundCall] {
+    private static func inboundCalls(fromReferences locations: [Location], db: Database, root: WorkspaceRoot) throws -> [InboundCall] {
         let callSites = try locations.compactMap { location -> (caller: LayeredSymbolInfo, range: LSPRange)? in
-            let path = RelativePath.relativeFilePath(fromURI: location.uri, rootDirectory: rootDirectory)
+            let path = root.relativeFilePath(fromURI: location.uri)
             return try LayeredContext.enclosingCallable(db: db, filePath: path, line: location.range.start.line).map { ($0, location.range) }
         }
         let callSitesByCaller = Dictionary(grouping: callSites, by: \.caller)
@@ -533,12 +533,13 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     ///
     /// - Parameters:
     ///   - supervisor: The supervisor to find the running sessions through.
-    ///   - rootDirectory: The workspace root each match's file path is made relative to.
+    ///   - root: The workspace root each match's file path is made relative to
+    ///     (see `WorkspaceRoot.relativeFilePath(fromURI:)`).
     ///   - query: The search string, interpreted by the server (typically fuzzy).
     /// - Returns: The matching symbols, and why no server answered when none has the method.
     static func workspaceSymbols(
         supervisor: LspSupervisor<Connection>,
-        rootDirectory: URL,
+        root: WorkspaceRoot,
         query: String
     ) async throws -> WorkspaceSymbolsResult {
         let running = await supervisor.sessions()
@@ -557,7 +558,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
 
         var symbols: [WorkspaceSymbolInfo] = []
         for session in advertising {
-            symbols += await liveWorkspaceSymbols(session: session, rootDirectory: rootDirectory, query: query)
+            symbols += await liveWorkspaceSymbols(session: session, root: root, query: query)
         }
         return WorkspaceSymbolsResult(symbols: symbols)
     }
@@ -565,14 +566,14 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
     /// Asks one session for the symbols matching `query`.
     /// - Parameters:
     ///   - session: The session to ask. It must advertise workspace symbols.
-    ///   - rootDirectory: The workspace root each match's file path is made relative to.
+    ///   - root: The workspace root each match's file path is made relative to.
     ///   - query: The search string.
     /// - Returns: The matches of this one server, or an empty array when the
     ///   request fails — one server that fails must not hide the matches of
     ///   the other servers.
     private static func liveWorkspaceSymbols(
         session: LspSession<Connection>,
-        rootDirectory: URL,
+        root: WorkspaceRoot,
         query: String
     ) async -> [WorkspaceSymbolInfo] {
         let rawSymbols: [SymbolInformation]
@@ -582,7 +583,7 @@ enum LiveOpsExtended<Connection: LanguageServerConnection> {
             return []
         }
         return rawSymbols.map { info -> WorkspaceSymbolInfo in
-            let path = RelativePath.relativeFilePath(fromURI: info.location.uri, rootDirectory: rootDirectory)
+            let path = root.relativeFilePath(fromURI: info.location.uri)
             return WorkspaceSymbolInfo(name: info.name, kind: info.kind, filePath: path, range: info.location.range, containerName: info.containerName)
         }
     }

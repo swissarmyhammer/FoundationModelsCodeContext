@@ -106,8 +106,24 @@ comments:
     - evidence: swift test (root) 1004 tests in 90 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests complete; swift test --package-path IntegrationTests --filter "LanguageServerProcessGroupTests|LSPCancelRequestTests" 3 tests in 2 suites passed. Only warning: SwiftPM "missing creator for mutated node" for the mlx-swift_Cmlx bundle (dependency, not this package).
     - next: commit
   timestamp: 2026-10-18T13:16:15.032179+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m57jtyq8fgpz7071hdvv9505
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (3499881). 0 findings, 0 confirmed, 2 refuted. 9 files reviewed. All prior Review Findings items are checked. The 08:02 item is fixed: CancellableWaiters.flag(isSet:) in Tests/FoundationModelsCodeContextTests/Support/CancellableWaiters+Flag.swift replaces the two private helper copies.
+    - next: none. The task moved to done.
+  timestamp: 2026-10-18T13:22:23.080515+00:00
+- actor: claude-code
+  id: 01m57jv96k83bx61667wp1f457
+  text: |-
+    ### finish iteration 3 — clean
+    - implement: changed — 9 files (shared flag test helper, shared processExists)
+    - test: green — swift test, 1004 passed; integration 3 passed
+    - commit: 3499881
+    - review: clean — 0 findings; 4 of 4 prior items checked
+  timestamp: 2026-10-18T13:22:33.811594+00:00
+position_column: done
+position_ordinal: ee80
 title: Start each language server in its own process group and kill the group on close and on deinit
 ---
 ## Problem

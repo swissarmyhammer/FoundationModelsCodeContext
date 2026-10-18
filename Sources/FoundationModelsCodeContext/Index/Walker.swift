@@ -133,18 +133,20 @@ enum Walker {
     /// Enumerates non-ignored files under `rootDirectory`, filtered to
     /// `extensions`.
     ///
+    /// The relative path of each entry comes from the walk, thus from
+    /// `WorkspaceRoot.relativeComponents(ofPathComponents:)`: it is the row
+    /// key of the file, also for a root that is a symbolic link.
     /// - Parameters:
     ///   - rootDirectory: The directory to walk.
     ///   - extensions: File extensions to include, without a leading dot,
     ///     matched case-insensitively. Defaults to every extension
     ///     registered across `Languages.all` when `nil`.
-    /// - Returns: The matched files' full URLs, in no particular order.
+    /// - Returns: The entries of the matched files, depth first, in name order.
     /// - Throws: Rethrows `walkEntries(rootDirectory:)`'s errors.
-    static func enumerateFiles(rootDirectory: URL, extensions: Set<String>? = nil) throws -> [URL] {
+    static func enumerateFiles(rootDirectory: URL, extensions: Set<String>? = nil) throws -> [Entry] {
         let allowedExtensions = extensions ?? knownLanguageExtensions
         return try walkEntries(rootDirectory: rootDirectory)
             .filter { !$0.isDirectory && allowedExtensions.contains(Languages.normalizedFileExtension(of: $0.url)) }
-            .map(\.url)
     }
 
     /// Walks `rootDirectory` and concurrently hashes every file whose

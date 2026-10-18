@@ -519,7 +519,7 @@ struct DiagnosticsTests {
             uriDiagnostics: uriDiagnostics,
             targets: ["target.swift"],
             dependentFiles: ["broken.swift", "clean.swift", "noisy.swift"],
-            rootDirectory: URL(fileURLWithPath: "/repo"),
+            root: WorkspaceRoot(URL(fileURLWithPath: "/repo")),
             severity: .warning,
             perReportCap: 100,
             pending: false
@@ -544,7 +544,7 @@ struct DiagnosticsTests {
             uriDiagnostics: uriDiagnostics,
             targets: ["target.swift"],
             dependentFiles: [],
-            rootDirectory: URL(fileURLWithPath: "/repo"),
+            root: WorkspaceRoot(URL(fileURLWithPath: "/repo")),
             severity: .warning,
             perReportCap: 100,
             pending: false

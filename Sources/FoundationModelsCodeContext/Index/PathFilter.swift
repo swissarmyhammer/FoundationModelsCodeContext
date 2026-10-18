@@ -308,6 +308,12 @@ actor SharedPathFilter {
     /// The root of the workspace.
     private let rootDirectory: URL
 
+    /// The root of the workspace, with its canonical form. It is the root of
+    /// each filter of this instance, thus the init computes the canonical
+    /// form one time. A caller that makes the relative path of a URI from a
+    /// language server uses it (see `WorkspaceRoot.relativePath(ofURI:)`).
+    nonisolated let root: WorkspaceRoot
+
     /// The filter of the last complete load. Before the first load, it has only
     /// the hidden-path and hard-skip rules.
     private var current: PathFilter
@@ -320,7 +326,9 @@ actor SharedPathFilter {
     /// - Parameter rootDirectory: The workspace root.
     init(rootDirectory: URL) {
         self.rootDirectory = rootDirectory
-        current = PathFilter(rootDirectory: rootDirectory)
+        let initialFilter = PathFilter(rootDirectory: rootDirectory)
+        root = initialFilter.root
+        current = initialFilter
     }
 
     /// The current filter. A read while a load runs waits for that load.

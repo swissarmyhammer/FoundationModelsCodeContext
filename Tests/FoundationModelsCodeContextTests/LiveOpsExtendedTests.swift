@@ -369,7 +369,7 @@ struct LiveOpsExtendedTests {
         }
 
         return try await LiveOpsExtended<FakeLanguageServerConnection>.workspaceSymbols(
-            supervisor: supervisor, rootDirectory: root, query: query
+            supervisor: supervisor, root: WorkspaceRoot(root), query: query
         )
     }
 
@@ -481,7 +481,7 @@ struct LiveOpsExtendedTests {
             )
 
             let result = try await LiveOpsExtended<FakeLanguageServerConnection>.workspaceSymbols(
-                supervisor: supervisor, rootDirectory: root, query: "sample"
+                supervisor: supervisor, root: WorkspaceRoot(root), query: "sample"
             )
 
             #expect(result.symbols.isEmpty)

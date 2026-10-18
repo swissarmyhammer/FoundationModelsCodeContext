@@ -72,7 +72,7 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
             uriDiagnostics: uriDiagnostics,
             targets: targets,
             dependentFiles: dependentFiles,
-            rootDirectory: rootDirectory,
+            root: pathFilter.root,
             severity: severity,
             perReportCap: perReportCap,
             pending: settlePending || notReady
@@ -203,7 +203,8 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
     ///   - uriDiagnostics: The settle engine's per-uri diagnostics (or empty, if settling never produced any).
     ///   - targets: The scope's resolved target files, in query order.
     ///   - dependentFiles: The resolved one-hop dependent files (already excluding targets).
-    ///   - rootDirectory: The workspace root uris are relativized against.
+    ///   - root: The workspace root uris are relativized against (see
+    ///     `WorkspaceRoot.relativeFilePath(fromURI:)`).
     ///   - severity: The severity floor: records less severe than this are excluded.
     ///   - perReportCap: The maximum number of records in the returned report.
     ///   - pending: Whether the report may be incomplete.
@@ -212,14 +213,14 @@ enum DiagnosticsOps<Connection: LanguageServerConnection> {
         uriDiagnostics: [DocumentURI: [Diagnostic]],
         targets: [String],
         dependentFiles: [String],
-        rootDirectory: URL,
+        root: WorkspaceRoot,
         severity: DiagnosticSeverity,
         perReportCap: Int,
         pending: Bool
     ) -> DiagnosticsReport {
         var recordsByPath: [String: [DiagnosticRecord]] = [:]
         for (uri, diagnostics) in uriDiagnostics {
-            let path = RelativePath.relativeFilePath(fromURI: uri, rootDirectory: rootDirectory)
+            let path = root.relativeFilePath(fromURI: uri)
             let filtered =
                 diagnostics
                 .filter { $0.severity.rawValue <= severity.rawValue }

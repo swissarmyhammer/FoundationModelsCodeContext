@@ -889,9 +889,9 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         )
     }
 
-    /// See `LiveOpsExtended.workspaceSymbols(supervisor:rootDirectory:query:)`.
+    /// See `LiveOpsExtended.workspaceSymbols(supervisor:root:query:)`.
     public func workspaceSymbols(query: String) async throws -> WorkspaceSymbolsResult {
-        try await LiveOpsExtended<Connection>.workspaceSymbols(supervisor: supervisor, rootDirectory: rootDirectory, query: query)
+        try await LiveOpsExtended<Connection>.workspaceSymbols(supervisor: supervisor, root: pathFilter.root, query: query)
     }
 
     // MARK: - Diagnostics

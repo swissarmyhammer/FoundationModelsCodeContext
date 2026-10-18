@@ -387,7 +387,7 @@ struct WalkerTests {
             try write("struct A {}", to: "b.swift", in: root)
 
             let rustOnly = try Walker.enumerateFiles(rootDirectory: root, extensions: ["rs"])
-            #expect(rustOnly.map(\.lastPathComponent) == ["a.rs"])
+            #expect(rustOnly.map(\.relativePath) == ["a.rs"])
         }
     }
 
@@ -398,10 +398,10 @@ struct WalkerTests {
             try write("def a(): pass", to: "script.PY", in: root)
 
             let rustOnly = try Walker.enumerateFiles(rootDirectory: root, extensions: ["rs"])
-            #expect(rustOnly.map(\.lastPathComponent) == ["Sample.RS"])
+            #expect(rustOnly.map(\.relativePath) == ["Sample.RS"])
 
             let pythonOnly = try Walker.enumerateFiles(rootDirectory: root, extensions: ["py"])
-            #expect(pythonOnly.map(\.lastPathComponent) == ["script.PY"])
+            #expect(pythonOnly.map(\.relativePath) == ["script.PY"])
         }
     }
 }

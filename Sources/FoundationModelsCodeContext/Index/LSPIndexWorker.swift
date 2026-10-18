@@ -539,7 +539,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             uri: uri,
             contents: contents,
             flatSymbols: flatSymbols,
-            rootDirectory: rootDirectory,
+            root: pathFilter.root,
             session: session,
             store: store
         )
@@ -826,19 +826,21 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// A request failure for one symbol is logged and skipped rather than
     /// propagated — mirroring the Rust reference's "edge-collection failures
     /// are logged but do not fail the whole index pass". A symbol whose uri
-    /// doesn't resolve to a path under `rootDirectory` (an external symbol,
-    /// e.g. a standard-library definition) is skipped: this port's
-    /// `lsp_symbols.file_path` is a foreign key into `indexed_files`, so
-    /// there is no row to attribute an external symbol to.
+    /// doesn't resolve to a path under the root or the canonical root of
+    /// `pathFilter` (an external symbol, e.g. a standard-library definition)
+    /// is skipped: this port's `lsp_symbols.file_path` is a foreign key into
+    /// `indexed_files`, so there is no row to attribute an external symbol to.
     /// - Parameters:
     ///   - filePath: The file `flatSymbols` were flattened from.
     ///   - uri: `filePath`'s document uri, already synced via `syncOpen`.
     ///   - contents: The text of `filePath`, where the references fallback
     ///     finds the name of each symbol.
     ///   - flatSymbols: The file's flattened symbols.
-    ///   - rootDirectory: The workspace root symbol uris are resolved against.
+    ///   - rootDirectory: The workspace root that the references fallback
+    ///     opens each file below.
     ///   - pathFilter: The path filter that the references fallback examines
-    ///     each file with before it opens the file.
+    ///     each file with before it opens the file. Its root makes the
+    ///     relative path of each symbol uri.
     ///   - session: The live session to issue the requests through.
     /// - Returns: Every collected edge, in no particular order.
     private static func collectCallEdges(
@@ -870,7 +872,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
                     forSymbol: symbol,
                     filePath: filePath,
                     uri: uri,
-                    rootDirectory: rootDirectory,
+                    root: pathFilter.root,
                     session: session
                 ))
         }
@@ -885,23 +887,26 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///
     /// A `prepareCallHierarchy`/`outgoingCalls` failure is logged and
     /// skipped rather than propagated (see `collectCallEdges`'s doc comment
-    /// for why). A callee whose uri doesn't resolve to a path under
-    /// `rootDirectory` (an external symbol, e.g. a standard-library
-    /// definition) is skipped: this port's `lsp_symbols.file_path` is a
-    /// foreign key into `indexed_files`, so there is no row to attribute an
-    /// external callee to.
+    /// for why). The relative path of a callee comes from
+    /// `WorkspaceRoot.relativePath(ofURI:)`, thus a callee uri with the real
+    /// path of the file (for a root that is a symbolic link) gets the row key
+    /// of the file too. A callee whose uri doesn't resolve to a path under
+    /// the root or the canonical root (an external symbol, e.g. a
+    /// standard-library definition) is skipped: this port's
+    /// `lsp_symbols.file_path` is a foreign key into `indexed_files`, so
+    /// there is no row to attribute an external callee to.
     /// - Parameters:
     ///   - symbol: The callable symbol to query outgoing calls for.
     ///   - filePath: The file `symbol` was flattened from, used only for log context.
     ///   - uri: `filePath`'s document uri, already synced via `syncOpen`.
-    ///   - rootDirectory: The workspace root callee uris are resolved against.
+    ///   - root: The workspace root callee uris are resolved against.
     ///   - session: The live session to issue call-hierarchy requests through.
     /// - Returns: `symbol`'s collected outgoing edges, in no particular order.
     private static func collectEdges(
         forSymbol symbol: FlatSymbol,
         filePath: String,
         uri: DocumentURI,
-        rootDirectory: URL,
+        root: WorkspaceRoot,
         session: LspSession<Connection>
     ) async -> [PendingCallEdge] {
         let position = Position(line: symbol.startLine, character: symbol.startColumn)
@@ -926,9 +931,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         }
 
         return outgoing.compactMap { call in
-            guard let calleeURL = URL(string: call.to.uri.value),
-                let calleeRelativePath = RelativePath.of(calleeURL, relativeTo: rootDirectory)
-            else {
+            guard let calleeRelativePath = root.relativePath(ofURI: call.to.uri) else {
                 return nil
             }
 

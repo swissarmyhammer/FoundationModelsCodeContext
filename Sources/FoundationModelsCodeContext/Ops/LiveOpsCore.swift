@@ -335,7 +335,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
 
         let locations = try await store.read { db in
             try rawLocations.map { location -> DefinitionLocation in
-                let path = RelativePath.relativeFilePath(fromURI: location.uri, rootDirectory: rootDirectory)
+                let path = pathFilter.root.relativeFilePath(fromURI: location.uri)
                 let sourceText = includeSource ? readSourceRange(rootDirectory: rootDirectory, filePath: path, range: location.range) : nil
                 let symbol = try LayeredContext.enrichLocation(db: db, filePath: path, range: location.range).symbol
                 return DefinitionLocation(filePath: path, range: location.range, sourceText: sourceText, symbol: symbol)
@@ -545,7 +545,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
 
         let references = try await store.read { db in
             try rawLocations.map { location -> ReferenceLocation in
-                let path = RelativePath.relativeFilePath(fromURI: location.uri, rootDirectory: rootDirectory)
+                let path = pathFilter.root.relativeFilePath(fromURI: location.uri)
                 let symbol = try LayeredContext.enrichLocation(db: db, filePath: path, range: location.range).symbol
                 return ReferenceLocation(filePath: path, range: location.range, enclosingSymbol: symbol)
             }
@@ -779,7 +779,7 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
 
         let implementations = try await store.read { db in
             try rawLocations.prefix(maxResults).map { location -> DefinitionLocation in
-                let path = RelativePath.relativeFilePath(fromURI: location.uri, rootDirectory: rootDirectory)
+                let path = pathFilter.root.relativeFilePath(fromURI: location.uri)
                 let sourceText = includeSource ? readSourceRange(rootDirectory: rootDirectory, filePath: path, range: location.range) : nil
                 let symbol = try LayeredContext.enrichLocation(db: db, filePath: path, range: location.range).symbol
                 return DefinitionLocation(filePath: path, range: location.range, sourceText: sourceText, symbol: symbol)

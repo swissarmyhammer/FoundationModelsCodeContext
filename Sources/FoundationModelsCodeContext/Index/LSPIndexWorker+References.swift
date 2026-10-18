@@ -32,7 +32,7 @@ import GRDB
 ///   `reverseEdgeFiles(db:symbolIDs:excludingFile:)`).
 /// - A new or changed call in another file marks the file of the called
 ///   symbol dirty (see
-///   `collectCallSiteTargets(filePath:uri:contents:flatSymbols:rootDirectory:session:store:)`
+///   `collectCallSiteTargets(filePath:uri:contents:flatSymbols:root:session:store:)`
 ///   and `calleeFilesMissingAnEdge(db:targets:symbolIDsByStartLine:)`).
 ///   The next pass of the called file then finds the new caller among the
 ///   references.
@@ -48,9 +48,11 @@ extension LSPIndexWorker {
     ///   - uri: `filePath`'s document uri, already synced via `syncOpen`.
     ///   - contents: The text of `filePath`, where the name of each symbol is found.
     ///   - flatSymbols: The file's flattened symbols.
-    ///   - rootDirectory: The workspace root reference uris are resolved against.
+    ///   - rootDirectory: The workspace root that each file that holds a
+    ///     reference is opened below.
     ///   - pathFilter: The path filter of the workspace. A file that holds a
-    ///     reference is opened only when the filter accepts it.
+    ///     reference is opened only when the filter accepts it. Its root makes
+    ///     the relative path of each reference uri.
     ///   - session: The live session to send the requests through.
     /// - Returns: One edge for each (caller, callee) pair, in no particular order.
     static func collectReferenceEdges(
@@ -121,9 +123,11 @@ extension LSPIndexWorker {
     /// - Parameters:
     ///   - callee: The symbol the references point at.
     ///   - locations: The reference locations of `callee`.
-    ///   - rootDirectory: The workspace root the location uris are resolved against.
+    ///   - rootDirectory: The workspace root that each file that holds a
+    ///     reference is opened below.
     ///   - pathFilter: The path filter that each file that holds a reference
-    ///     must pass before it is opened.
+    ///     must pass before it is opened. Its root makes the relative path of
+    ///     each location uri (see `WorkspaceRoot.relativePath(ofURI:)`).
     ///   - session: The live session to read the symbols of other files through.
     ///   - callableSymbolsByFile: The callable symbols read so far in this pass;
     ///     a file read here is added to it.
@@ -139,7 +143,7 @@ extension LSPIndexWorker {
     ) async -> [PendingCallEdge] {
         var callSites: [(caller: FlatSymbol, range: LSPRange)] = []
         for location in locations {
-            guard let callerFile = relativePath(of: location.uri, rootDirectory: rootDirectory) else {
+            guard let callerFile = pathFilter.root.relativePath(ofURI: location.uri) else {
                 continue
             }
             let candidates = await callableSymbols(
@@ -163,15 +167,6 @@ extension LSPIndexWorker {
                 fromRangesJSON: encodeFromRanges(callSitesByCaller[caller, default: []].map(\.range))
             )
         }
-    }
-
-    /// The workspace-relative path of `uri`, or `nil` when it is not a file
-    /// under `rootDirectory` (for example a library outside the workspace).
-    private static func relativePath(of uri: DocumentURI, rootDirectory: URL) -> String? {
-        guard let url = URL(string: uri.value) else {
-            return nil
-        }
-        return RelativePath.of(url, relativeTo: rootDirectory)
     }
 
     /// The callable symbols of `relativePath`, read one time for each pass.
@@ -287,7 +282,8 @@ extension LSPIndexWorker {
     ///   - uri: `filePath`'s document uri, already synced via `syncOpen`.
     ///   - contents: The text of `filePath`, where the calls are found.
     ///   - flatSymbols: The file's flattened symbols.
-    ///   - rootDirectory: The workspace root the definition uris are resolved against.
+    ///   - root: The workspace root the definition uris are resolved against
+    ///     (see `WorkspaceRoot.relativePath(ofURI:)`).
     ///   - session: The live session to send the requests through.
     ///   - store: The workspace's index store, where the content hashes are.
     /// - Returns: The distinct targets of the calls of `filePath`.
@@ -296,7 +292,7 @@ extension LSPIndexWorker {
         uri: DocumentURI,
         contents: String,
         flatSymbols: [FlatSymbol],
-        rootDirectory: URL,
+        root: WorkspaceRoot,
         session: LspSession<Connection>,
         store: Store
     ) async -> Set<CallSiteTarget> {
@@ -309,7 +305,7 @@ extension LSPIndexWorker {
             let locations = await definitionLocations(at: call.position, uri: uri, filePath: filePath, session: session)
             targets.formUnion(
                 locations.compactMap { location in
-                    guard let calleeFile = relativePath(of: location.uri, rootDirectory: rootDirectory), calleeFile != filePath else {
+                    guard let calleeFile = root.relativePath(ofURI: location.uri), calleeFile != filePath else {
                         return nil
                     }
                     return CallSiteTarget(callerStartLine: call.caller.startLine, calleeFile: calleeFile, calleePosition: location.range.start)

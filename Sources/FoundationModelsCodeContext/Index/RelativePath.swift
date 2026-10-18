@@ -3,8 +3,11 @@ import Foundation
 /// A workspace root, with its canonical form.
 ///
 /// `relativePath(of:)` is the one function that makes the row key of a file:
-/// the watcher, the reconcile walk (through `PathFilter`) and
-/// `DiagnosticsScopeResolver` use it. If two of them made different keys for
+/// the watcher, the reconcile walk (through `PathFilter`), `QueryAST` (through
+/// the walk) and `DiagnosticsScopeResolver` use it. The LSP index worker, the
+/// live operations and the diagnostics operation use it for each URI that a
+/// language server sends (`relativePath(ofURI:)` and
+/// `relativeFilePath(fromURI:)`). If two of them made different keys for
 /// one file, the file would get two rows in `indexed_files`, and the reconcile
 /// and the watcher would delete and add the second row again and again.
 ///
@@ -50,6 +53,38 @@ struct WorkspaceRoot: Sendable, Equatable {
     ///   is not below the root or the canonical root.
     func relativePath(of url: URL) -> String? {
         relativeComponents(of: url)?.joined(separator: "/")
+    }
+
+    /// Gives the path of the file of `uri` relative to the root, with `/`
+    /// separators. See `relativePath(of:)`.
+    ///
+    /// A language server can send the real path of a file: for a root of
+    /// `/var/folders/...` it sends `/private/var/folders/...`, and for a root
+    /// that is a symbolic link it sends the path of the target. The canonical
+    /// root gives the relative path also for such a URI.
+    /// - Parameter uri: A document URI from a language server.
+    /// - Returns: The relative path, or `nil` when `uri` is not a URL, or its
+    ///   file is not below the root or the canonical root (for example a
+    ///   library outside the workspace).
+    func relativePath(ofURI uri: DocumentURI) -> String? {
+        URL(string: uri.value).flatMap(relativePath(of:))
+    }
+
+    /// Gives the path of the file of `uri` relative to the root, or a path
+    /// that shows the file when it is not below the root.
+    ///
+    /// A live operation shows each location that a language server gives,
+    /// also a location outside the workspace (for example a standard-library
+    /// definition). Thus this function does not give `nil`.
+    /// - Parameter uri: A document URI from a language server.
+    /// - Returns: The relative path (see `relativePath(of:)`). When the file is
+    ///   not below the root or the canonical root, the absolute file path. When
+    ///   `uri` is not a URL, the raw value of `uri`.
+    func relativeFilePath(fromURI uri: DocumentURI) -> String {
+        guard let url = URL(string: uri.value) else {
+            return uri.value
+        }
+        return relativePath(of: url) ?? url.path
     }
 
     /// Gives the path components of `url` relative to the root.
@@ -106,23 +141,11 @@ struct WorkspaceRoot: Sendable, Equatable {
 
 /// Shared relative-path computation and validation.
 ///
-/// `of(_:relativeTo:)` expresses a filesystem `URL` as a `/`-separated path
-/// relative to some base directory. `WorkspaceRoot` uses the component form
-/// to make the row key of a file. `isSafeRelativePath(_:)` is used by
-/// `LSPIndexWorker` and `LiveOpsCore`, which both need to guard a relative
-/// path against traversal before resolving it against a workspace root.
+/// `WorkspaceRoot` uses the component functions to make the row key of a
+/// file. `isSafeRelativePath(_:)` is used by `LSPIndexWorker` and
+/// `LiveOpsCore`, which both need to guard a relative path against traversal
+/// before resolving it against a workspace root.
 enum RelativePath {
-    /// Computes `url`'s path relative to `base`, using `/` separators.
-    ///
-    /// - Parameters:
-    ///   - url: The candidate URL.
-    ///   - base: The base directory `url` is expected to be nested under.
-    /// - Returns: `url`'s path components following `base`'s, joined with
-    ///   `/`, or `nil` if `url` is not a descendant of `base`.
-    static func of(_ url: URL, relativeTo base: URL) -> String? {
-        components(components(of: url), after: components(of: base))?.joined(separator: "/")
-    }
-
     /// Gives the path components that follow a base directory, from path
     /// components that the caller computed before.
     ///
@@ -170,19 +193,5 @@ enum RelativePath {
             return false
         }
         return !relativePath.split(separator: "/").contains("..")
-    }
-
-    /// Converts a `DocumentURI` back to a workspace-relative path, falling
-    /// back to the URI's raw filesystem path when it resolves outside
-    /// `rootDirectory` (e.g. a standard-library definition, for a live LSP
-    /// response). Shared by `LiveOpsCore` and `DiagnosticsOps`, which both
-    /// need to relativize a `DocumentURI` against the workspace root.
-    /// - Parameters:
-    ///   - uri: The document URI to relativize.
-    ///   - rootDirectory: The workspace root `uri` is expected to be nested under.
-    /// - Returns: `uri`'s workspace-relative path, or its raw value/filesystem path if it isn't nested under `rootDirectory`.
-    static func relativeFilePath(fromURI uri: DocumentURI, rootDirectory: URL) -> String {
-        guard let url = URL(string: uri.value) else { return uri.value }
-        return of(url, relativeTo: rootDirectory) ?? url.path
     }
 }

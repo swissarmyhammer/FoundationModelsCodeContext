@@ -254,6 +254,44 @@ struct LSPIndexWorkerTests {
         }
     }
 
+    @Test
+    func drainBatchStoresTheCalleeOfAURIWithTheRealPathBelowASymlinkedRootWithTheRelativeKey() async throws {
+        try await withSymlinkedWorkspace { link, target in
+            let store = try Store(rootDirectory: link)
+            try write("func helper() {}\n", to: "A.swift", in: target)
+            try write("func caller() { helper() }\n", to: "B.swift", in: target)
+            // The callee symbol row needs the row of its file. Only B.swift
+            // stays dirty for the LSP layer, thus the batch indexes only B.swift.
+            try await Self.seedDirty(store: store, filePath: "A.swift")
+            try await store.markIndexed(filePath: "A.swift", layer: .lsp)
+            try await Self.seedDirty(store: store, filePath: "B.swift")
+
+            let connection = FakeLanguageServerConnection()
+            let calleeURI = DocumentURI(try realPath(of: target.appendingPathComponent("A.swift")).absoluteString)
+            await connection.setDocumentSymbolsResult(.success([Self.documentSymbol(name: "caller", kind: .function, startLine: 0, endLine: 0)]))
+            await connection.setPrepareCallHierarchyResult(.success([Self.callHierarchyItem(name: "caller", uri: Self.uri(for: "B.swift", in: link))]))
+            await connection.setOutgoingCallsResult(
+                .success([CallHierarchyOutgoingCall(to: Self.callHierarchyItem(name: "helper", uri: calleeURI), fromRanges: [])])
+            )
+
+            _ = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
+                store: store,
+                rootDirectory: link,
+                pathFilter: SharedPathFilter(rootDirectory: link),
+                extensions: ["swift"],
+                session: LspSession(connection: connection, languageID: "swift")
+            )
+
+            let calleeFiles: [String] = try await store.read { db in
+                try String.fetchAll(
+                    db,
+                    sql: "SELECT callee.file_path FROM lsp_call_edges e JOIN lsp_symbols callee ON callee.id = e.callee_id"
+                )
+            }
+            #expect(calleeFiles == ["A.swift"])
+        }
+    }
+
     // MARK: - Invalidation
 
     @Test

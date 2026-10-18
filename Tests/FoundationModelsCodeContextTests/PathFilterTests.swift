@@ -29,6 +29,25 @@ struct PathFilterTests {
     }
 
     @Test
+    func relativeFilePathOfAURIWithTheRealPathBelowASymlinkedRootIsTheRelativeKey() async throws {
+        try await withSymlinkedWorkspace { link, target in
+            try write("fn a() {}", to: "src/a.rs", in: target)
+            let uri = DocumentURI(try realPath(of: target.appendingPathComponent("src/a.rs")).absoluteString)
+
+            #expect(WorkspaceRoot(link).relativeFilePath(fromURI: uri) == "src/a.rs")
+        }
+    }
+
+    @Test
+    func relativeFilePathOfAURIOutsideBothRootsIsTheFilePath() async throws {
+        try await withSymlinkedWorkspace { link, _ in
+            let outside = URL(fileURLWithPath: "/usr/include/stdio.h")
+
+            #expect(WorkspaceRoot(link).relativeFilePath(fromURI: DocumentURI(outside.absoluteString)) == outside.path)
+        }
+    }
+
+    @Test
     func aPathThatTheFilterCannotExamineIsIgnored() async throws {
         try await withTemporaryWorkspace { root in
             let filter = PathFilter(rootDirectory: root)

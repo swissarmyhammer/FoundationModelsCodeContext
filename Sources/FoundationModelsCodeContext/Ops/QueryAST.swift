@@ -175,17 +175,20 @@ public enum QueryAST {
 
         let extensions = Set(module.fileExtensions.map { $0.lowercased() })
         let files = try Walker.enumerateFiles(rootDirectory: rootDirectory, extensions: extensions)
-            .sorted { $0.path < $1.path }
+            .sorted { $0.relativePath < $1.relativePath }
 
-        return scan(files: files, rootDirectory: rootDirectory, parser: parser, query: compiledQuery, options: options)
+        return scan(files: files, parser: parser, query: compiledQuery, options: options)
     }
 
     /// Parses each of `files` in turn, running `query` against it and
     /// collecting captured matches until every file is scanned or
     /// `options.maxResults` is reached.
+    ///
+    /// The file of each match is the relative path of the walk entry (see
+    /// `Walker.enumerateFiles(rootDirectory:extensions:)`), thus it is the row
+    /// key of the file, also for a root that is a symbolic link.
     private static func scan(
-        files: [URL],
-        rootDirectory: URL,
+        files: [Walker.Entry],
         parser: Parser,
         query: Query,
         options: QueryASTOptions
@@ -194,8 +197,8 @@ public enum QueryAST {
         var filesScanned = 0
         var truncated = false
 
-        for fileURL in files {
-            guard let data = try? Data(contentsOf: fileURL), let contents = String(data: data, encoding: .utf8) else {
+        for file in files {
+            guard let data = try? Data(contentsOf: file.url), let contents = String(data: data, encoding: .utf8) else {
                 continue
             }
             guard let tree = parser.parse(contents), let root = tree.rootNode else {
@@ -203,11 +206,10 @@ public enum QueryAST {
             }
             filesScanned += 1
 
-            let relativePath = RelativePath.of(fileURL, relativeTo: rootDirectory) ?? fileURL.lastPathComponent
             let cursor = query.execute(node: root, in: tree)
             truncated = collectMatches(
                 from: cursor,
-                relativePath: relativePath,
+                relativePath: file.relativePath,
                 contents: contents,
                 options: options,
                 into: &matches
@@ -226,7 +228,7 @@ public enum QueryAST {
     /// reached.
     ///
     /// - Returns: `true` if `options.maxResults` was reached — the signal
-    ///   `scan(files:rootDirectory:parser:query:options:)` uses to stop
+    ///   `scan(files:parser:query:options:)` uses to stop
     ///   visiting further files.
     private static func collectMatches(
         from cursor: QueryCursor,
