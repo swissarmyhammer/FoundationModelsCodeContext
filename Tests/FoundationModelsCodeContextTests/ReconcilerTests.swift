@@ -28,6 +28,87 @@ private enum EntryTypeReaders {
     }
 }
 
+/// A cause that makes the walk leave one entry unexamined, and the way a test
+/// makes that cause occur.
+///
+/// The walker tests and the reconcile tests use one tree for each cause: one
+/// blocked source file at or below the unexamined entry, and one kept source
+/// file that the walk examines.
+enum UnexaminedEntryCause: CaseIterable, CustomTestStringConvertible {
+    /// A directory that the walk cannot list. A test removes its permissions.
+    case unlistableDirectory
+
+    /// A file that the walk cannot read for the hash. A test removes its
+    /// permissions.
+    case unreadableFile
+
+    /// A file whose type the walk cannot read. A test gives the walk an entry
+    /// type reader that fails for this file.
+    case unreadableEntryType
+
+    /// The path, relative to the root, of the source file that the walk
+    /// examines.
+    static let keptFile = "kept.rs"
+
+    /// The text that the test report shows for this argument.
+    var testDescription: String {
+        switch self {
+        case .unlistableDirectory: "a directory that the walk cannot list"
+        case .unreadableFile: "a file that the walk cannot read for the hash"
+        case .unreadableEntryType: "a file whose type the walk cannot read"
+        }
+    }
+
+    /// The path, relative to the root, of the entry that the walk does not
+    /// examine.
+    var unexaminedPath: String {
+        switch self {
+        case .unlistableDirectory: "blocked"
+        case .unreadableFile, .unreadableEntryType: "blocked.rs"
+        }
+    }
+
+    /// The path, relative to the root, of the source file at or below
+    /// `unexaminedPath`.
+    var blockedFile: String {
+        switch self {
+        case .unlistableDirectory: "blocked/inner/b.rs"
+        case .unreadableFile, .unreadableEntryType: "blocked.rs"
+        }
+    }
+
+    /// Writes `blockedFile` and `keptFile` under `root`.
+    /// - Parameter root: The workspace root.
+    /// - Throws: The error of a write.
+    func writeTree(in root: URL) throws {
+        try write("fn blocked() {}", to: blockedFile, in: root)
+        try write("fn kept() {}", to: Self.keptFile, in: root)
+    }
+
+    /// Runs `body` while the walk cannot examine `unexaminedPath`.
+    /// - Parameters:
+    ///   - root: The workspace root that `writeTree(in:)` wrote.
+    ///   - body: The work. It gets the entry type reader to give to the walk.
+    /// - Returns: `body`'s result.
+    /// - Throws: Rethrows what `body` throws, or the error of a change of the
+    ///   permissions.
+    func withFailure<T>(
+        in root: URL,
+        _ body: (_ readEntryType: @escaping Walker.EntryTypeReader) async throws -> T
+    ) async throws -> T {
+        let unexaminedURL = root.appendingPathComponent(unexaminedPath)
+        switch self {
+        case .unlistableDirectory, .unreadableFile:
+            let restoredPermissions = self == .unlistableDirectory ? restoredDirectoryPermissions : restoredFilePermissions
+            return try await withPermissions(noAccessPermissions, at: unexaminedURL, restoringTo: restoredPermissions) {
+                try await body(Walker.entryType(at:))
+            }
+        case .unreadableEntryType:
+            return try await body(EntryTypeReaders.failing(for: unexaminedURL.lastPathComponent))
+        }
+    }
+}
+
 /// Tests for `Reconciler`/`Walker`: gitignore-aware discovery (root and
 /// nested), stats correctness, and the add/change/remove reconcile flows
 /// against `Store`'s `indexed_files` table — port of `cleanup.rs`'s
@@ -256,68 +337,41 @@ struct ReconcilerTests {
 
     @Test
     func reconcileKeepsTheRowsUnderAnUnreadableDirectory() async throws {
-        try await withTemporaryWorkspace { root in
-            let store = try Store(rootDirectory: root)
-            try write("fn blocked() {}", to: "blocked/inner/b.rs", in: root)
-            try write("fn kept() {}", to: "kept.rs", in: root)
-            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
-
-            let stats = try await withPermissions(
-                noAccessPermissions,
-                at: root.appendingPathComponent("blocked"),
-                restoringTo: restoredDirectoryPermissions
-            ) {
-                try await Reconciler.reconcile(store: store, rootDirectory: root)
-            }
-
-            #expect(stats.removed == 0)
-            #expect(stats.skipped == 1)
-            let rowKeys = try await Self.rowKeys(in: store)
-            #expect(rowKeys == ["blocked/inner/b.rs", "kept.rs"])
-        }
+        try await Self.expectReconcileKeepsTheRows(under: .unlistableDirectory)
     }
 
     @Test
     func reconcileKeepsTheRowOfAnUnreadableFile() async throws {
+        try await Self.expectReconcileKeepsTheRows(under: .unreadableFile)
+    }
+
+    @Test
+    func reconcileKeepsTheRowOfAFileWhoseTypeTheWalkCannotRead() async throws {
+        try await Self.expectReconcileKeepsTheRows(under: .unreadableEntryType)
+    }
+
+    /// Indexes the tree of `cause`, reconciles again while the walk cannot
+    /// examine the entry of `cause`, and expects that the second reconcile
+    /// removes no row, counts one skipped entry, and keeps the row of each
+    /// file.
+    /// - Parameter cause: The cause that makes the walk leave the entry
+    ///   unexamined.
+    /// - Throws: The error of the setup, of a reconcile, or of the read of the
+    ///   rows.
+    private static func expectReconcileKeepsTheRows(under cause: UnexaminedEntryCause) async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
-            try write("fn blocked() {}", to: "blocked.rs", in: root)
-            try write("fn kept() {}", to: "kept.rs", in: root)
+            try cause.writeTree(in: root)
             _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
 
-            let stats = try await withPermissions(
-                noAccessPermissions,
-                at: root.appendingPathComponent("blocked.rs"),
-                restoringTo: restoredFilePermissions
-            ) {
-                try await Reconciler.reconcile(store: store, rootDirectory: root)
+            let stats = try await cause.withFailure(in: root) { readEntryType in
+                try await Reconciler.reconcile(store: store, rootDirectory: root, readEntryType: readEntryType)
             }
 
             #expect(stats.removed == 0)
             #expect(stats.skipped == 1)
             let rowKeys = try await Self.rowKeys(in: store)
-            #expect(rowKeys == ["blocked.rs", "kept.rs"])
-        }
-    }
-
-    @Test
-    func reconcileKeepsTheRowOfAFileWhoseTypeTheWalkCannotRead() async throws {
-        try await withTemporaryWorkspace { root in
-            let store = try Store(rootDirectory: root)
-            try write("fn blocked() {}", to: "blocked.rs", in: root)
-            try write("fn kept() {}", to: "kept.rs", in: root)
-            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
-
-            let stats = try await Reconciler.reconcile(
-                store: store,
-                rootDirectory: root,
-                readEntryType: EntryTypeReaders.failing(for: "blocked.rs")
-            )
-
-            #expect(stats.removed == 0)
-            #expect(stats.skipped == 1)
-            let rowKeys = try await Self.rowKeys(in: store)
-            #expect(rowKeys == ["blocked.rs", "kept.rs"])
+            #expect(rowKeys == [cause.blockedFile, UnexaminedEntryCause.keptFile])
         }
     }
 
@@ -374,54 +428,17 @@ struct WalkerTests {
         }
     }
 
-    @Test
-    func walkSkipsAnUnreadableDirectoryAndReturnsTheOtherFiles() async throws {
+    @Test(arguments: UnexaminedEntryCause.allCases)
+    func walkSkipsAnEntryItCannotExamineAndReturnsTheOtherFiles(_ cause: UnexaminedEntryCause) async throws {
         try await withTemporaryWorkspace { root in
-            try write("fn blocked() {}", to: "blocked/b.rs", in: root)
-            try write("fn kept() {}", to: "kept.rs", in: root)
+            try cause.writeTree(in: root)
 
-            let walk = try await withPermissions(
-                noAccessPermissions,
-                at: root.appendingPathComponent("blocked"),
-                restoringTo: restoredDirectoryPermissions
-            ) {
-                try await Walker.walk(rootDirectory: root)
+            let walk = try await cause.withFailure(in: root) { readEntryType in
+                try await Walker.walk(rootDirectory: root, readEntryType: readEntryType)
             }
 
-            #expect(walk.files.map(\.relativePath) == ["kept.rs"])
-            #expect(walk.unexaminedPaths == ["blocked"])
-        }
-    }
-
-    @Test
-    func walkSkipsAnUnreadableFileAndReturnsTheOtherFiles() async throws {
-        try await withTemporaryWorkspace { root in
-            try write("fn blocked() {}", to: "blocked.rs", in: root)
-            try write("fn kept() {}", to: "kept.rs", in: root)
-
-            let walk = try await withPermissions(
-                noAccessPermissions,
-                at: root.appendingPathComponent("blocked.rs"),
-                restoringTo: restoredFilePermissions
-            ) {
-                try await Walker.walk(rootDirectory: root)
-            }
-
-            #expect(walk.files.map(\.relativePath) == ["kept.rs"])
-            #expect(walk.unexaminedPaths == ["blocked.rs"])
-        }
-    }
-
-    @Test
-    func walkSkipsAFileWhoseTypeItCannotReadAndReturnsTheOtherFiles() async throws {
-        try await withTemporaryWorkspace { root in
-            try write("fn blocked() {}", to: "blocked.rs", in: root)
-            try write("fn kept() {}", to: "kept.rs", in: root)
-
-            let walk = try await Walker.walk(rootDirectory: root, readEntryType: EntryTypeReaders.failing(for: "blocked.rs"))
-
-            #expect(walk.files.map(\.relativePath) == ["kept.rs"])
-            #expect(walk.unexaminedPaths == ["blocked.rs"])
+            #expect(walk.files.map(\.relativePath) == [UnexaminedEntryCause.keptFile])
+            #expect(walk.unexaminedPaths == [cause.unexaminedPath])
         }
     }
 
