@@ -30,21 +30,6 @@ struct LSPPathCheckTests {
     /// The hard timeout of the diagnostics tests.
     private static let hardTimeout: Duration = .milliseconds(20)
 
-    /// Gives the document uris that `connection` got a `didOpen` for.
-    /// - Parameter connection: The fake connection.
-    /// - Returns: The uris, in call order.
-    private static func openedURIs(_ connection: FakeLanguageServerConnection) async -> [DocumentURI] {
-        await connection.uris { if case .didOpen(let uri, _, _, _) = $0 { uri } else { nil } }
-    }
-
-    /// Gives the document uris that `connection` got a pull-diagnostics
-    /// request for.
-    /// - Parameter connection: The fake connection.
-    /// - Returns: The uris, in call order.
-    private static func pulledURIs(_ connection: FakeLanguageServerConnection) async -> [DocumentURI] {
-        await connection.uris { if case .pullDiagnostics(let uri) = $0 { uri } else { nil } }
-    }
-
     /// Writes the `build-out/` rule and the ignored file, and gives a shared
     /// filter that loaded the rule.
     /// - Parameter root: The workspace root.
@@ -125,7 +110,7 @@ struct LSPPathCheckTests {
 
             try await Self.drainSwift(store: store, root: root, pathFilter: pathFilter, session: session)
 
-            #expect(await Self.openedURIs(connection).isEmpty)
+            #expect(await connection.openedURIs().isEmpty)
         }
     }
 
@@ -159,7 +144,7 @@ struct LSPPathCheckTests {
                     store: store, root: root, pathFilter: SharedPathFilter(rootDirectory: root), session: session
                 )
 
-                #expect(await Self.openedURIs(connection).isEmpty)
+                #expect(await connection.openedURIs().isEmpty)
                 #expect(try await store.drainLspDirty().isEmpty)
             }
         }
@@ -193,7 +178,7 @@ struct LSPPathCheckTests {
                 store: store, rootDirectory: root, pathFilter: pathFilter, extensions: ["py"], session: LspSession.makePylsp(over: connection)
             )
 
-            #expect(await Self.openedURIs(connection) == [sampleURI])
+            #expect(await connection.openedURIs() == [sampleURI])
         }
     }
 
@@ -215,7 +200,7 @@ struct LSPPathCheckTests {
                 character: 5
             )
 
-            #expect(await Self.openedURIs(connection).isEmpty)
+            #expect(await connection.openedURIs().isEmpty)
         }
     }
 
@@ -236,7 +221,7 @@ struct LSPPathCheckTests {
                     character: 5
                 )
 
-                #expect(await Self.openedURIs(connection).isEmpty)
+                #expect(await connection.openedURIs().isEmpty)
             }
         }
     }
@@ -253,8 +238,8 @@ struct LSPPathCheckTests {
                 Self.ignoredPath, root: root, pathFilter: pathFilter, session: LspSession(connection: connection, languageID: "swift")
             )
 
-            #expect(await Self.openedURIs(connection).isEmpty)
-            #expect(await Self.pulledURIs(connection).isEmpty)
+            #expect(await connection.openedURIs().isEmpty)
+            #expect(await connection.pulledURIs().isEmpty)
         }
     }
 
@@ -272,8 +257,8 @@ struct LSPPathCheckTests {
                     session: LspSession(connection: connection, languageID: "swift")
                 )
 
-                #expect(await Self.openedURIs(connection).isEmpty)
-                #expect(await Self.pulledURIs(connection).isEmpty)
+                #expect(await connection.openedURIs().isEmpty)
+                #expect(await connection.pulledURIs().isEmpty)
             }
         }
     }
@@ -292,8 +277,8 @@ struct LSPPathCheckTests {
                 session: LspSession(connection: connection, languageID: "swift")
             )
 
-            #expect(await Self.openedURIs(connection) == [keptURI])
-            #expect(await Self.pulledURIs(connection) == [keptURI])
+            #expect(await connection.openedURIs() == [keptURI])
+            #expect(await connection.pulledURIs() == [keptURI])
         }
     }
 }

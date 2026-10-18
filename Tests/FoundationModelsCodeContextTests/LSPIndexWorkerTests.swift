@@ -416,10 +416,7 @@ struct LSPIndexWorkerTests {
             // continues to the next dirty file after the first one throws,
             // rather than aborting the whole batch on the first failure.
             let queriedURIs: Set<DocumentURI> = await Set(
-                connection.calls.compactMap { call in
-                    if case .documentSymbols(let uri) = call { return uri }
-                    return nil
-                })
+                connection.uris { if case .documentSymbols(let uri) = $0 { uri } else { nil } })
             #expect(queriedURIs == [Self.uri(for: "A.swift", in: root), Self.uri(for: "B.swift", in: root)])
         }
     }

@@ -31,6 +31,47 @@ comments:
     - evidence: swift test: 1009 tests in 90 suites passed, 0 failures, 0 skipped; forced recompile of the 2 changed files (swift build --build-tests): 0 warnings from this package; swift build --package-path IntegrationTests --build-tests: Build complete, 0 warnings from this package. Only warning: SwiftPM "missing creator for mutated node" for the mlx-swift_Cmlx.bundle dependency, not in this package.
     - next: commit
   timestamp: 2026-10-18T13:51:40.244104+00:00
+- actor: claude-code
+  id: 01m57mrvdzmv991k035vmw251k
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (ddeb1ea). 1 finding, 1 confirmed, 0 refuted. Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:740 (reuse/reuse).
+    - acceptance: The change meets the two acceptance criteria. `startWatcher()` calls `pathFilter.reload()` when `eventSource` is nil, and a test is added.
+    - next: Move the didOpen-URI helper to a shared test support file. Make `openedPaths` use it. The task stays in review.
+  timestamp: 2026-10-18T13:56:11.327981+00:00
+- actor: claude-code
+  id: 01m57ms4361srx8ws4h0w8nhq4
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 2 files
+    - test: green — swift test, 1009 passed
+    - commit: ddeb1ea
+    - review: findings — Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:740
+  timestamp: 2026-10-18T13:56:20.198041+00:00
+- actor: claude-code
+  id: 01m57mzx5dvp6yja2p3s2waxvt
+  text: |-
+    Review finding fixed (reuse/reuse, CodeContextStartTests.swift:740).
+    - Discovery: the shared file `Support/FakeLanguageServerConnection+URIs.swift` had only the generic `uris(where:)`. It had no `openedURIs`/`closedURIs`/`pulledURIs`. Each suite kept a private copy: `LSPPathCheckTests.openedURIs` and `pulledURIs`, `LspSessionOpenDocumentsTests.closedURIs` and `didOpenCount`, `CodeContextStartTests.openedPaths`.
+    - Change: the shared extension now has `openedURIs()`, `openedPaths()` (the URI-to-path variant, built on `openedURIs()`), `closedURIs()` and `pulledURIs()`, all on `uris(where:)`. The doc of `uris(where:)` now tells a caller to use the named helpers first.
+    - All private copies are removed. The three suites call the shared helpers. `didOpenCount` is now `connection.openedURIs().count`.
+    - Same cause in other files: `LSPIndexWorkerTests` had a private `connection.calls.compactMap` URI collector for `.documentSymbols`. It now uses `connection.uris(where:)`. The `isDidOpen`/`isDidChange` predicates in `LspSessionTests` and the `firstIndex` matches in `LayeredOpsTests` are not URI collectors, thus they stay.
+    - Tool note: the `files` edit op with `replace_all` replaced only one match per call. I wrote the two suite files whole.
+  timestamp: 2026-10-18T14:00:02.477496+00:00
+- actor: claude-code
+  id: 01m57n00scdfwz9qqfq291gx9s
+  text: |-
+    ### implement — changed
+    - evidence: 5 files — Tests/FoundationModelsCodeContextTests/Support/FakeLanguageServerConnection+URIs.swift, Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift, Tests/FoundationModelsCodeContextTests/LSPPathCheckTests.swift, Tests/FoundationModelsCodeContextTests/LspSessionOpenDocumentsTests.swift, Tests/FoundationModelsCodeContextTests/LSPIndexWorkerTests.swift. `swift test --filter 'CodeContextStartTests|LSPPathCheckTests|LspSessionOpenDocumentsTests|LSPIndexWorkerTests'`: 55 tests in 4 suites pass. `swift test` (full): 1009 tests in 90 suites pass, 0 failures. `swiftlint lint --quiet --only-rule no_magic_numbers` on the 5 files: clean. Only warning: the SwiftPM mlx-swift_Cmlx.bundle note from a dependency.
+    - next: review
+  timestamp: 2026-10-18T14:00:06.188055+00:00
+- actor: claude-code
+  id: 01m57n2b0zcrpcbhey6gejf9g0
+  text: |-
+    ### test — green
+    - evidence: swift test — 1009 tests in 90 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete. The only warning is a SwiftPM message about the mlx-swift_Cmlx.bundle dependency, not from this package.
+    - next: commit
+  timestamp: 2026-10-18T14:01:22.207032+00:00
 depends_on:
 - 01M53GKT21C40MET23PKN3TJYR
 position_column: doing
@@ -53,3 +94,12 @@ Since ^kn3tjyr, the LSP index worker, the live ops and `DiagnosticsOps` use this
 - [x] The test above passes.
 
 #lsp-fix
+
+## Review Findings (2026-10-18 08:52)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 2 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:740` `reuse/reuse` — The new openedPaths helper repeats the body of LSPPathCheckTests.openedURIs (same didOpen filter on connection.uris), and that helper is private to another test suite, so this copy cannot call it. The duplicate filter will drift from the original. Move the didOpen-URI helper to a shared test support file (for example next to FakeLanguageServerConnection+URIs.swift) as an internal static, and have openedPaths map over it: `await openedURIs(connection).compactMap { URL(string: $0.value)?.path }`. Use the same helper in LSPPathCheckTests and LspSessionOpenDocumentsTests.

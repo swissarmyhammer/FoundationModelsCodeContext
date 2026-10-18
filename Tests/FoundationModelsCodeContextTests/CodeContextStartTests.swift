@@ -733,14 +733,6 @@ struct CodeContextStartTests {
     /// The character of the hover position: a character in the name `greet`.
     private static let hoverCharacter = 3
 
-    /// Gives the paths of the documents that `connection` got a `didOpen` for.
-    /// - Parameter connection: The fake connection.
-    /// - Returns: The file paths of the document URIs, in call order.
-    private static func openedPaths(_ connection: FakeLanguageServerConnection) async -> [String] {
-        let uris = await connection.uris { if case .didOpen(let uri, _, _, _) = $0 { uri } else { nil } }
-        return uris.compactMap { URL(string: $0.value)?.path }
-    }
-
     /// A context with no event source has no watcher. Its `start()` still loads the rules of the
     /// rule files into the shared path filter, thus a live operation does not send `didOpen` for
     /// a file that only a `.gitignore` rule ignores.
@@ -767,7 +759,7 @@ struct CodeContextStartTests {
                 let isWatching = await context.isWatching
                 await context.stop()
 
-                let openedPaths = await Self.openedPaths(try #require(connection))
+                let openedPaths = try await #require(connection).openedPaths()
                 #expect(!isWatching)
                 #expect(openedPaths.contains { $0.hasSuffix("/\(Self.rustSourceFileName)") })
                 #expect(!openedPaths.contains { $0.hasSuffix("/\(Self.ignoredRustPath)") })

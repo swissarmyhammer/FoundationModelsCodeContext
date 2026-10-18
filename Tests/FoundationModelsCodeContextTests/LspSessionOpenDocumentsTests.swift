@@ -32,16 +32,6 @@ struct LspSessionOpenDocumentsTests {
         LspSession(connection: connection, languageID: "swift", maximumOpenDocuments: limit)
     }
 
-    /// The URIs of the `didClose` calls that `connection` got, in order.
-    private static func closedURIs(_ connection: FakeLanguageServerConnection) async -> [DocumentURI] {
-        await connection.uris { if case .didClose(let uri) = $0 { uri } else { nil } }
-    }
-
-    /// The number of `didOpen` calls that `connection` got.
-    private static func didOpenCount(_ connection: FakeLanguageServerConnection) async -> Int {
-        await connection.uris { if case .didOpen(let uri, _, _, _) = $0 { uri } else { nil } }.count
-    }
-
     @Test
     func anOpenPastTheLimitClosesTheOldestDocument() async throws {
         let connection = FakeLanguageServerConnection()
@@ -51,7 +41,7 @@ struct LspSessionOpenDocumentsTests {
             try await session.syncOpen(uri: Self.uri(index), text: Self.text, owner: .tool)
         }
 
-        #expect(await Self.closedURIs(connection) == [Self.uri(0)])
+        #expect(await connection.closedURIs() == [Self.uri(0)])
         let open = await session.openDocuments()
         #expect(open.count == Self.limit)
         #expect(open[Self.uri(0)] == nil, "the oldest document must close")
@@ -67,7 +57,7 @@ struct LspSessionOpenDocumentsTests {
         try await session.syncOpen(uri: Self.uri(0), text: Self.text, owner: .tool)
         try await session.syncOpen(uri: Self.uri(Self.limit), text: Self.text, owner: .tool)
 
-        #expect(await Self.closedURIs(connection) == [Self.uri(1)])
+        #expect(await connection.closedURIs() == [Self.uri(1)])
     }
 
     @Test
@@ -79,7 +69,7 @@ struct LspSessionOpenDocumentsTests {
 
         try await session.syncOpen(uri: Self.uri(Self.limit), text: Self.text, owner: .tool)
 
-        #expect(await Self.closedURIs(connection) == [Self.uri(1)])
+        #expect(await connection.closedURIs() == [Self.uri(1)])
         #expect(await session.openDocuments()[Self.uri(0)] != nil, "a document in use must stay open")
         await session.endUse(uri: Self.uri(0))
     }
@@ -97,7 +87,7 @@ struct LspSessionOpenDocumentsTests {
         }
 
         #expect(await session.openDocuments().count == Self.limit)
-        #expect(await Self.closedURIs(connection).isEmpty)
+        #expect(await connection.closedURIs().isEmpty)
     }
 
     @Test
@@ -116,7 +106,7 @@ struct LspSessionOpenDocumentsTests {
         let open = await session.openDocuments()
         #expect(open.count == Self.limit, "the count must not go above the limit")
         #expect(open[Self.uri(Self.limit)] == nil)
-        #expect(await Self.didOpenCount(connection) == Self.limit)
+        #expect(await connection.openedURIs().count == Self.limit)
     }
 
     @Test
@@ -127,17 +117,17 @@ struct LspSessionOpenDocumentsTests {
         await connection.setDidOpenCallHook { await gate.waitUntilOpen() }
 
         let first = Task { try await session.syncOpen(uri: Self.uri(0), text: Self.text, owner: .tool) }
-        try await waitUntil { await Self.didOpenCount(connection) == 1 }
+        try await waitUntil { await connection.openedURIs().count == 1 }
         let second = Task { try await session.syncOpen(uri: Self.uri(0), text: Self.text, owner: .tool) }
         let sentSecondDidOpen = try await waitUntil(timeout: Self.secondDidOpenTimeout) {
-            await Self.didOpenCount(connection) > 1
+            await connection.openedURIs().count > 1
         }
         await gate.open()
         try await first.value
         try await second.value
 
         #expect(!sentSecondDidOpen)
-        #expect(await Self.didOpenCount(connection) == 1)
+        #expect(await connection.openedURIs().count == 1)
         #expect(await session.openDocuments()[Self.uri(0)]?.version == 1)
     }
 
@@ -151,7 +141,7 @@ struct LspSessionOpenDocumentsTests {
         try await session.closeIfOwned(uri: Self.uri(0), by: .indexer)
         try await session.closeIfOwned(uri: Self.uri(1), by: .indexer)
 
-        #expect(await Self.closedURIs(connection) == [Self.uri(0)])
+        #expect(await connection.closedURIs() == [Self.uri(0)])
     }
 
     @Test
@@ -164,7 +154,7 @@ struct LspSessionOpenDocumentsTests {
 
         try await session.closeIfOwned(uri: Self.uri(0), by: .indexer)
 
-        #expect(await Self.closedURIs(connection).isEmpty, "the tool ops own the document from the first tool sync")
+        #expect(await connection.closedURIs().isEmpty, "the tool ops own the document from the first tool sync")
     }
 
     @Test
@@ -174,11 +164,11 @@ struct LspSessionOpenDocumentsTests {
         try await session.beginUse(uri: Self.uri(0), text: Self.text, owner: .indexer)
 
         try await session.closeIfOwned(uri: Self.uri(0), by: .indexer)
-        #expect(await Self.closedURIs(connection).isEmpty)
+        #expect(await connection.closedURIs().isEmpty)
 
         await session.endUse(uri: Self.uri(0))
         try await session.closeIfOwned(uri: Self.uri(0), by: .indexer)
-        #expect(await Self.closedURIs(connection) == [Self.uri(0)])
+        #expect(await connection.closedURIs() == [Self.uri(0)])
     }
 
     @Test
@@ -193,6 +183,6 @@ struct LspSessionOpenDocumentsTests {
         }
         try await session.closeIfOwned(uri: Self.uri(0), by: .indexer)
 
-        #expect(await Self.closedURIs(connection) == [Self.uri(0)], "a failed use must not keep the document in use")
+        #expect(await connection.closedURIs() == [Self.uri(0)], "a failed use must not keep the document in use")
     }
 }
