@@ -28,6 +28,18 @@ struct ConnectionTests {
     /// The absolute path to the scripted subprocess.
     private static let scriptedServerPath = PackagePaths.scriptedLSPServer
 
+    /// The real time between two checks of the state of the subprocess.
+    private static let processPollInterval: Duration = .milliseconds(10)
+
+    /// The longest real time that a test waits for the kernel to reap the subprocess after it
+    /// exits. The reap occurs some milliseconds after the exit.
+    private static let processReapTimeout: Duration = .seconds(1)
+
+    /// The longest real time that a test waits for the stderr text of the subprocess. It is the
+    /// `healthCheckInterval` of `LSPDaemon`: a cold start of the `swift <script>` interpreter
+    /// took more than 30 seconds on a machine with many other interpreter subprocesses.
+    private static let stderrCaptureTimeout: Duration = .seconds(60)
+
     /// Spawns a `ProcessLanguageServerConnection` against the scripted subprocess.
     /// - Parameters:
     ///   - steps: The subprocess's script, per `scripted-lsp-server.swift`'s DSL.
@@ -329,14 +341,11 @@ struct ConnectionTests {
         // flakiness. Poll with a bounded budget instead of asserting once immediately, the same
         // shape `waitUntilExitReturnsOnceTheScriptRunsOut()` below uses for the analogous
         // `Process.isRunning`-lags-real-state race.
-        var pidStillExists = Self.pidExists(capturedPID)
-        var pollsRemaining = 100
-        while pidStillExists, pollsRemaining > 0 {
-            try await Task.sleep(for: .milliseconds(10))
-            pidStillExists = Self.pidExists(capturedPID)
-            pollsRemaining -= 1
+        let pid = capturedPID
+        let isReaped = try await waitUntil(timeout: Self.processReapTimeout, pollInterval: Self.processPollInterval) {
+            !Self.pidExists(pid)
         }
-        #expect(!pidStillExists)
+        #expect(isReaped)
 
         // If the above had leaked its reader/stderr threads, they'd permanently occupy slots in
         // Swift's cooperative thread pool; spawning, running, and tearing down one more connection
@@ -370,14 +379,10 @@ struct ConnectionTests {
             // `waitUntilExit()` is tied to stdout hitting EOF; `Process.isRunning` is updated by a
             // separate waitpid-based mechanism that can lag EOF by a few milliseconds. Poll with a
             // bounded budget rather than assuming the two are perfectly synchronized.
-            var isRunning = await connection.isRunning()
-            var pollsRemaining = 100
-            while isRunning, pollsRemaining > 0 {
-                try await Task.sleep(for: .milliseconds(10))
-                isRunning = await connection.isRunning()
-                pollsRemaining -= 1
+            let hasStopped = try await waitUntil(timeout: Self.processReapTimeout, pollInterval: Self.processPollInterval) {
+                await !connection.isRunning()
             }
-            #expect(!isRunning)
+            #expect(hasStopped)
         }
     }
 
@@ -392,21 +397,12 @@ struct ConnectionTests {
         ]
         try await Self.withConnection(steps: steps) { connection in
             // The drain loop runs on its own detached task, so the write is captured
-            // asynchronously; poll with a bounded budget (60s, matching `LSPDaemon`'s own
-            // healthCheckInterval as this codebase's convention for "generous room for real
-            // subprocess work") rather than assuming the write has already happened by the time
-            // this line runs. A `swift <script>` interpreter cold start is normally well under a
-            // second, but measured empirically to stretch past 30s on a machine saturated with
-            // concurrently spawned interpreter subprocesses — 60s leaves headroom above that
-            // observed worst case.
-            var tail = connection.recentStderrTail()
-            var pollsRemaining = 6000
-            while tail.isEmpty, pollsRemaining > 0 {
-                try await Task.sleep(for: .milliseconds(10))
-                tail = connection.recentStderrTail()
-                pollsRemaining -= 1
+            // asynchronously. The test waits at most `stderrCaptureTimeout` for the write, and
+            // does not assume that the write occurred before this line.
+            try await waitUntil(timeout: Self.stderrCaptureTimeout, pollInterval: Self.processPollInterval) {
+                !connection.recentStderrTail().isEmpty
             }
-            #expect(tail.contains("panic: something went wrong"))
+            #expect(connection.recentStderrTail().contains("panic: something went wrong"))
         }
     }
 

@@ -12,6 +12,10 @@ import Testing
 /// readiness state machine driven by pull-diagnostic "still loading"
 /// replies, and the doc-set/cache reset used for restart correctness.
 struct LspSessionTests {
+    /// The longest real time that a test waits for the session to remove a terminated
+    /// subscriber. The removal occurs in a detached task some milliseconds after the termination.
+    private static let subscriberRemovalTimeout: Duration = .seconds(1)
+
     /// A single diagnostic at an arbitrary but fixed range, used where the
     /// test only cares about the diagnostic's identity (its `message`), not
     /// its position.
@@ -257,16 +261,12 @@ struct LspSessionTests {
         consumer.cancel()
         _ = await consumer.value
 
-        // `onTermination` hops back onto the actor via a detached `Task`, so
-        // poll briefly for that hop to land rather than asserting immediately.
-        var remaining = await session.diagnosticsSubscriberCount()
-        var attempts = 0
-        while remaining != 0, attempts < 100 {
-            try await Task.sleep(for: .milliseconds(10))
-            remaining = await session.diagnosticsSubscriberCount()
-            attempts += 1
+        // `onTermination` goes back to the actor in a detached `Task`. Thus the
+        // test waits a short time for that step, and does not assert at once.
+        let isRemoved = try await waitUntil(timeout: Self.subscriberRemovalTimeout) {
+            await session.diagnosticsSubscriberCount() == 0
         }
-        #expect(remaining == 0, "a terminated subscriber must be removed from the fan-out set")
+        #expect(isRemoved, "a terminated subscriber must be removed from the fan-out set")
     }
 
     @Test

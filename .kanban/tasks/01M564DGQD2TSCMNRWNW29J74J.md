@@ -105,6 +105,46 @@ comments:
     - evidence: swift test — 918 tests in 82 suites passed, 0 failed, 0 skipped, 0 warnings from this package (only a SwiftPM warning about the mlx-swift_Cmlx bundle); swift build --package-path IntegrationTests --build-tests — build complete, same single third-party warning
     - next: commit
   timestamp: 2026-10-18T03:53:02.674602+00:00
+- actor: claude-code
+  id: 01m56jjnywh3wshx1g264c6407
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (8611e7d). 1 finding (1 confirmed, 2 refuted). Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:63 reuse/reuse. The prior item (2026-10-17 21:03) is checked and is fixed: waitForIndexStatus and waitForTheFailedInstall now use one waitUntil.
+    - next: Move one generic polling helper to TestSupport.swift, with the timeout and the throwing behavior as parameters. Make CodeContextStartTests and LspSupervisorTests use it. Then review again.
+  timestamp: 2026-10-18T03:58:37.532441+00:00
+- actor: claude-code
+  id: 01m56jk17ds5htw8bjr62c227a
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — review fix (shared waitUntil) and test stall root cause (test temporary directories moved out of TMPDIR), 10 files
+    - test: green — swift test, 918 passed (after one red round: 3 LspSupervisorTests timing failures, root cause fixed)
+    - commit: 8611e7d
+    - review: findings — Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:63
+  timestamp: 2026-10-18T03:58:49.069802+00:00
+- actor: claude-code
+  id: 01m56kta3f8b4wxbbpy9ce3rq5
+  text: |-
+    Review finding (2026-10-17 22:53) fixed.
+    - New shared helper in Tests/FoundationModelsCodeContextTests/TestSupport.swift: `waitUntil(timeout: Duration? = nil, pollInterval: Duration = defaultWaitPollInterval, _ isDone: () async throws -> Bool) async throws -> Bool` (discardable result). `timeout` is the one parameter that keeps the old difference: with a timeout it returns false when the time elapses; with nil it waits until the time limit of the test. The wait always throws on cancellation. The doc comment gives the reason: a wait that ignores the cancellation does not sleep any more (Task.sleep returns at once in a cancelled task), thus it checks with no pause until its timeout or for ever.
+    - The private waitUntil of CodeContextStartTests and of LspSupervisorTests are removed. Both suites call the shared helper. LspSupervisorTests has a named `stateWaitTimeout` (5 s).
+    - A search of all test files found more private poll-until-condition loops. Each now uses the shared helper: WatcherTests (burst flush), MetricsTests (restart counter, unused pollInterval removed), DetectProjectsIsolationTests.waitForAnswer, ConnectionTests (3 count-based loops -> processReapTimeout / stderrCaptureTimeout / processPollInterval), LspSessionTests (subscriber removal), ServerInstallerTests (concurrent install; test is now async throws), CodeContextE2ETests and CodeContextManagerTests (isReady after a failed install, readyAfterInstallTimeout), Support/ManualClock.waitForWaiter (both overloads; they stay non-throwing with `try?`, documented).
+    - IntegrationTests cannot import the unit target. Its RealFSEventsWatcherTests loop now uses the existing shared `poll(budget:interval:until:)` of IntegrationSupport.swift.
+    - New WaitUntilTests (4 tests). RED: compile error "cannot find 'waitUntil' in scope". GREEN: 4/4 pass.
+  timestamp: 2026-10-18T04:20:16.111203+00:00
+- actor: claude-code
+  id: 01m56ktdw7d819b0e738fzhqtm
+  text: |-
+    ### implement — changed
+    - evidence: 14 files — Tests/FoundationModelsCodeContextTests/TestSupport.swift, WaitUntilTests.swift (new), CodeContextStartTests.swift, LspSupervisorTests.swift, WatcherTests.swift, MetricsTests.swift, DetectProjectsIsolationTests.swift, ConnectionTests.swift, LspSessionTests.swift, ServerInstallerTests.swift, CodeContextE2ETests.swift, CodeContextManagerTests.swift, Support/ManualClock.swift; IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/RealFSEventsWatcherTests.swift. `swift test --filter WaitUntilTests` 4/4; affected suites filter: 157 tests in 13 suites passed; `swift build --package-path IntegrationTests --build-tests` complete; `swift test --package-path IntegrationTests --filter RealFSEventsWatcherTests` 1/1; full `swift test`: 922 tests in 83 suites passed, 0 failed, 0 skipped. Only warning: third-party "missing creator for mutated node ... mlx-swift_Cmlx.bundle".
+    - next: /review
+  timestamp: 2026-10-18T04:20:19.975870+00:00
+- actor: claude-code
+  id: 01m56m79v6tp97py4jrebt11c8
+  text: |-
+    ### test — green
+    - evidence: swift test — 922 tests in 83 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete, 0 warnings from this package (only a build-system note about the mlx-swift_Cmlx.bundle dependency, not from this package)
+    - next: commit
+  timestamp: 2026-10-18T04:27:21.830497+00:00
 position_column: doing
 position_ordinal: '80'
 title: Child processes must not read the stdin of the host process
@@ -158,3 +198,12 @@ In the same run, the log had `the binary of the language server is not on the PA
 > - `.kanban/ (from .reviewignore)` — 8 file(s)
 
 - [x] `Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:502` `reuse/reuse` — waitForTheFailedInstall repeats the poll-until-condition loop of waitForIndexStatus (line 64-71): sleep for statusPollInterval, check a condition on the context, and throw on cancellation. The loop was written again instead of parameterizing the existing wait. Add a generic predicate-based wait in CodeContextStartTests (for example waitUntil(_ predicate: () async throws -> Bool)) that polls with statusPollInterval. Rebuild waitForIndexStatus and waitForTheFailedInstall on top of it. The private waitUntil in LspSupervisorTests.swift:50 has a deadline and is in another file, so it does not fit as is.
+
+## Review Findings (2026-10-17 22:53)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 10 file(s) reviewed, 8 not reviewed.
+
+> 8 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 8 file(s)
+
+- [x] `Tests/FoundationModelsCodeContextTests/CodeContextStartTests.swift:63` `reuse/reuse` — The new private static waitUntil duplicates the wait helper that already exists in LspSupervisorTests. The change says the start tests now use one shared wait, but the code keeps two copies. The copies differ in contract: the existing one has a timeout and returns without throwing, and this one has no timeout and throws on cancellation. Each copy must be kept in step with the other, and a fix to one will not reach the other. Move one generic polling helper to a shared test support file, such as TestSupport.swift, with the timeout and the throwing behavior as parameters. Both suites then call that helper. If the throwing behavior must stay, keep the difference in one parameter and state the reason for it in a doc comment.

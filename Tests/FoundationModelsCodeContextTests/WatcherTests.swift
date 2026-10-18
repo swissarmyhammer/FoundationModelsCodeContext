@@ -665,9 +665,7 @@ struct WatcherTests {
 
             // Wait until the flush of the burst writes, then give a new event
             // while that flush runs.
-            while try await store.drainTsDirty().isEmpty {
-                try await Task.sleep(for: .milliseconds(1))
-            }
+            try await waitUntil { try await !store.drainTsDirty().isEmpty }
             await eventSource.emit(RawFileEvent(url: root.appendingPathComponent(latePath), kind: .created))
             await Self.flushOneWindow(watcher: watcher, clock: clock)
 

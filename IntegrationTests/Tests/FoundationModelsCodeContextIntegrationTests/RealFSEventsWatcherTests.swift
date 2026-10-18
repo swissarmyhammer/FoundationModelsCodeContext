@@ -78,19 +78,15 @@ internal struct RealFSEventsWatcherTests {
         // A single write can race the registration of the stream and be lost. Thus the test
         // writes the same content again when the last write gets no answer.
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: deliveryBudget)
         var lastWrite = clock.now
         var dirty: [String] = []
-        while clock.now < deadline {
+        try await poll(budget: deliveryBudget, interval: pollInterval) {
             dirty = try await store.drainTsDirty()
-            if !dirty.isEmpty {
-                break
-            }
-            if lastWrite.duration(to: clock.now) > rewriteInterval {
+            if dirty.isEmpty, lastWrite.duration(to: clock.now) > rewriteInterval {
                 try write(fileContent, to: "a.rs", in: root)
                 lastWrite = clock.now
             }
-            try await Task.sleep(for: pollInterval)
+            return !dirty.isEmpty
         }
         return dirty
     }

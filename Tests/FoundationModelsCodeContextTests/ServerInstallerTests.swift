@@ -122,7 +122,7 @@ struct ServerInstallerTests {
     }
 
     @Test
-    func sameCommandInstalledConcurrentlyInvokesRunnerOnce() async {
+    func sameCommandInstalledConcurrentlyInvokesRunnerOnce() async throws {
         let runner = FakeInstallRunner()
         await runner.closeGate()
         let installer = ServerInstaller(runner: runner)
@@ -131,9 +131,7 @@ struct ServerInstallerTests {
         async let first = installer.install(spec: spec)
         async let second = installer.install(spec: spec)
 
-        while await runner.invocations.count < 1 {
-            try? await Task.sleep(for: .milliseconds(1))
-        }
+        try await waitUntil { await !runner.invocations.isEmpty }
         await runner.openGate()
 
         let firstResult = await first

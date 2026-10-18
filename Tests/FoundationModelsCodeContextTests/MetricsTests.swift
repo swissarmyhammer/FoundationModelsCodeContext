@@ -43,9 +43,6 @@ internal struct MetricsTests {
     /// for one failure.
     private static let firstBackoffDelay: Duration = .seconds(2)
 
-    /// The time between two reads of a counter that background work increments.
-    private static let pollInterval: Duration = .milliseconds(1)
-
     /// The workspace root of the daemon tests. The daemon only puts it in the `initialize`
     /// request, so no folder must exist.
     private static let workspaceRoot = URL(fileURLWithPath: "/tmp/metrics-tests")
@@ -241,8 +238,8 @@ internal struct MetricsTests {
         await supervisor.startForTesting(specs: [spec])
 
         let dimensions = Self.restartDimensions(server: command, reason: "install")
-        while (try? metrics.expectCounter(CodeContextTracing.MetricName.lspServerRestarts, dimensions)) == nil {
-            try await Task.sleep(for: Self.pollInterval)
+        try await waitUntil {
+            (try? metrics.expectCounter(CodeContextTracing.MetricName.lspServerRestarts, dimensions)) != nil
         }
         await supervisor.shutdown()
         let restarts = try metrics.expectCounter(CodeContextTracing.MetricName.lspServerRestarts, dimensions)

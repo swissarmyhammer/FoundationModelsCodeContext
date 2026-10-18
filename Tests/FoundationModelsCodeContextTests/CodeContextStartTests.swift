@@ -47,25 +47,6 @@ struct CodeContextStartTests {
     /// default of the `debounceInterval` parameter of `Watcher`.
     private static let watcherDebounceInterval: Duration = .seconds(1)
 
-    /// The real time between two checks of the condition in `waitUntil(_:)`.
-    private static let statusPollInterval: Duration = .milliseconds(1)
-
-    /// Checks `isDone` again and again until it returns `true`. Between two
-    /// checks, the wait sleeps for `statusPollInterval`.
-    ///
-    /// The work that the test waits for runs in tasks of the context, thus a
-    /// test cannot await it directly. The time limit of the test cancels a
-    /// wait that cannot end, and the wait then throws.
-    /// - Parameter isDone: Returns `true` when the state that the test waits
-    ///   for is present.
-    /// - Throws: `CancellationError` when the task of the test is cancelled,
-    ///   or the error that `isDone` throws.
-    private static func waitUntil(_ isDone: () async throws -> Bool) async throws {
-        while try await !isDone() {
-            try await Task.sleep(for: statusPollInterval)
-        }
-    }
-
     /// Reads the index status of `context` again and again until `isExpected`
     /// returns `true`.
     /// - Parameters:

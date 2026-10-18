@@ -101,13 +101,8 @@ struct DetectProjectsIsolationTests {
     /// - Returns: The detected projects, or `nil` when no answer came in the budget.
     /// - Throws: `CancellationError` when the task of the test is cancelled.
     private static func waitForAnswer(_ answer: DetectionAnswer) async throws -> [DetectedProject]? {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: answerBudget)
-        while clock.now < deadline {
-            if let projects = await answer.projects {
-                return projects
-            }
-            try await Task.sleep(for: answerPollInterval)
+        try await waitUntil(timeout: answerBudget, pollInterval: answerPollInterval) {
+            await answer.projects != nil
         }
         return await answer.projects
     }

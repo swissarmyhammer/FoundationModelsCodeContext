@@ -135,12 +135,14 @@ final class ManualClock: Clock, @unchecked Sendable {
     /// waiting for only the first arrival and then advancing would let the clock move past a
     /// still-unregistered sleeper's intended deadline, since that sleeper's later `sleep(for:)`
     /// call computes its deadline from the clock's already-advanced `now`.
+    ///
+    /// The wait uses `waitUntil(timeout:pollInterval:_:)` with no timeout. This method does not
+    /// throw, thus a cancelled wait returns at once, and the assertion of the test that follows
+    /// tells what did not occur.
     /// - Parameter count: How many distinct waiters must be registered before returning. Defaults
     ///   to 1.
     func waitForWaiter(count: Int = 1) async {
-        while !hasAtLeastWaitersSynchronously(count) {
-            try? await Task.sleep(for: .milliseconds(1))
-        }
+        _ = try? await waitUntil { hasAtLeastWaitersSynchronously(count) }
     }
 
     /// Synchronously checks `waiters`' count under `lock`.
@@ -167,11 +169,11 @@ final class ManualClock: Clock, @unchecked Sendable {
     /// in `DiagnosticsTests.updateAtT200RestartsQuiescenceWindowSoSettleFiresAtT500NotT300()`
     /// caused two observed full-suite hangs under severe scheduler contention, even though
     /// `Settle`/`UpdateMailbox` themselves were already correct).
+    ///
+    /// As `waitForWaiter(count:)`, a cancelled wait returns at once.
     /// - Parameter deadline: The exact instant a registered waiter must be targeting.
     func waitForWaiter(withDeadline deadline: Instant) async {
-        while !hasWaiterSynchronously(withDeadline: deadline) {
-            try? await Task.sleep(for: .milliseconds(1))
-        }
+        _ = try? await waitUntil { hasWaiterSynchronously(withDeadline: deadline) }
     }
 
     /// Synchronously checks whether any registered waiter targets `deadline`, under `lock`.

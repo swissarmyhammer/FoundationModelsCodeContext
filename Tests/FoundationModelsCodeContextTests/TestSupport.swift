@@ -164,6 +164,56 @@ func withAsyncCleanup<T>(
     }
 }
 
+/// The real time between two checks of `waitUntil(timeout:pollInterval:_:)`
+/// when the caller gives no interval.
+let defaultWaitPollInterval: Duration = .milliseconds(1)
+
+/// Checks `isDone` again and again until it returns `true`. Between two
+/// checks, the wait sleeps for `pollInterval` of real time.
+///
+/// This is the one polling wait of the test target. A test uses it when the
+/// work that it waits for runs in a task that the test cannot await, for
+/// example a restart of a daemon, a step of an install, or an index pass of a
+/// context. The integration package has its own `poll(budget:interval:until:)`,
+/// because that package cannot import this test target.
+///
+/// `timeout` is the one difference between the callers:
+/// - With a `timeout`, the wait returns `false` when the time elapses before
+///   `isDone` returns `true`. The caller then makes its own assertion, which
+///   tells what did not occur.
+/// - With no `timeout`, the wait continues until `isDone` returns `true`. The
+///   time limit of the test stops a wait that cannot end.
+///
+/// The wait always throws when its task is cancelled. A wait that ignores the
+/// cancellation does not sleep any more (`Task.sleep` returns at once in a
+/// cancelled task), thus it checks `isDone` with no pause until its timeout,
+/// or for ever when it has no timeout.
+/// - Parameters:
+///   - timeout: The longest time to wait, or `nil` for no limit.
+///   - pollInterval: The real time between two checks.
+///   - isDone: Returns `true` when the state that the test waits for is
+///     present.
+/// - Returns: `true` when `isDone` returned `true`, `false` when `timeout`
+///   elapsed first.
+/// - Throws: `CancellationError` when the task is cancelled, or the error that
+///   `isDone` throws.
+@discardableResult
+func waitUntil(
+    timeout: Duration? = nil,
+    pollInterval: Duration = defaultWaitPollInterval,
+    _ isDone: () async throws -> Bool
+) async throws -> Bool {
+    let clock = ContinuousClock()
+    let deadline = timeout.map { clock.now.advanced(by: $0) }
+    while try await !isDone() {
+        if let deadline, clock.now >= deadline {
+            return false
+        }
+        try await Task.sleep(for: pollInterval)
+    }
+    return true
+}
+
 /// Writes `content` to `relativePath` under `root`, creating any missing
 /// intermediate directories. Shared across the test target by any suite
 /// that needs to materialize fixture files (`ReconcilerTests`, `WalkerTests`).

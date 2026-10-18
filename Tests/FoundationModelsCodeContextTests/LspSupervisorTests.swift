@@ -37,26 +37,15 @@ struct LspSupervisorTests {
     // `ProcessState` and `fakeConnectionFactory` live in `Support/FakeDaemonProcess.swift`, shared
     // with `LSPDaemonTests`.
 
-    /// Polls `predicate` at 1ms real-time intervals until it returns `true` or `timeout` elapses.
+    /// The longest real time that a test waits with `waitUntil(timeout:pollInterval:_:)` for a
+    /// state of a daemon.
     ///
-    /// Bridges a `ManualClock`-driven async chain (e.g. a health loop's restart, running on its own
-    /// unstructured `Task`) with the cooperative thread pool's actual scheduling: releasing a
-    /// `ManualClock` waiter via `advance(by:)` resumes the suspended task, but doesn't itself
-    /// guarantee that task has finished running by the time the caller's next line executes. Mirrors
-    /// `ManualClock.waitForWaiter()`'s own real-time polling loop.
-    /// - Parameters:
-    ///   - timeout: How long to keep polling before giving up. Defaults to 5 seconds.
-    ///   - predicate: The condition to poll for.
-    private static func waitUntil(
-        timeout: Duration = .seconds(5),
-        _ predicate: @Sendable () async -> Bool
-    ) async {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if await predicate() { return }
-            try? await Task.sleep(for: .milliseconds(1))
-        }
-    }
+    /// The wait bridges a `ManualClock`-driven async chain (for example the restart of a health
+    /// loop, which runs in its own unstructured `Task`) with the real scheduling of the
+    /// cooperative thread pool: `advance(by:)` resumes the suspended task, but the task is
+    /// possibly not complete when the next line of the test runs. When the time elapses, the wait
+    /// returns, and the assertion of the test that follows tells what did not occur.
+    private static let stateWaitTimeout: Duration = .seconds(5)
 
     // MARK: - start() / dedupe
 
@@ -185,7 +174,7 @@ struct LspSupervisorTests {
             #expect(Set(commands) == ["rust-analyzer", "typescript-language-server"])
             #expect(commands.count == Set(commands).count, "concurrent start() calls must never duplicate a managed daemon")
 
-            await Self.waitUntil { await constructionCount.value == 2 }
+            try await waitUntil(timeout: Self.stateWaitTimeout) { await constructionCount.value == 2 }
             let finalConstructionCount = await constructionCount.value
             #expect(
                 finalConstructionCount == 2,
@@ -390,7 +379,7 @@ struct LspSupervisorTests {
         await clock.waitForWaiter(count: 2)
         clock.advance(by: .seconds(2))
 
-        await Self.waitUntil { await deadDaemon.state() == .running(pid: 2) }
+        try await waitUntil(timeout: Self.stateWaitTimeout) { await deadDaemon.state() == .running(pid: 2) }
 
         let healthyState = await healthyDaemon.state()
         #expect(healthyState == .running(pid: 1), "a healthy daemon must not be restarted")
@@ -631,7 +620,7 @@ struct LspSupervisorTests {
 
         // Assert the observable state sequence via status(): the daemon must have actually passed
         // through `.installing` (not merely landed `.running` some other way) before settling.
-        await Self.waitUntil {
+        try await waitUntil(timeout: Self.stateWaitTimeout) {
             let statuses = await supervisor.status()
             return statuses.first { $0.command == command }?.state != .notFound
         }
@@ -641,7 +630,7 @@ struct LspSupervisorTests {
             "expected the daemon to be observably .installing while the fake install is in flight"
         )
 
-        await Self.waitUntil {
+        try await waitUntil(timeout: Self.stateWaitTimeout) {
             let statuses = await supervisor.status()
             if case .running = statuses.first(where: { $0.command == command })?.state { return true }
             return false
@@ -676,7 +665,7 @@ struct LspSupervisorTests {
 
         await supervisor.startForTesting(specs: [spec])
 
-        await Self.waitUntil {
+        try await waitUntil(timeout: Self.stateWaitTimeout) {
             let statuses = await supervisor.status()
             return statuses.first { $0.command == command }?.state == .installing
         }
@@ -684,7 +673,7 @@ struct LspSupervisorTests {
         // The restart re-runs the binary lookup, which still finds nothing (the fake install never
         // materialized a binary), so the daemon must re-land .notFound rather than staying stuck
         // in .installing or ending up .failed.
-        await Self.waitUntil {
+        try await waitUntil(timeout: Self.stateWaitTimeout) {
             let statuses = await supervisor.status()
             return statuses.first { $0.command == command }?.state == .notFound
         }
@@ -809,7 +798,7 @@ struct LspSupervisorTests {
         )
 
         await supervisor.startForTesting(specs: [spec])
-        await Self.waitUntil {
+        try await waitUntil(timeout: Self.stateWaitTimeout) {
             let statuses = await supervisor.status()
             return statuses.first { $0.command == command }?.state == .installing
         }
