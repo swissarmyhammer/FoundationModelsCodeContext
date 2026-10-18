@@ -1,100 +1,103 @@
-import Foundation
 import Testing
 
 @testable import FoundationModelsCodeContext
 
 /// Unit tests for `UpdateMailbox` (`Sources/FoundationModelsCodeContext/Diagnostics/UpdateMailbox.swift`),
-/// the cancellation-safe single-slot notifier `Settle.race(...)` uses to wait for the next
-/// diagnostics update.
+/// the cancellable notifier that `Settle.race(...)` uses to wait for the next diagnostics update.
 ///
-/// These are unit tests rather than integration tests through `Settle`/`DiagnosticsTests.swift`
-/// because the bug they guard against is a scheduling race — `record(_:)`/`markClosed()` running
-/// between `next()`'s own `takeQueuedIfAny()` miss and its subsequent `registerWaiter(token:continuation:)`
-/// call — that only a direct, ordering-controlled call sequence can force deterministically. See
-/// task `^vhcye6y`'s investigation: this exact race, manifesting only under heavy scheduling
-/// pressure from hundreds of concurrently-running tests, caused a full-suite hang in
-/// `DiagnosticsTests.swift`'s `updateAtT200RestartsQuiescenceWindowSoSettleFiresAtT500NotT300()`
-/// that reproduced independently in two separate full-suite runs (a concurrent session's, and this
-/// session's own) but never in isolation.
+/// `UpdateMailbox` keeps its state in a `CancellableWaiters`. `next()` has no check of its own
+/// before the wait: it always calls `CancellableWaiters.wait()`, and the registration of that wait
+/// reads the state while the lock is held. Thus a `record(_:)` or a `markClosed()` before the wait
+/// registers is the same as a `record(_:)` or a `markClosed()` before `next()`, and these tests
+/// make that race occur on each run. Task `^vhcye6y` found this race: under load, it caused a
+/// full-suite hang in `DiagnosticsTests.updateAtT200RestartsQuiescenceWindowSoSettleFiresAtT500NotT300()`.
+///
+/// A wait that does not return makes the test fail at the time limit, and does not stop the suite.
 struct UpdateMailboxTests {
-    @Test
-    func registerThenRecordDeliversTheUpdateToTheContinuation() async throws {
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func recordWhileNextWaitsEndsTheWaitWithTheUpdate() async {
         let mailbox = UpdateMailbox()
         let update = DiagnosticUpdate(uri: DocumentURI("file:///a.swift"), diagnostics: [])
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            mailbox.registerWaiter(token: 1, continuation: continuation)
-            mailbox.record(update)
-        }
+        async let event = mailbox.next()
+        mailbox.record(update)
 
-        let event = await mailbox.next()
-        #expect(event == .updates([update]))
+        #expect(await event == .updates([update]))
     }
 
-    /// The regression case: `record(_:)` can legitimately run — from the background stream-drain
-    /// task in `Settle.settleStream` — *after* `next()`'s own `takeQueuedIfAny()` check already
-    /// came up empty but *before* `registerWaiter(token:continuation:)` actually runs, because
-    /// those are two separate steps with no ordering enforced between them (mirrors
-    /// `ProcessLanguageServerConnection`'s `PendingRequestTable`, which has the identical shape
-    /// for the identical reason). Before the `!queued.isEmpty || isClosed` check existed in
-    /// `registerWaiter`, this would register the continuation anyway, orphaning it: only the
-    /// entire `Settle.race(...)` `TaskGroup`'s eventual cancellation (from a sibling
-    /// `Clock.sleep(until:)` branch winning) would ever wake it, and if that branch was itself
-    /// starved of a chance to run under the same scheduling pressure that lost this race, the
-    /// continuation hung forever.
-    @Test
-    func recordBeforeRegisterStillDeliversTheUpdateOnceRegistered() async throws {
+    /// The regression case: the background task of `Settle.settleStream` can call `record(_:)`
+    /// before the wait of `next()` registers. The registration must see the update and end the
+    /// wait at once. If it does not, only a cancel of the whole race can end the wait.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func recordBeforeTheWaitRegistersStillEndsTheWait() async {
         let mailbox = UpdateMailbox()
         let update = DiagnosticUpdate(uri: DocumentURI("file:///b.swift"), diagnostics: [])
 
-        // The update arrives first — nothing has registered a waiter yet, exactly as if `next()`'s
-        // `takeQueuedIfAny()` check had already missed and `registerWaiter` simply hadn't run yet.
         mailbox.record(update)
-
-        // Registering afterward must still deliver the already-arrived update immediately, not
-        // hang waiting for a resolution that has already happened.
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            mailbox.registerWaiter(token: 2, continuation: continuation)
-        }
-
-        let event = await mailbox.next()
-        #expect(event == .updates([update]))
-    }
-
-    /// Same regression, but for `markClosed()` instead of `record(_:)` — the stream ending in the
-    /// same registration gap must not orphan the waiter either.
-    @Test
-    func markClosedBeforeRegisterStillResumesTheWaiterOnceRegistered() async throws {
-        let mailbox = UpdateMailbox()
-
-        mailbox.markClosed()
-
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            mailbox.registerWaiter(token: 3, continuation: continuation)
-        }
-
-        let event = await mailbox.next()
-        #expect(event == .closed)
-    }
-
-    @Test
-    func nextReturnsQueuedUpdatesImmediatelyWithoutRegisteringAWaiter() async {
-        let mailbox = UpdateMailbox()
-        let update = DiagnosticUpdate(uri: DocumentURI("file:///c.swift"), diagnostics: [])
-        mailbox.record(update)
-
         let event = await mailbox.next()
 
         #expect(event == .updates([update]))
     }
 
-    @Test
-    func nextReturnsClosedWhenNothingQueuedAndMailboxIsClosed() async {
+    /// The same regression for `markClosed()`: the end of the stream before the wait registers
+    /// must also end the wait.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func markClosedBeforeTheWaitRegistersEndsTheWaitWithClosed() async {
         let mailbox = UpdateMailbox()
-        mailbox.markClosed()
 
+        mailbox.markClosed()
         let event = await mailbox.next()
 
         #expect(event == .closed)
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func markClosedWhileNextWaitsEndsTheWaitWithClosed() async {
+        let mailbox = UpdateMailbox()
+
+        async let event = mailbox.next()
+        mailbox.markClosed()
+
+        #expect(await event == .closed)
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func nextEmptiesTheQueueThusTheNextCallGivesOnlyNewUpdates() async {
+        let mailbox = UpdateMailbox()
+        let firstUpdate = DiagnosticUpdate(uri: DocumentURI("file:///c.swift"), diagnostics: [])
+        let secondUpdate = DiagnosticUpdate(uri: DocumentURI("file:///d.swift"), diagnostics: [])
+        mailbox.record(firstUpdate)
+        _ = await mailbox.next()
+
+        mailbox.record(secondUpdate)
+        let event = await mailbox.next()
+
+        #expect(event == .updates([secondUpdate]))
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func queuedUpdatesComeBeforeTheClose() async {
+        let mailbox = UpdateMailbox()
+        let update = DiagnosticUpdate(uri: DocumentURI("file:///e.swift"), diagnostics: [])
+        mailbox.record(update)
+        mailbox.markClosed()
+
+        let firstEvent = await mailbox.next()
+        let secondEvent = await mailbox.next()
+
+        #expect(firstEvent == .updates([update]))
+        #expect(secondEvent == .closed)
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func nextReturnsNoUpdatesWhenItsTaskIsCancelled() async {
+        let mailbox = UpdateMailbox()
+
+        let task = Task {
+            withUnsafeCurrentTask { task in task?.cancel() }
+            return await mailbox.next()
+        }
+
+        #expect(await task.value == .updates([]))
     }
 }

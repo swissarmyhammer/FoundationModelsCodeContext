@@ -20,9 +20,6 @@ import Synchronization
 /// task was cancelled before the wait started). Then it records `cancelled`, and the registration
 /// resumes the continuation at once. A token leaves the table when its continuation resumes, thus
 /// a cancel after the resume finds no entry and does nothing.
-///
-/// `UpdateMailbox` keeps its own copy of this token-and-cancel logic. Task `^6ava5jt` moves it onto
-/// this type.
 final class CancellableWaiters<State: Sendable>: Sendable {
     /// The progress of one wait.
     private enum Entry {
@@ -74,15 +71,21 @@ final class CancellableWaiters<State: Sendable>: Sendable {
 
     /// Changes the state while the lock is held. When the condition is then true, resumes each
     /// suspended wait.
+    ///
+    /// The change can also give a value, thus a read and a change occur in one lock step (for
+    /// example, a change that takes the queued items and empties the queue).
     /// - Parameter change: The change. It must not call this object.
-    func update(_ change: (inout State) -> Void) {
-        let resumed = storage.withLock { storage in
-            change(&storage.state)
-            return isSatisfied(storage.state) ? Self.removeSuspended(from: &storage.entries) : []
+    /// - Returns: The value of `change`.
+    func update<Value>(_ change: (inout State) -> Value) -> Value {
+        let (value, resumed) = storage.withLock { storage in
+            let value = change(&storage.state)
+            let resumed = isSatisfied(storage.state) ? Self.removeSuspended(from: &storage.entries) : []
+            return (value, resumed)
         }
         for continuation in resumed {
             continuation.resume()
         }
+        return value
     }
 
     /// Suspends until the condition is true, or until the task is cancelled. Returns at once when

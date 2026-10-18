@@ -3,7 +3,8 @@ import Testing
 @testable import FoundationModelsCodeContext
 
 /// Unit tests for `CancellableWaiters` (`Sources/FoundationModelsCodeContext/LSP/CancellableWaiters.swift`),
-/// the shared cancellable waiter that `ProcessGroupChild` uses to wait for the reap of its child.
+/// the shared cancellable waiter. `ProcessGroupChild` uses it to wait for the reap of its child, and
+/// `UpdateMailbox` uses it to wait for the next diagnostics update.
 ///
 /// Each test uses `CancellableWaiters.flag(isSet:)`: a `Bool` state that satisfies a wait when it
 /// is `true`. A wait that does not return makes the test fail at the time limit, and does not stop
@@ -22,6 +23,19 @@ struct CancellableWaitersTests {
 
         waiters.update { isSet in isSet = true }
 
+        #expect(waiters.read { isSet in isSet })
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func updateGivesTheValueThatItsChangeReturns() {
+        let waiters = CancellableWaiters.flag(isSet: false)
+
+        let stateBeforeTheChange = waiters.update { isSet in
+            defer { isSet = true }
+            return isSet
+        }
+
+        #expect(!stateBeforeTheChange)
         #expect(waiters.read { isSet in isSet })
     }
 

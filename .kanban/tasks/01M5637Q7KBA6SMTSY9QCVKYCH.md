@@ -87,8 +87,31 @@ comments:
     - evidence: swift test (root package) — 1012 tests in 90 suites passed, 0 failed, 0 skipped. The only warning is the SwiftPM warning "missing creator for mutated node ... mlx-swift_Cmlx.bundle". It comes from a dependency and has its own task ^kw00hcn.
     - next: review
   timestamp: 2026-10-18T14:56:54.933379+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m57r8k23851bfdvnz6jksqyh
+  text: |-
+    ### commit — changed
+    - evidence: 1d08a01 test(index): share one body for the unexamined-entry tests ^qcvkych (3 files)
+    - next: none
+  timestamp: 2026-10-18T14:57:12.771571+00:00
+- actor: claude-code
+  id: 01m57raex36nm81dm0fchbkvpj
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (1d08a01): findings 0, confirmed 0, refuted 0, attempted 7, failed 0. 1 file reviewed. 2 .kanban files not reviewed (ignore rule). All items of the prior Review Findings section (2026-10-18 09:50) are checked.
+    - next: none. The task moved to done.
+  timestamp: 2026-10-18T14:58:14.051309+00:00
+- actor: claude-code
+  id: 01m57raqc4cbcbsb8s85nym20d
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file
+    - test: green — swift test, 1012 passed
+    - commit: 1d08a01
+    - review: clean — 0 findings, prior 2 items checked
+  timestamp: 2026-10-18T14:58:22.724835+00:00
+position_column: done
+position_ordinal: f480
 title: 'Walker: test the entry whose type the walk cannot read'
 ---
 ## Problem

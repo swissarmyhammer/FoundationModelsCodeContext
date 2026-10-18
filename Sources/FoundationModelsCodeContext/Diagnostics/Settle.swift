@@ -35,8 +35,8 @@ enum SettleOutcome: Sendable, Equatable {
 /// reliably unblock the instant its enclosing task is cancelled — a guarantee
 /// this port doesn't want to depend on. Instead, a persistent background
 /// task drains the stream into `UpdateMailbox`, a small cancellation-safe
-/// single-slot notifier modeled directly on `ManualClock`'s own
-/// waiter/continuation bookkeeping (see `Tests/FoundationModelsCodeContextTests/Support/ManualClock.swift`),
+/// single-slot notifier that keeps its state and its waits in a
+/// `CancellableWaiters` (`Sources/FoundationModelsCodeContext/LSP/CancellableWaiters.swift`),
 /// so only `UpdateMailbox.next()` and `Clock.sleep(until:)` — both already
 /// cancellation-safe — ever sit inside the per-iteration race.
 ///
