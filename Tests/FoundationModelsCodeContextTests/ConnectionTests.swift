@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import ScriptedLSPServerSupport
 import Testing
@@ -129,17 +128,6 @@ struct ConnectionTests {
         } catch CodeContextError.timeout {
             return try await operation()
         }
-    }
-
-    /// Reports whether a process with pid `pid` still exists, per `kill(pid, 0)`: sending signal
-    /// `0` delivers no actual signal, only validating that `pid` is a real, still-allocated
-    /// process id the caller has permission to signal.
-    /// - Parameter pid: The process id to check.
-    /// - Returns: `true` if `kill(pid, 0)` reports the pid as present (`0`, or `-1`/`EPERM` for a
-    ///   pid owned by another user); `false` once it reports `-1`/`ESRCH` (no such process).
-    private static func pidExists(_ pid: Int32) -> Bool {
-        errno = 0
-        return kill(pid, 0) == 0 || errno != ESRCH
     }
 
     /// A minimal wire-shape `DocumentSymbol` JSON object named `name`.
@@ -400,15 +388,16 @@ struct ConnectionTests {
 
         #expect(capturedPID > 0)
         // `withConnection`'s catch branch must have run `close()` despite the closure throwing —
-        // if it hadn't, `capturedPID` would still identify a live process. `kill(pid, 0)` sends no
-        // signal; it only reports whether a process with that pid still exists.
+        // if it hadn't, `capturedPID` would still identify a live process. `processExists(_:)`
+        // calls `kill(pid, 0)`, which sends no signal; it only reports whether a process with that
+        // pid still exists.
         //
         // `close()` waits for the reap of the process, thus the pid is gone when `close()`
         // returns. The test still polls with a bounded budget, because a cancel of the task of
         // `close()` lets `close()` return after `SIGKILL` and before the reap.
         let pid = capturedPID
         let isReaped = try await waitUntil(timeout: Self.processReapTimeout, pollInterval: Self.processPollInterval) {
-            !Self.pidExists(pid)
+            !processExists(pid)
         }
         #expect(isReaped)
 

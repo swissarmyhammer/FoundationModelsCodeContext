@@ -66,6 +66,46 @@ comments:
     - evidence: swift test — 1004 tests in 90 suites passed, 0 failed, 0 skipped; IntegrationTests build-tests complete; LanguageServerProcessGroupTests 2 tests passed. Only warning: "missing creator for mutated node" for mlx-swift_Cmlx.bundle (dependency, not this package).
     - next: commit
   timestamp: 2026-10-18T13:02:17.972192+00:00
+- actor: claude-code
+  id: 01m57j0898p1hpb7cqy8rzk96x
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (2625a0b). 1 finding (confirmed 1, refuted 2). Tests/FoundationModelsCodeContextTests/ClockWaitForCompletionTests.swift:21 (reuse/reuse). The 3 items of the 07:42 section are checked and fixed: Clock.waitForCompletion(atMost:_:) is the one timed wait for ProcessGroupChild and LSPDaemon.shutdown; CancellableWaiters replaces ExitSignal; task ^6ava5jt moves UpdateMailbox onto CancellableWaiters.
+    - next: Fix the open item in the 08:02 section. Then run the review again.
+  timestamp: 2026-10-18T13:07:48.136231+00:00
+- actor: claude-code
+  id: 01m57j0j945cb44j9jwm7jzn9g
+  text: |-
+    ### finish iteration 2 — findings
+    - implement: changed — 6 files (Clock.waitForCompletion, CancellableWaiters; new task ^6ava5jt)
+    - test: green — swift test, 1004 passed; integration LanguageServerProcessGroupTests 2 passed
+    - commit: 2625a0b
+    - review: findings — Tests/FoundationModelsCodeContextTests/ClockWaitForCompletionTests.swift:21
+  timestamp: 2026-10-18T13:07:58.372672+00:00
+- actor: claude-code
+  id: 01m57ja8k6cqtpezg1dbcbwyyn
+  text: |-
+    Review fix pass for the 08:02 finding (ClockWaitForCompletionTests.swift:21 reuse/reuse).
+    - New `CancellableWaiters.flag(isSet:)` in Tests/FoundationModelsCodeContextTests/Support/CancellableWaiters+Flag.swift. CancellableWaitersTests and ClockWaitForCompletionTests both use it. The private `makeFlagWaiters` and `makeNeverSatisfiedWaiters` are removed.
+    - Same cause, second copy: `processExists(_:)` in IntegrationSupport.swift said in its doc that it was a copy of the private `ConnectionTests.pidExists(_:)`. A test target cannot import the test target of a different package, thus the one shared body is now public `processExists(_:)` in Tests/ScriptedLSPServerSupport/ProcessExistence.swift (the test-support library that both packages already use). ConnectionTests and LanguageServerProcessGroupTests call it. Both copies are removed. ConnectionTests no longer needs `import Darwin`. The manifest comments of Package.swift and IntegrationTests/Package.swift tell about the new function.
+    - Not changed: ProcessGroupChild keeps its one-line `CancellableWaiters(false) { isReaped in isReaped }`. Production code must not call a test-support helper.
+    - Discovery: the `files` tool `replace_all` edit changed only one match per call in this session. Check the result of each such edit.
+  timestamp: 2026-10-18T13:13:16.134889+00:00
+- actor: claude-code
+  id: 01m57jac4p0e797x3ahyc9y90e
+  text: |-
+    ### implement — changed
+    - evidence: new Tests/FoundationModelsCodeContextTests/Support/CancellableWaiters+Flag.swift, new Tests/ScriptedLSPServerSupport/ProcessExistence.swift; changed CancellableWaitersTests.swift, ClockWaitForCompletionTests.swift, ConnectionTests.swift, IntegrationTests/.../IntegrationSupport.swift, IntegrationTests/.../LanguageServerProcessGroupTests.swift, Package.swift, IntegrationTests/Package.swift. swift test --filter 'CancellableWaitersTests|ClockWaitForCompletionTests': 9 tests in 2 suites passed; swift test --package-path IntegrationTests --filter LanguageServerProcessGroupTests: 2 passed; full root swift test: 1004 tests in 90 suites passed, 0 failed. Only warning: mlx-swift_Cmlx.bundle "missing creator for mutated node" (dependency). swiftlint on the changed test files: no no_magic_numbers finding (two old findings in IntegrationSupport.swift on lines this pass did not change).
+    - findings: 08:02 section 1 of 1 checked.
+    - next: /review
+  timestamp: 2026-10-18T13:13:19.766138+00:00
+- actor: claude-code
+  id: 01m57jfq9r7ka0hxqs726xdckt
+  text: |-
+    ### test — green
+    - evidence: swift test (root) 1004 tests in 90 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests complete; swift test --package-path IntegrationTests --filter "LanguageServerProcessGroupTests|LSPCancelRequestTests" 3 tests in 2 suites passed. Only warning: SwiftPM "missing creator for mutated node" for the mlx-swift_Cmlx bundle (dependency, not this package).
+    - next: commit
+  timestamp: 2026-10-18T13:16:15.032179+00:00
 position_column: doing
 position_ordinal: '80'
 title: Start each language server in its own process group and kill the group on close and on deinit
@@ -112,3 +152,12 @@ title: Start each language server in its own process group and kill the group on
 - [x] `Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift:132` `duplication/duplication` — The race in waitUntilExit(atMost:) repeats the task-group race in LSPDaemon.shutdown(): one task waits for the exit, one task sleeps, the first to finish wins, and the group cancels the other. Two copies of this race can drift apart, for example if one gets a cancel fix and the other does not. Extract one shared helper that races an exit wait against a clock sleep and takes the clock as a parameter. Call it from waitUntilExit(atMost:) in the changed code. Report the LSPDaemon.shutdown() copy as a separate task, because that code is outside this change.
 - [x] `Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift:288` `reuse/reuse` — `ExitSignal` rebuilds a cancellable async waiter with a lock, a token per wait, a continuation map, and a set of early-cancelled tokens. `UpdateMailbox` already has the same shape: a waiter token, `registerWaiter`, and `cancelWaiter`. Writing a second copy means two places to fix the cancel-before-register race. Check whether `UpdateMailbox`'s waiter machinery, or a small shared one-shot waiter type, can serve `ExitSignal`. If the contracts differ too much (an update stream versus a fire-once signal), extract the shared token-and-cancel registration into one helper that both types call, and note in the `ExitSignal` doc comment why the reuse stops there.
 - [x] `Sources/FoundationModelsCodeContext/LSP/ProcessGroupChild.swift:363` `duplication/duplication` — ExitSignal.cancelWait(token:) and its register/wait pattern copy the cancellable-waiter logic of UpdateMailbox. Each has a token counter, a dictionary of continuations, a set of cancelled tokens recorded before registration, and a cancel handler that resumes the waiter. Two copies of this subtle logic can drift apart. Extract one generic cancellable-waiter helper, parameterized by the state that each caller guards, and use it from ExitSignal in the changed code. Do not edit UpdateMailbox in this change. Report the UpdateMailbox adoption as a separate task.
+
+## Review Findings (2026-10-18 08:02)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 6 file(s) reviewed, 4 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+- [x] `Tests/FoundationModelsCodeContextTests/ClockWaitForCompletionTests.swift:21` `reuse/reuse` — makeNeverSatisfiedWaiters builds the same object as makeFlagWaiters(isSet: false) in CancellableWaitersTests. The helper is a copy in a sibling test struct, so the two can diverge. Use the one-line constructor CancellableWaiters(false) { isSet in isSet } directly, or move the helper to Support/ so both suites share it. makeFlagWaiters is private, so it cannot be called from this file as it stands.

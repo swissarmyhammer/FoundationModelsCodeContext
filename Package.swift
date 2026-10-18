@@ -7,11 +7,11 @@ import PackageDescription
 // source of truth for each identifier.
 let packageName = "FoundationModelsCodeContext"
 
-// The test-support target that writes the script file of the scripted language server. The unit
-// test target and the test target of the `IntegrationTests` package both use it, thus the join of
-// the framing code and the server script has one body. It is a separate library product only
-// because a different package cannot depend on a target. The library product `packageName` does
-// not contain it.
+// The test-support target that writes the script file of the scripted language server and checks
+// if a server process exists. The unit test target and the test target of the `IntegrationTests`
+// package both use it, thus the join of the framing code and the server script, and the process
+// check, each have one body. It is a separate library product only because a different package
+// cannot depend on a target. The library product `packageName` does not contain it.
 let scriptedLSPServerSupportName = "ScriptedLSPServerSupport"
 
 // Per-language tree-sitter grammar packages. `alex-pinkus/tree-sitter-swift`
@@ -283,7 +283,8 @@ let package = Package(
                 // the recorded values from it. They do not bootstrap the global system.
                 .product(name: "MetricsTestKit", package: metricsPackage),
                 // `ConnectionTests` starts the scripted language server through the script file
-                // that this target writes.
+                // that this target writes, and checks the server process with its
+                // `processExists(_:)`.
                 .target(name: scriptedLSPServerSupportName),
             ],
             path: "Tests/\(packageName)Tests",

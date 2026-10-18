@@ -66,7 +66,8 @@ let package = Package(
             dependencies: [
                 .product(name: "FoundationModelsCodeContext", package: "FoundationModelsCodeContext"),
                 // `ScriptedLSPServer` writes the script file of the scripted language server
-                // through the same helper as the unit tests of `../Package.swift`.
+                // through the same helper as the unit tests of `../Package.swift`. The process
+                // group tests check a process with its `processExists(_:)`.
                 .product(name: "ScriptedLSPServerSupport", package: "FoundationModelsCodeContext"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "InMemoryLogging", package: "swift-log"),

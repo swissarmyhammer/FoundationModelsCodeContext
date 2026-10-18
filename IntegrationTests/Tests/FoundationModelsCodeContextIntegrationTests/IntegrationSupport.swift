@@ -71,18 +71,6 @@ func poll(
     }
 }
 
-/// Tells if a process with the id `pid` exists, from `kill(pid, 0)`. Signal
-/// `0` sends no signal: the call only checks the id. A zombie process that
-/// its parent did not reap yet still exists. A copy of
-/// `ConnectionTests.pidExists(_:)` of the unit target.
-/// - Parameter pid: The process id to check.
-/// - Returns: `true` when the call finds the process (`0`, or `EPERM` for a
-///   process of another user); `false` when it reports `ESRCH`.
-func processExists(_ pid: pid_t) -> Bool {
-    errno = 0
-    return kill(pid, 0) == 0 || errno != ESRCH
-}
-
 /// Runs `body`, and then runs `cleanup` on every exit path (success or
 /// throw). Use it to stop a real subprocess, a watcher or a context that a
 /// test starts, so that nothing that the test starts outlives the test.

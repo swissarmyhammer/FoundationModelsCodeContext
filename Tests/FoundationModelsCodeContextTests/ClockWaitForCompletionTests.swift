@@ -7,20 +7,14 @@ import Testing
 /// operation against a time limit that `ProcessGroupChild` and `LSPDaemon.shutdown()` use.
 ///
 /// Each test uses a `ManualClock`, thus the time limit elapses only at `advance(by:)`. The
-/// operation that does not finish waits on `CancellableWaiters` whose state stays unsatisfied, thus
-/// only a cancel ends it.
+/// operation that does not finish waits on `CancellableWaiters.flag(isSet: false)`, whose state
+/// stays unsatisfied, thus only a cancel ends it.
 struct ClockWaitForCompletionTests {
     /// The number of seconds in `limit`.
     private static let limitSeconds = 5
 
     /// The time limit of each race.
     private static let limit: Duration = .seconds(limitSeconds)
-
-    /// Makes waiters whose state never satisfies a wait.
-    /// - Returns: The waiters.
-    private static func makeNeverSatisfiedWaiters() -> CancellableWaiters<Bool> {
-        CancellableWaiters(false) { isSet in isSet }
-    }
 
     @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func returnsTrueWhenTheOperationFinishesBeforeTheLimit() async {
@@ -34,7 +28,7 @@ struct ClockWaitForCompletionTests {
     @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func returnsFalseWhenTheLimitElapsesBeforeTheOperationFinishes() async {
         let clock = ManualClock()
-        let neverSatisfied = Self.makeNeverSatisfiedWaiters()
+        let neverSatisfied = CancellableWaiters.flag(isSet: false)
 
         async let finishedFirst = clock.waitForCompletion(atMost: Self.limit) {
             await neverSatisfied.wait()
@@ -48,7 +42,7 @@ struct ClockWaitForCompletionTests {
     @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
     func cancelsTheOperationWhenTheLimitElapses() async {
         let clock = ManualClock()
-        let neverSatisfied = Self.makeNeverSatisfiedWaiters()
+        let neverSatisfied = CancellableWaiters.flag(isSet: false)
         let operationWasCancelled = Box(false)
 
         async let finishedFirst = clock.waitForCompletion(atMost: Self.limit) {
