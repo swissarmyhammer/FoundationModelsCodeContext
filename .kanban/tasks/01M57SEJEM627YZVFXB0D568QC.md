@@ -22,8 +22,31 @@ comments:
     - evidence: no files changed. The orphan (pid 98867, started 00:28:06 CDT) came from the crashed RED run of ^s4fmb5k, before fix 7f351ac and before process-group commit fc2d112. I killed it. `swift test --skip-build --filter 'ConnectionTests/aNegativeContentLengthFailsThePendingRequestAndStopsTheServer'` x10: 10 of 10 passed, 0 orphans after each run. Full `swift test`: 1015 tests in 90 suites passed, exit 0, 0 `scripted-lsp-server` processes before and after. Only warning: the known mlx-swift_Cmlx `missing creator for mutated node` (^kw00hcn). Acceptance criterion checked. Follow-up task ^qma01sw: the `hang` step must stop at the end of stdin, so that a crashed test binary leaves no orphan.
     - next: /review
   timestamp: 2026-10-18T15:23:35.558294+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m57sssdx6xc20z2y3nrs0he5
+  text: |-
+    ### commit — changed
+    - evidence: 481df88 chore(kanban): record the cause of the orphan test server ^0d568qc (6 files)
+    - next: none. This comment is written after the commit, so the board file for this task shows one new change that is not committed.
+  timestamp: 2026-10-18T15:24:04.925784+00:00
+- actor: claude-code
+  id: 01m57sv8wav47daqqpmgpw8m1f
+  text: |-
+    ### review — clean
+    - evidence: `review sha HEAD~1..HEAD` (commit 481df88): findings 0, confirmed 0, refuted 0. 0 files reviewed. 6 of 6 files are `.kanban/` files, and `.reviewignore` excludes them. Acceptance criterion check: the research comment records that the orphan (pid 98867, started 00:28:06 CDT) came from the crashed RED run of ^s4fmb5k. `git log` agrees: fix 7f351ac is at 00:56:51 and process-group commit fc2d112 is at 07:42:21, both after the orphan started. The comment records one full `swift test` run (1015 tests, exit 0) with 0 `scripted-lsp-server` processes after the run. `pgrep -fl scripted-lsp-server` now shows 0 processes. Follow-up task ^qma01sw is in todo.
+    - next: none. Task moved to done.
+  timestamp: 2026-10-18T15:24:53.514234+00:00
+- actor: claude-code
+  id: 01m57svk04h8tz0vaczftvjq3b
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: no-change — orphan came from the crashed RED run of ^s4fmb5k; current code leaves no orphan (10 repeated runs, 1 full run, 0 orphans)
+    - test: skipped — no code change; implement ran swift test, 1015 passed
+    - commit: 481df88 (kanban records only)
+    - review: clean — 0 findings; acceptance criterion met by the recorded evidence
+  timestamp: 2026-10-18T15:25:03.876772+00:00
+position_column: done
+position_ordinal: f780
 title: An orphan scripted-lsp-server process of the negative Content-Length test stays alive after a test run
 ---
 ## Problem

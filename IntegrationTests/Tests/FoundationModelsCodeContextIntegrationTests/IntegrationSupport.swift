@@ -177,11 +177,12 @@ struct FakeEmbedder: PooledEmbedding {
 /// package start as a real `swift <script>` child process. See the header
 /// comment of the script for its script language.
 ///
-/// Start the server only through `withConnection(steps:metrics:tracer:_:)`.
-/// It closes the connection on every exit path, and `close()` kills the
-/// child process. A script that ends with a "hang" step never exits by
-/// itself, thus a connection that is not closed leaves a process that runs
-/// forever.
+/// Start a server for a connection only through
+/// `withConnection(steps:metrics:tracer:_:)`. It closes the connection on
+/// every exit path, and `close()` kills the
+/// child process. A script that ends with a "hang" step exits by itself only
+/// when its standard input closes, thus a connection that is not closed
+/// leaves a process that runs until this process exits.
 internal enum ScriptedLSPServer {
     /// The command that starts the script. It is also the server name in the
     /// telemetry of the connection.
@@ -226,10 +227,9 @@ internal enum ScriptedLSPServer {
         tracer: (any Tracer)? = nil,
         _ body: (ProcessLanguageServerConnection) async throws -> T
     ) async throws -> T {
-        let script = String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
         let connection = try ProcessLanguageServerConnection(
             command: command,
-            arguments: [try ScriptedLSPServerScript.path(in: scriptDirectory), script],
+            arguments: try arguments(steps: steps),
             requestTimeout: requestTimeout,
             metrics: metrics,
             tracer: tracer
@@ -239,6 +239,18 @@ internal enum ScriptedLSPServer {
         } cleanup: {
             await connection.close()
         }
+    }
+
+    /// Gives the arguments of `command` that start the scripted server with
+    /// `steps`: the path of the joined script file, and the steps as JSON
+    /// text.
+    /// - Parameter steps: The script steps. See the header comment of the script.
+    /// - Returns: The arguments of `command`.
+    /// - Throws: When the steps cannot be encoded as JSON, or when the joined
+    ///   script file cannot be written.
+    internal static func arguments(steps: [[String: Any]]) throws -> [String] {
+        let script = String(decoding: try JSONSerialization.data(withJSONObject: steps), as: UTF8.self)
+        return [try ScriptedLSPServerScript.path(in: scriptDirectory), script]
     }
 
     /// Polls the standard error tail of `connection` until it holds `text`,

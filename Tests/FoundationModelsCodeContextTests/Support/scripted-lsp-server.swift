@@ -85,9 +85,12 @@
 //     connection.
 //
 //   {"action": "hang"}
-//     Blocks forever without exiting, so the process stays alive (and the
-//     pipe doesn't hit EOF) while deliberately never answering a pending
-//     request — used to drive `ConnectionTests`' timeout scenario.
+//     Reads stdin until EOF and discards each byte, thus the step never
+//     answers a pending request. While stdin is open, the process stays
+//     alive and stdout stays open — used to drive `ConnectionTests`' timeout
+//     scenario. At EOF of stdin the script stops, as a real language server
+//     does. Thus a script whose client exits with no `close()` (for example
+//     a test binary that crashes) does not stay alive.
 //
 //   {"action": "stderr", "text": <String>}
 //     Writes `text` to stderr, unframed — used to drive `ConnectionTests`'
@@ -108,10 +111,6 @@ import Foundation
 
 let standardInput = FileHandle.standardInput
 let standardOutput = FileHandle.standardOutput
-
-/// The time of one sleep of a "hang" step, in seconds. The step sleeps again and again, thus
-/// the value only keeps the count of wakeups low.
-let hangSleepInterval: TimeInterval = 3600
 
 /// Reads the framed JSON-RPC messages that the client writes to stdin.
 struct StandardInputMessageReader {
@@ -137,6 +136,14 @@ struct StandardInputMessageReader {
             }
         }
         return decodedMessages.removeFirst()
+    }
+
+    /// Reads stdin until EOF and discards the bytes. The function answers no message.
+    ///
+    /// A pipe holds a limited number of bytes. The read keeps the pipe empty, thus a write of the
+    /// client never blocks.
+    func discardUntilEndOfInput() {
+        while !standardInput.availableData.isEmpty {}
     }
 }
 
@@ -335,9 +342,8 @@ for step in steps {
         standardOutput.write(Data(text.utf8))
 
     case "hang":
-        while true {
-            Thread.sleep(forTimeInterval: hangSleepInterval)
-        }
+        messageReader.discardUntilEndOfInput()
+        exit(0)
 
     case "stderr":
         let text = step["text"] as? String ?? ""
