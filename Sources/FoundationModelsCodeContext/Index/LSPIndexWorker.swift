@@ -16,6 +16,14 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
     /// session is currently available.
     let sessionUnavailableSleep: Duration
 
+    /// The number of failed attempts for one file after which the continuous
+    /// loop stops the attempts and marks the file indexed.
+    let failureLimit: Int
+
+    /// How long the continuous loop sleeps after a batch in which no file
+    /// was indexed.
+    let failedBatchSleep: Duration
+
     /// Creates a worker configuration.
     /// - Parameters:
     ///   - batchSize: Maximum dirty files drained per batch. Defaults to 50,
@@ -24,14 +32,22 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
     ///     500 milliseconds.
     ///   - sessionUnavailableSleep: Sleep duration when the session is
     ///     unavailable. Defaults to 5 seconds.
+    ///   - failureLimit: The number of failed attempts for one file after
+    ///     which the loop marks the file indexed. Defaults to 3.
+    ///   - failedBatchSleep: Sleep duration after a batch in which no file was
+    ///     indexed. Defaults to 5 seconds.
     init(
         batchSize: Int = 50,
         idleSleep: Duration = .milliseconds(500),
-        sessionUnavailableSleep: Duration = .seconds(5)
+        sessionUnavailableSleep: Duration = .seconds(5),
+        failureLimit: Int = 3,
+        failedBatchSleep: Duration = .seconds(5)
     ) {
         self.batchSize = batchSize
         self.idleSleep = idleSleep
         self.sessionUnavailableSleep = sessionUnavailableSleep
+        self.failureLimit = failureLimit
+        self.failedBatchSleep = failedBatchSleep
     }
 }
 
@@ -59,12 +75,18 @@ struct LSPIndexWorkerConfiguration: Sendable, Equatable {
 ///   trading a `didClose` round trip per file for a bounded open-document
 ///   set on the server. This is a deliberate divergence for this Swift port,
 ///   not an oversight.
-/// - A file whose `documentSymbol`/`didOpen` request throws is left dirty
-///   (`lsp_indexed` stays `0`) so a later pass retries it once the
-///   connection recovers, and nothing is written for it this pass — unlike
-///   the Rust reference, which marks a failed file indexed anyway to avoid
-///   an infinite retry loop. This port instead treats such a failure as
-///   transient (a connection hiccup, not a permanently broken file).
+/// - A file whose `documentSymbol`/`didOpen` request throws, or whose store
+///   write fails, is left dirty (`lsp_indexed` stays `0`) so a later pass
+///   retries it once the connection recovers, and nothing is written for it
+///   this pass. The Rust reference marks a failed file indexed at once to
+///   prevent an infinite retry loop. This port first treats such a failure as
+///   transient (a connection hiccup, not a permanently broken file): the
+///   continuous loop counts the failures of each file, and only when the
+///   count gets to `LSPIndexWorkerConfiguration.failureLimit` does it mark the
+///   file indexed, with one warning (see `LSPIndexFailureCounts`). A later
+///   watcher event makes the file dirty again. After a batch in which no file
+///   was indexed, the loop sleeps `LSPIndexWorkerConfiguration.failedBatchSleep`,
+///   thus a batch that always fails does not repeat with no wait.
 /// - The call edges come from call hierarchy only when the server advertises
 ///   it (`LspSession.capabilities`). A server without call hierarchy (for
 ///   example `pylsp`) gets no `prepareCallHierarchy` request: the worker
@@ -113,9 +135,15 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
 
     /// Runs the drain loop until the calling task is cancelled: repeatedly
     /// drains a batch of `lsp_indexed = 0` files matching `extensions`,
-    /// sleeping `configuration.idleSleep` when none are dirty and
+    /// sleeping `configuration.idleSleep` when none are dirty,
     /// `configuration.sessionUnavailableSleep` when `sessionProvider()`
-    /// currently returns `nil`.
+    /// currently returns `nil`, and `configuration.failedBatchSleep` after a
+    /// batch in which no file was indexed.
+    ///
+    /// The loop counts the failed attempts of each file. When the count of a
+    /// file gets to `configuration.failureLimit`, the loop marks the file
+    /// indexed with one warning, thus a file that always fails does not block
+    /// the other dirty files (see `LSPIndexFailureCounts`).
     ///
     /// `sessionProvider` is re-invoked at the start of every batch rather
     /// than resolved once: per `LSPDaemon.session()`'s documented caution,
@@ -134,10 +162,10 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///     are drained.
     ///   - sessionProvider: Returns the current session for this server, or
     ///     `nil` if the daemon isn't running. Re-invoked before every batch.
-    ///   - configuration: Batch size and idle/unavailable backoff pacing.
-    ///     Defaults to `LSPIndexWorkerConfiguration()`.
-    ///   - clock: The clock idle/unavailable sleeps wait against. Defaults
-    ///     to `ContinuousClock()`; tests inject a `ManualClock`.
+    ///   - configuration: Batch size, failure limit, and idle/unavailable/
+    ///     failed-batch backoff pacing. Defaults to `LSPIndexWorkerConfiguration()`.
+    ///   - clock: The clock idle/unavailable/failed-batch sleeps wait against.
+    ///     Defaults to `ContinuousClock()`; tests inject a `ManualClock`.
     ///   - metrics: Gets the count of the files that each batch indexed,
     ///     under the `lsp` layer. Defaults to `CodeContextMetrics()`.
     /// - Throws: Rethrows `Store`'s storage errors, or `CancellationError`
@@ -152,6 +180,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         clock: any Clock<Duration> = ContinuousClock(),
         metrics: CodeContextMetrics = CodeContextMetrics()
     ) async throws {
+        var failureCounts = LSPIndexFailureCounts(limit: configuration.failureLimit)
         while !Task.isCancelled {
             let dirtyPaths = try await dirtyFiles(store: store, extensions: extensions, limit: configuration.batchSize)
             guard !dirtyPaths.isEmpty else {
@@ -164,7 +193,12 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
                 continue
             }
 
-            await indexFiles(dirtyPaths, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session, store: store, metrics: metrics)
+            let outcome = await indexFiles(dirtyPaths, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session, store: store, metrics: metrics)
+            let exhaustedPaths = failureCounts.record(outcome)
+            await stopAttempts(for: exhaustedPaths, store: store)
+            if outcome.indexedPaths.isEmpty {
+                try await clock.sleep(for: configuration.failedBatchSleep)
+            }
         }
     }
 
@@ -203,7 +237,8 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         metrics: CodeContextMetrics = CodeContextMetrics()
     ) async throws -> Int {
         let dirtyPaths = try await dirtyFiles(store: store, extensions: extensions, limit: configuration.batchSize)
-        return await indexFiles(dirtyPaths, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session, store: store, metrics: metrics)
+        let outcome = await indexFiles(dirtyPaths, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session, store: store, metrics: metrics)
+        return outcome.indexedPaths.count
     }
 
     /// Indexes each file of one batch in order, then adds the count of the
@@ -221,8 +256,9 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///   - session: The live session to index through.
     ///   - store: The workspace's index store to write into.
     ///   - metrics: Gets the count of the indexed files.
-    /// - Returns: The number of files that are now `lsp_indexed = 1`.
-    @discardableResult
+    /// - Returns: The files that are now `lsp_indexed = 1`, and the files
+    ///   that a failure left dirty. A file after a stop of the task is in
+    ///   neither list.
     private static func indexFiles(
         _ relativePaths: [String],
         rootDirectory: URL,
@@ -230,16 +266,18 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         session: LspSession<Connection>,
         store: Store,
         metrics: CodeContextMetrics
-    ) async -> Int {
-        var indexedCount = 0
+    ) async -> LSPIndexBatchOutcome {
+        var outcome = LSPIndexBatchOutcome()
         for relativePath in relativePaths {
             guard !Task.isCancelled else { break }
             if await processFile(relativePath: relativePath, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session, store: store) {
-                indexedCount += 1
+                outcome.indexedPaths.append(relativePath)
+            } else {
+                outcome.failedPaths.append(relativePath)
             }
         }
-        metrics.addFilesIndexed(indexedCount, layer: .lsp)
-        return indexedCount
+        metrics.addFilesIndexed(outcome.indexedPaths.count, layer: .lsp)
+        return outcome
     }
 
     // MARK: - Dirty file query
@@ -492,7 +530,8 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// the path filter does not accept, and an unreadable file. For each one
     /// there is nothing left to retry, also when the mark itself fails. The
     /// mark is necessary: a row that stays dirty comes back in each later
-    /// batch.
+    /// batch. Not `private`: the continuous loop also uses it for a file whose
+    /// failure count gets to the limit (see `stopAttempts(for:store:)`).
     /// - Parameters:
     ///   - relativePath: The file's workspace-relative path.
     ///   - store: The workspace's index store to write into.
@@ -501,7 +540,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///   - message: Why the worker skips the file.
     /// - Returns: `true` unconditionally, matching this path's "nothing to
     ///   retry" contract even when the mark write itself fails.
-    private static func skipFile(relativePath: String, store: Store, level: Logger.Level, message: Logger.Message) async -> Bool {
+    static func skipFile(relativePath: String, store: Store, level: Logger.Level, message: Logger.Message) async -> Bool {
         Log.lsp.log(level: level, message, metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)])
         do {
             try await store.markIndexed(filePath: relativePath, layer: .lsp)

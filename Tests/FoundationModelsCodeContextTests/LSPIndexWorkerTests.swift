@@ -14,7 +14,9 @@ import Testing
 /// scripted fixture drain, a shrinking symbol set propagates invalidation to
 /// dependent files, a connection error mid-batch leaves the failing file
 /// dirty with no partial rows while the rest of the batch still proceeds,
-/// and idle/session-unavailable backoff is paced by an injectable clock.
+/// and idle/session-unavailable backoff is paced by an injectable clock. It
+/// also covers the failure limit of one file and the sleep after a batch with
+/// no success.
 struct LSPIndexWorkerTests {
     // MARK: - Fixtures
 
@@ -543,6 +545,188 @@ struct LSPIndexWorkerTests {
             _ = try? await runTask.value
 
             #expect(try await store.drainLspDirty().isEmpty)
+        }
+    }
+
+    // MARK: - Failure limit and failed-batch sleep (ManualClock)
+
+    /// The batch size that puts one file in each batch. Then a file that
+    /// always fails is a full batch with no success.
+    private static let singleFileBatchSize = 1
+
+    /// Starts `LSPIndexWorker.run` in a new task that always gets `session`.
+    /// - Parameters:
+    ///   - store: The store of the workspace.
+    ///   - root: The workspace root.
+    ///   - session: The session that the loop gets for each batch.
+    ///   - configuration: The batch size, the limit and the sleeps.
+    ///   - clock: The clock of each sleep.
+    /// - Returns: The task of the loop.
+    private static func startRun(
+        store: Store,
+        root: URL,
+        session: LspSession<FakeLanguageServerConnection>,
+        configuration: LSPIndexWorkerConfiguration,
+        clock: ManualClock
+    ) -> Task<Void, any Error> {
+        Task {
+            try await LSPIndexWorker<FakeLanguageServerConnection>.run(
+                store: store,
+                rootDirectory: root,
+                pathFilter: SharedPathFilter(rootDirectory: root),
+                extensions: ["swift"],
+                sessionProvider: { session },
+                configuration: configuration,
+                clock: clock
+            )
+        }
+    }
+
+    /// Waits for each of `count` failed-batch sleeps of the loop, and
+    /// releases each one with an advance of `configuration.failedBatchSleep`.
+    /// - Parameters:
+    ///   - count: The number of sleeps to release.
+    ///   - clock: The clock of the loop.
+    ///   - configuration: Supplies `failedBatchSleep`.
+    private static func releaseFailedBatchSleeps(_ count: Int, clock: ManualClock, configuration: LSPIndexWorkerConfiguration) async {
+        for _ in 0..<count {
+            await clock.waitForWaiter()
+            clock.advance(by: configuration.failedBatchSleep)
+        }
+    }
+
+    /// Cancels the task of the loop and waits for its end.
+    /// - Parameter runTask: The task that `startRun(store:root:session:configuration:clock:)` gave.
+    private static func stop(_ runTask: Task<Void, any Error>) async {
+        runTask.cancel()
+        _ = try? await runTask.value
+    }
+
+    /// The number of `documentSymbols` requests that `connection` got.
+    /// - Parameter connection: The fake connection of the session.
+    /// - Returns: The request count.
+    private static func documentSymbolsRequestCount(_ connection: FakeLanguageServerConnection) async -> Int {
+        await connection.calls.filter { call in
+            if case .documentSymbols = call { return true }
+            return false
+        }.count
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func runMarksAFileThatAlwaysFailsIndexedAfterTheFailureLimit() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("func fromA() {}\n", to: "A.swift", in: root)
+            try await Self.seedDirty(store: store, filePath: "A.swift")
+            let connection = FakeLanguageServerConnection()
+            await connection.setDocumentSymbolsResult(.failure(SimulatedConnectionFailure()))
+            let clock = ManualClock()
+            let configuration = LSPIndexWorkerConfiguration()
+            let session = LspSession(connection: connection, languageID: "swift")
+            let runTask = Self.startRun(store: store, root: root, session: session, configuration: configuration, clock: clock)
+
+            await Self.releaseFailedBatchSleeps(configuration.failureLimit, clock: clock, configuration: configuration)
+
+            // No dirty file remains. The loop sleeps idle, and one more
+            // advance gives no new request.
+            await clock.waitForWaiter()
+            clock.advance(by: configuration.failedBatchSleep)
+            await clock.waitForWaiter()
+            await Self.stop(runTask)
+
+            #expect(await Self.documentSymbolsRequestCount(connection) == configuration.failureLimit)
+            #expect(try await store.drainLspDirty().isEmpty, "the loop must mark the file indexed at the failure limit")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func runIndexesAGoodFileWhenAnEarlierFileAlwaysFails() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("func fromA() {}\n", to: "A.swift", in: root)
+            try write("func fromB() {}\n", to: "B.swift", in: root)
+            try await Self.seedDirty(store: store, filePath: "A.swift")
+            try await Self.seedDirty(store: store, filePath: "B.swift")
+            let connection = FakeLanguageServerConnection()
+            await connection.setDocumentSymbolsResult(.failure(SimulatedConnectionFailure()), for: Self.uri(for: "A.swift", in: root))
+            await connection.setDocumentSymbolsResult(
+                .success([Self.documentSymbol(name: "fromB", kind: .function, startLine: 0, endLine: 0)])
+            )
+            let clock = ManualClock()
+            let configuration = LSPIndexWorkerConfiguration(batchSize: Self.singleFileBatchSize)
+            let session = LspSession(connection: connection, languageID: "swift")
+            let runTask = Self.startRun(store: store, root: root, session: session, configuration: configuration, clock: clock)
+
+            // Each batch holds only A.swift until the loop gives up on it.
+            await Self.releaseFailedBatchSleeps(configuration.failureLimit, clock: clock, configuration: configuration)
+
+            // The next batch indexes B.swift, and then the loop sleeps idle.
+            await clock.waitForWaiter()
+            await Self.stop(runTask)
+
+            #expect(try await store.drainLspDirty().isEmpty)
+            let symbolNames: [String] = try await store.read { db in
+                try String.fetchAll(db, sql: "SELECT name FROM lsp_symbols")
+            }
+            #expect(symbolNames == ["fromB"], "a file that always fails must not block the next file")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func runSleepsForFailedBatchSleepAfterABatchWithNoSuccess() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("func fromA() {}\n", to: "A.swift", in: root)
+            try await Self.seedDirty(store: store, filePath: "A.swift")
+            let connection = FakeLanguageServerConnection()
+            await connection.setDocumentSymbolsResult(.failure(SimulatedConnectionFailure()))
+            let clock = ManualClock()
+            let configuration = LSPIndexWorkerConfiguration()
+            let session = LspSession(connection: connection, languageID: "swift")
+            let firstDeadline = clock.now.advanced(by: configuration.failedBatchSleep)
+            let runTask = Self.startRun(store: store, root: root, session: session, configuration: configuration, clock: clock)
+
+            // The first batch fails. The loop sleeps on the clock and sends
+            // no request until the clock advances.
+            await clock.waitForWaiter(withDeadline: firstDeadline)
+            let requestsBeforeAdvance = await Self.documentSymbolsRequestCount(connection)
+
+            clock.advance(by: configuration.failedBatchSleep)
+            let secondDeadline = clock.now.advanced(by: configuration.failedBatchSleep)
+            await clock.waitForWaiter(withDeadline: secondDeadline)
+            let requestsAfterAdvance = await Self.documentSymbolsRequestCount(connection)
+            await Self.stop(runTask)
+
+            #expect(requestsBeforeAdvance == 1, "the loop must sleep after the failed batch, not send the next batch")
+            #expect(requestsAfterAdvance == requestsBeforeAdvance + 1)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func runTriesAFileAgainWhenItIsDirtyAgainAfterTheFailureLimit() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("func fromA() {}\n", to: "A.swift", in: root)
+            try await Self.seedDirty(store: store, filePath: "A.swift")
+            let connection = FakeLanguageServerConnection()
+            await connection.setDocumentSymbolsResult(.failure(SimulatedConnectionFailure()))
+            let clock = ManualClock()
+            let configuration = LSPIndexWorkerConfiguration()
+            let session = LspSession(connection: connection, languageID: "swift")
+            let runTask = Self.startRun(store: store, root: root, session: session, configuration: configuration, clock: clock)
+
+            await Self.releaseFailedBatchSleeps(configuration.failureLimit, clock: clock, configuration: configuration)
+            await clock.waitForWaiter()
+
+            // A watcher event makes the file dirty again. The loop sends a
+            // new request, and the file stays dirty after one new failure.
+            try await Self.seedDirty(store: store, filePath: "A.swift")
+            clock.advance(by: configuration.idleSleep)
+            await clock.waitForWaiter()
+            await Self.stop(runTask)
+
+            #expect(await Self.documentSymbolsRequestCount(connection) == configuration.failureLimit + 1)
+            #expect(try await store.drainLspDirty() == ["A.swift"])
         }
     }
 }
