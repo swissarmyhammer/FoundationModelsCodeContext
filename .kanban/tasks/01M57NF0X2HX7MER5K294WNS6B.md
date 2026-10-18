@@ -97,8 +97,31 @@ comments:
     - evidence: swift test (root package) — 1012 tests in 90 suites passed, 0 failed, 0 skipped. The only warning is the mlx-swift_Cmlx.bundle warning from a dependency (task ^kw00hcn).
     - next: review
   timestamp: 2026-10-18T14:38:25.168598+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m57q6mfd5bsfrcn9p3y3s1as
+  text: |-
+    ### commit — changed
+    - evidence: 0ea4320 test: make the no-restart check fail on a broken lookup ^94wns6b (3 files)
+    - next: none
+  timestamp: 2026-10-18T14:38:40.109039+00:00
+- actor: claude-code
+  id: 01m57q8bn7j0rnbqkwv45wjhvp
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (commit 0ea4320) — findings 0, confirmed 0, refuted 0, attempted 7, failed 0. 1 file reviewed; 2 .kanban files not reviewed (ignore rule). All items of the earlier Review Findings (2026-10-18 09:32) section are checked.
+    - next: none. The task is in done.
+  timestamp: 2026-10-18T14:39:36.615072+00:00
+- actor: claude-code
+  id: 01m57q8ky51nqhzm7d255ma5h4
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file
+    - test: green — swift test, 1012 passed
+    - commit: 0ea4320
+    - review: clean — 0 findings, prior 2 items checked
+  timestamp: 2026-10-18T14:39:45.093457+00:00
+position_column: done
+position_ordinal: f380
 title: 'LspSupervisorTests: replace the 5-second real-time limit of the shutdown-during-install test'
 ---
 ## Problem

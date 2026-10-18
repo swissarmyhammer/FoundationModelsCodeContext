@@ -60,7 +60,28 @@ public enum Reconciler {
     ///   only when it cannot list the root), or `CodeContextError.storage`
     ///   from `store`'s database operations.
     public static func reconcile(store: Store, rootDirectory: URL) async throws -> CleanupStats {
-        let walk = try await Walker.walk(rootDirectory: rootDirectory)
+        try await reconcile(store: store, rootDirectory: rootDirectory, readEntryType: Walker.entryType(at:))
+    }
+
+    /// Walks `rootDirectory` with `readEntryType` and reconciles it against
+    /// `store`'s `indexed_files` table.
+    ///
+    /// The public `reconcile(store:rootDirectory:)` calls this function with
+    /// `Walker.entryType(at:)`. A test gives a reader that fails for one
+    /// entry, to make an entry whose type the walk cannot read.
+    /// - Parameters:
+    ///   - store: The workspace's index store to reconcile against.
+    ///   - rootDirectory: The workspace root to walk.
+    ///   - readEntryType: Reads the type of each entry of the walk.
+    /// - Returns: Counts of files walked, added, changed, removed, and of the
+    ///   entries that the walk skipped.
+    /// - Throws: The errors of `reconcile(store:rootDirectory:)`.
+    static func reconcile(
+        store: Store,
+        rootDirectory: URL,
+        readEntryType: @escaping Walker.EntryTypeReader
+    ) async throws -> CleanupStats {
+        let walk = try await Walker.walk(rootDirectory: rootDirectory, readEntryType: readEntryType)
         let diskFiles = walk.files
         let diskByPath = Dictionary(uniqueKeysWithValues: diskFiles.map { ($0.relativePath, $0) })
 

@@ -4,6 +4,30 @@ import Testing
 
 @testable import FoundationModelsCodeContext
 
+/// The error that a reader from `EntryTypeReaders.failing(for:)` throws for
+/// the entry whose type it does not read.
+private struct InducedEntryTypeError: Error {}
+
+/// The entry type readers that the walker tests and the reconcile tests give
+/// to the walk.
+private enum EntryTypeReaders {
+    /// Gives an entry type reader that fails for one entry and reads the real
+    /// type of each other entry.
+    /// - Parameter failingName: The last path component of the entry whose
+    ///   type the reader does not read.
+    /// - Returns: A reader that throws `InducedEntryTypeError` for
+    ///   `failingName`, and otherwise gives the result of
+    ///   `Walker.entryType(at:)`.
+    static func failing(for failingName: String) -> Walker.EntryTypeReader {
+        { url in
+            guard url.lastPathComponent != failingName else {
+                throw InducedEntryTypeError()
+            }
+            return try Walker.entryType(at: url)
+        }
+    }
+}
+
 /// Tests for `Reconciler`/`Walker`: gitignore-aware discovery (root and
 /// nested), stats correctness, and the add/change/remove reconcile flows
 /// against `Store`'s `indexed_files` table — port of `cleanup.rs`'s
@@ -276,6 +300,27 @@ struct ReconcilerTests {
         }
     }
 
+    @Test
+    func reconcileKeepsTheRowOfAFileWhoseTypeTheWalkCannotRead() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try write("fn blocked() {}", to: "blocked.rs", in: root)
+            try write("fn kept() {}", to: "kept.rs", in: root)
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            let stats = try await Reconciler.reconcile(
+                store: store,
+                rootDirectory: root,
+                readEntryType: EntryTypeReaders.failing(for: "blocked.rs")
+            )
+
+            #expect(stats.removed == 0)
+            #expect(stats.skipped == 1)
+            let rowKeys = try await Self.rowKeys(in: store)
+            #expect(rowKeys == ["blocked.rs", "kept.rs"])
+        }
+    }
+
     /// Reads the key of each row of `indexed_files`, in name order.
     /// - Parameter store: The store to read.
     /// - Returns: The `file_path` of each row, sorted.
@@ -361,6 +406,19 @@ struct WalkerTests {
             ) {
                 try await Walker.walk(rootDirectory: root)
             }
+
+            #expect(walk.files.map(\.relativePath) == ["kept.rs"])
+            #expect(walk.unexaminedPaths == ["blocked.rs"])
+        }
+    }
+
+    @Test
+    func walkSkipsAFileWhoseTypeItCannotReadAndReturnsTheOtherFiles() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("fn blocked() {}", to: "blocked.rs", in: root)
+            try write("fn kept() {}", to: "kept.rs", in: root)
+
+            let walk = try await Walker.walk(rootDirectory: root, readEntryType: EntryTypeReaders.failing(for: "blocked.rs"))
 
             #expect(walk.files.map(\.relativePath) == ["kept.rs"])
             #expect(walk.unexaminedPaths == ["blocked.rs"])

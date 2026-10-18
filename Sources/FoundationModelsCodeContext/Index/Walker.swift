@@ -92,24 +92,54 @@ enum Walker {
         let ruleLoadFailures: [PathFilter.LoadError]
     }
 
+    /// The type of one entry, as the walk reads it.
+    struct EntryType: Sendable, Equatable {
+        /// `true` if the entry is a directory.
+        let isDirectory: Bool
+
+        /// `true` if the entry is a symbolic link.
+        let isSymbolicLink: Bool
+    }
+
+    /// Reads the type of the entry at a URL.
+    ///
+    /// The walk calls this function for each child that is not hidden.
+    /// Production code uses `Walker.entryType(at:)`. A test gives a function
+    /// that throws for one entry, because a test cannot make the real read
+    /// fail without a race.
+    typealias EntryTypeReader = @Sendable (URL) throws -> EntryType
+
+    /// Reads the type of the entry at `url` with `URL.resourceValues(forKeys:)`.
+    /// - Parameter url: The URL of the entry.
+    /// - Returns: Whether the entry is a directory, and whether it is a
+    ///   symbolic link.
+    /// - Throws: The error of `URL.resourceValues(forKeys:)`.
+    static func entryType(at url: URL) throws -> EntryType {
+        let resourceValues = try url.resourceValues(forKeys: Set(TreeWalk.resourceKeys))
+        return EntryType(isDirectory: resourceValues.isDirectory == true, isSymbolicLink: resourceValues.isSymbolicLink == true)
+    }
+
     /// Walks the tree below `rootDirectory` with `PathFilter`.
     ///
     /// The walk lists the canonical root, because `FileManager` cannot list a
     /// root that is a symbolic link. The URL of each entry stays below
     /// `rootDirectory`.
     ///
-    /// - Parameter rootDirectory: The directory to walk.
+    /// - Parameters:
+    ///   - rootDirectory: The directory to walk.
+    ///   - readEntryType: Reads the type of each child. An entry whose type
+    ///     it cannot read is an unexamined path.
     /// - Returns: The accepted entries, the filter with the rules of the tree,
     ///   and the paths that the walk could not examine.
     /// - Throws: The error of `FileManager` when the walk cannot list the root.
-    static func walkTree(rootDirectory: URL) throws -> Tree {
+    static func walkTree(rootDirectory: URL, readEntryType: @escaping EntryTypeReader = Walker.entryType(at:)) throws -> Tree {
         let filter = PathFilter(rootDirectory: rootDirectory)
         let rootChildren = try FileManager.default.contentsOfDirectory(
             at: filter.root.canonicalURL,
             includingPropertiesForKeys: TreeWalk.resourceKeys,
             options: []
         ).map { rootDirectory.appendingPathComponent($0.lastPathComponent) }
-        var walk = TreeWalk(filter: filter)
+        var walk = TreeWalk(filter: filter, readEntryType: readEntryType)
         let root = WalkedPath(url: rootDirectory, pathComponents: filter.root.components, relativeComponents: [])
         walk.visit(root, children: rootChildren)
         return Tree(
@@ -155,13 +185,16 @@ enum Walker {
     /// Hashing runs across a `TaskGroup`, one child task per file,
     /// mirroring the Rust reference's `rayon`-parallel hashing.
     ///
-    /// - Parameter rootDirectory: The workspace root to walk.
+    /// - Parameters:
+    ///   - rootDirectory: The workspace root to walk.
+    ///   - readEntryType: Reads the type of each child. An entry whose type
+    ///     it cannot read is an unexamined path.
     /// - Returns: One `HashedFile` per matched file, in no particular order,
     ///   and the paths that the walk could not examine. A file that the hash
     ///   cannot read is an unexamined path.
-    /// - Throws: Rethrows `walkTree(rootDirectory:)`'s errors.
-    static func walk(rootDirectory: URL) async throws -> HashedWalk {
-        let tree = try walkTree(rootDirectory: rootDirectory)
+    /// - Throws: Rethrows `walkTree(rootDirectory:readEntryType:)`'s errors.
+    static func walk(rootDirectory: URL, readEntryType: @escaping EntryTypeReader = Walker.entryType(at:)) async throws -> HashedWalk {
+        let tree = try walkTree(rootDirectory: rootDirectory, readEntryType: readEntryType)
         let files = tree.entries.filter { entry in
             !entry.isDirectory && knownLanguageExtensions.contains(Languages.normalizedFileExtension(of: entry.url))
         }
@@ -203,6 +236,9 @@ enum Walker {
 
         /// The filter, with the rules of each directory visited until now.
         var filter: PathFilter
+
+        /// Reads the type of each child.
+        let readEntryType: EntryTypeReader
 
         /// The accepted entries found until now.
         var entries: [Entry] = []
@@ -253,21 +289,20 @@ enum Walker {
             guard !PathFilter.isHidden(child.url.lastPathComponent) else {
                 return
             }
-            let resourceValues: URLResourceValues
+            let entryType: EntryType
             do {
-                resourceValues = try child.url.resourceValues(forKeys: Set(Self.resourceKeys))
+                entryType = try readEntryType(child.url)
             } catch {
                 skip(child.relativeComponents, error: error)
                 return
             }
-            let isDirectory = resourceValues.isDirectory == true
-            guard resourceValues.isSymbolicLink != true,
-                !filter.isEntryIgnored(relativeComponents: child.relativeComponents, isDirectory: isDirectory)
+            guard !entryType.isSymbolicLink,
+                !filter.isEntryIgnored(relativeComponents: child.relativeComponents, isDirectory: entryType.isDirectory)
             else {
                 return
             }
-            entries.append(Entry(url: child.url, relativePath: child.relativeComponents.joined(separator: "/"), isDirectory: isDirectory))
-            if isDirectory {
+            entries.append(Entry(url: child.url, relativePath: child.relativeComponents.joined(separator: "/"), isDirectory: entryType.isDirectory))
+            if entryType.isDirectory {
                 visitDirectory(child)
             }
         }
