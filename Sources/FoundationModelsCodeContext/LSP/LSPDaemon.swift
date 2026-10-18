@@ -624,8 +624,9 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
 /// The named constants of the restart policy and of the shutdown of `LSPDaemon`.
 ///
 /// `LSPDaemon` is generic, and a generic type cannot hold a static stored property, thus the
-/// constants are in this enum.
-private enum LSPDaemonLimits {
+/// constants are in this enum. The enum is internal, thus a test can read the default shutdown
+/// grace that a context gives each daemon.
+enum LSPDaemonLimits {
     /// Consecutive failures allowed before `restartWithBackoff()` refuses to retry further.
     static let maxConsecutiveFailures = 5
 

@@ -166,8 +166,24 @@ comments:
     - evidence: swift test — 987 tests in 87 suites passed, 0 failed, 0 skipped; swift build --package-path IntegrationTests --build-tests — Build complete. Only warning: SwiftPM "missing creator for mutated node" for the mlx-swift_Cmlx.bundle dependency, not from this package.
     - next: commit
   timestamp: 2026-10-18T11:34:47.424785+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m57cyywba4rjqb8dxw1vt8nw
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (87fbcc2). 0 findings, 0 confirmed, 1 refuted, 7 attempted, 0 failed. All prior Review Findings items are checked. The test-integrity finding is fixed: the test now has the name readTextGivesTheDiskTextAtTheTimeOfTheCall, and the new test initNeedsNoReadAccessToTheFile can fail if init reads the file.
+    - next: none. The task moved to done.
+  timestamp: 2026-10-18T11:39:42.859225+00:00
+- actor: claude-code
+  id: 01m57cz83k806mta2pxfa3eq80
+  text: |-
+    ### finish iteration 4 — clean
+    - implement: changed — 2 test files (test names say what each test proves; init needs no read access)
+    - test: green — swift test, 987 passed
+    - commit: 87fbcc2
+    - review: clean — 0 findings; 5 of 5 prior items checked
+  timestamp: 2026-10-18T11:39:52.307701+00:00
+position_column: done
+position_ordinal: ec80
 title: Close LSP documents on all paths and limit the number of open documents
 ---
 ## Problem

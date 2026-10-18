@@ -57,6 +57,16 @@ final class ManualClock: Clock, @unchecked Sendable {
         return currentInstant
     }
 
+    /// The number of callers that are suspended in `sleep(until:tolerance:)` now.
+    ///
+    /// A test reads it to show that no loop, for example a health loop, continues to sleep on
+    /// this clock after a shutdown.
+    var waiterCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiters.count
+    }
+
     /// The smallest duration this clock can represent; effectively unlimited precision.
     var minimumResolution: Duration { .nanoseconds(1) }
 
@@ -142,18 +152,7 @@ final class ManualClock: Clock, @unchecked Sendable {
     /// - Parameter count: How many distinct waiters must be registered before returning. Defaults
     ///   to 1.
     func waitForWaiter(count: Int = 1) async {
-        _ = try? await waitUntil { hasAtLeastWaitersSynchronously(count) }
-    }
-
-    /// Synchronously checks `waiters`' count under `lock`.
-    ///
-    /// `NSLock.lock()`/`unlock()` are unavailable directly inside an `async` function body (to
-    /// discourage holding a lock across a suspension point), so this plain synchronous helper is
-    /// the call site `waitForWaiter(count:)` delegates to instead.
-    private func hasAtLeastWaitersSynchronously(_ count: Int) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return waiters.count >= count
+        _ = try? await waitUntil { waiterCount >= count }
     }
 
     /// Polls until a waiter registered for exactly `deadline` exists.

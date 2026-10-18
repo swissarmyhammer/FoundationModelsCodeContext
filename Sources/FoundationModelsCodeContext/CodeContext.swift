@@ -88,7 +88,9 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     private let tracer: (any Tracer)?
 
     /// How long the background index loop idles between passes when nothing new triggered it.
-    private static var indexLoopIdleSleep: Duration { .milliseconds(300) }
+    private static var indexLoopIdleSleep: Duration {
+        .milliseconds(CodeContextTiming.indexLoopIdleSleepMilliseconds)
+    }
 
     /// How long a path must go quiet before the watcher flushes its batch: one second, the
     /// default of the public `Watcher` initializer.
@@ -117,8 +119,13 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     static var defaultIncludeSource: Bool { CodeContextDefaults.includeSource }
 
     /// Whether `start()` has completed and `stop()` has not yet been called; guards both methods
-    /// against being run twice concurrently or out of order.
+    /// against being run twice or out of order.
     private var isStarted = false
+
+    /// The last lifecycle call: `start()`, `stop()`, `stopLanguageServers()` or
+    /// `startLanguageServers()`. Each lifecycle call waits until the call before it is complete
+    /// (see `runAfterPriorLifecycleCalls(_:)`).
+    private var lastLifecycleCall: Task<Void, Never>?
 
     /// The progress of the first index pass that the index loop runs after `start()`.
     private enum FirstIndexPass {
@@ -295,9 +302,54 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// down — so a caller is free to fix the underlying problem and retry `start()` rather than
     /// being stuck with a permanently-`true` `isStarted` guarding a facade that never actually
     /// started anything.
+    ///
+    /// A call during a `stop()`, a `stopLanguageServers()` or a `startLanguageServers()` waits
+    /// until that call is complete (see `runAfterPriorLifecycleCalls(_:)`).
     /// - Throws: Rethrows `Reconciler.reconcile`'s and `ProjectDetection.detectProjects`'s
     ///   filesystem errors, and `LspSupervisor.start()`'s project-detection errors.
     public func start() async throws {
+        try await runAfterPriorLifecycleCalls { try await self.performStart() }
+    }
+
+    /// Runs `operation` after each lifecycle call that came before it is complete, and gives its
+    /// result.
+    ///
+    /// `start()`, `stop()`, `stopLanguageServers()` and `startLanguageServers()` each suspend at
+    /// many points, and an actor lets a second call run at each of them. Without this order, a
+    /// `start()` during a `stop()` makes new tasks and a new watcher that the rest of the stop
+    /// drops without a cancel, and a `start()` that the stop does not see leaves language servers
+    /// that run after the stop. Each call goes into one chain of tasks, thus the calls run one at
+    /// a time in the order that they came.
+    ///
+    /// A cancel of the caller cancels its operation. The operation looks for cancellation where
+    /// it can, and the next call in the chain starts when the operation ends.
+    /// - Parameter operation: The body of the lifecycle call.
+    /// - Returns: The value that `operation` gives.
+    /// - Throws: The error that `operation` throws.
+    private func runAfterPriorLifecycleCalls<Value: Sendable, Failure: Error>(
+        _ operation: @escaping @Sendable () async throws(Failure) -> Value
+    ) async throws(Failure) -> Value {
+        let priorCall = lastLifecycleCall
+        let call = Task<Result<Value, Failure>, Never> {
+            await priorCall?.value
+            do throws(Failure) {
+                return .success(try await operation())
+            } catch {
+                return .failure(error)
+            }
+        }
+        lastLifecycleCall = Task { _ = await call.value }
+        let result = await withTaskCancellationHandler {
+            await call.value
+        } onCancel: {
+            call.cancel()
+        }
+        return try result.get()
+    }
+
+    /// Does the work of one `start()`; see `start()` for the order of the lifecycle calls.
+    /// - Throws: See `start()`.
+    private func performStart() async throws {
         guard !isStarted else { return }
         isStarted = true
 
@@ -405,7 +457,17 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// GRDB itself guarantees for any `DatabasePool`, not something `stop()` triggers early.
     ///
     /// Safe to call more than once; a call while not started is a no-op.
+    ///
+    /// A call during a `start()`, a `stopLanguageServers()` or a `startLanguageServers()` waits
+    /// until that call is complete. A `start()` that comes during this call waits until this call
+    /// is complete. Thus this call cancels and removes only the tasks that existed when it began
+    /// (see `runAfterPriorLifecycleCalls(_:)`).
     public func stop() async {
+        await runAfterPriorLifecycleCalls { await self.performStop() }
+    }
+
+    /// Does the work of one `stop()`; see `stop()` for the order of the lifecycle calls.
+    private func performStop() async {
         guard isStarted else { return }
         isStarted = false
 
@@ -523,9 +585,20 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///
     /// The method publishes the new server states into `state.servers` before it returns.
     /// Before `start()` and after `stop()`, the method does nothing.
+    ///
+    /// A call during another lifecycle call waits until that call is complete. Thus a
+    /// `startLanguageServers()` call immediately after this call starts the servers again after
+    /// this call stopped them (see `runAfterPriorLifecycleCalls(_:)`).
     /// - Returns: The statuses that `lspStatus()` gives after the call.
     @discardableResult
     public func stopLanguageServers() async -> [ServerStatus] {
+        await runAfterPriorLifecycleCalls { await self.performStopLanguageServers() }
+    }
+
+    /// Does the work of one `stopLanguageServers()`; see that method for the order of the
+    /// lifecycle calls.
+    /// - Returns: The statuses that `lspStatus()` gives after the call.
+    private func performStopLanguageServers() async -> [ServerStatus] {
         guard isStarted else { return await lspStatus() }
         await supervisor.shutdown()
         await publishServersStatus()
@@ -540,10 +613,23 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///
     /// The method publishes the new server states into `state.servers` before it returns.
     /// Before `start()` and after `stop()`, the method does nothing.
+    ///
+    /// A call during another lifecycle call waits until that call is complete. Thus a call
+    /// immediately after `stopLanguageServers()` starts the servers after the stop is complete,
+    /// and gives one running server for each detected project (see
+    /// `runAfterPriorLifecycleCalls(_:)`).
     /// - Returns: The statuses that `lspStatus()` gives after the call.
     /// - Throws: Rethrows the project detection errors of `LspSupervisor.start()`.
     @discardableResult
     public func startLanguageServers() async throws -> [ServerStatus] {
+        try await runAfterPriorLifecycleCalls { try await self.performStartLanguageServers() }
+    }
+
+    /// Does the work of one `startLanguageServers()`; see that method for the order of the
+    /// lifecycle calls.
+    /// - Returns: The statuses that `lspStatus()` gives after the call.
+    /// - Throws: See `startLanguageServers()`.
+    private func performStartLanguageServers() async throws -> [ServerStatus] {
         guard isStarted else { return await lspStatus() }
         try await supervisor.start()
         await publishServersStatus()
@@ -1127,6 +1213,15 @@ public actor CodeContext<Connection: LanguageServerConnection> {
                 .flatMap { extensions(forCommand: $0.command) }
         )
     }
+}
+
+/// The named time constants of `CodeContext`.
+///
+/// `CodeContext` is generic, and a generic type cannot hold a static stored property, thus the
+/// constants are in this enum.
+private enum CodeContextTiming {
+    /// The number of milliseconds in the idle sleep of the index loop between two passes.
+    static let indexLoopIdleSleepMilliseconds = 300
 }
 
 extension CodeContext where Connection == ProcessLanguageServerConnection {

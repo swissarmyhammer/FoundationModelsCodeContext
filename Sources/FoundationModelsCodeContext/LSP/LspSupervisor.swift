@@ -107,7 +107,43 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// daemon for it — the second write would silently orphan the first daemon (and its
     /// never-cancelled health-loop task). Routing every call through this single in-flight task
     /// makes concurrent `start()` calls await the same spawn round instead of racing.
+    ///
+    /// The spawn round sets this property to `nil` itself when it ends (see `performStart()`).
+    /// Thus a `start()` that comes after a `shutdown()` cancelled the round makes a new round,
+    /// and does not wait for the cancelled round only.
     private var inFlightStart: Task<Void, Error>?
+
+    /// Whether a `shutdown()` stopped this supervisor, and whether that shutdown runs now.
+    private enum StopState {
+        /// No `shutdown()` came after the last `start()`. A spawn round registers its daemons.
+        case notStopped
+
+        /// A `shutdown()` runs. The payload is its task: a second `shutdown()` and each
+        /// `start()` wait for this task.
+        case stopping(Task<Void, Never>)
+
+        /// A `shutdown()` is complete and no `start()` came after it.
+        case stopped
+    }
+
+    /// The stop state. `shutdown()` sets `.stopping`, and the end of the shutdown sets
+    /// `.stopped`. `start()` sets `.notStopped` again.
+    ///
+    /// A spawn round reads this state on the actor immediately before it registers each new
+    /// daemon, with no suspension point between the check and the registration. When the state
+    /// is not `.notStopped`, the round shuts the new daemon down and does not register it. Thus
+    /// a spawn round that ends after a `shutdown()` began cannot leave a running daemon or a
+    /// health loop that no entry owns.
+    private var stopState = StopState.notStopped
+
+    /// Whether a spawn round may register a new daemon now: no `shutdown()` came after the
+    /// last `start()`.
+    private var acceptsNewDaemons: Bool {
+        guard case .notStopped = stopState else {
+            return false
+        }
+        return true
+    }
 
     /// Creates a supervisor for `workspaceRoot`. No daemons are spawned until `start()` is called.
     /// - Parameters:
@@ -164,16 +200,28 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// Concurrent callers coalesce onto the same spawn round via `inFlightStart` rather than each
     /// independently detecting the same "new" command and racing to insert a daemon for it — see
     /// `inFlightStart`'s documentation.
+    ///
+    /// A `start()` during a `shutdown()` waits until the shutdown is complete, and then starts
+    /// the servers again. It clears the stop state, thus its spawn round registers its daemons.
     /// - Throws: Rethrows `ProjectDetection.detectProjects(rootDirectory:)`'s errors.
     func start() async throws {
+        await clearStopState()
         if let inFlightStart {
             try await inFlightStart.value
             return
         }
         let spawnRound = Task { try await self.performStart() }
         inFlightStart = spawnRound
-        defer { inFlightStart = nil }
         try await spawnRound.value
+    }
+
+    /// Waits until a `shutdown()` that runs is complete, then sets the stop state to
+    /// `.notStopped`, thus a spawn round that starts after this call registers its daemons.
+    private func clearStopState() async {
+        while case .stopping(let shutdownRound) = stopState {
+            await shutdownRound.value
+        }
+        stopState = .notStopped
     }
 
     /// Builds a `ManagedDaemon` for `spec`/`daemon`, starts its health-check loop, and stores it
@@ -198,8 +246,11 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
 
     /// Does the actual work of one `start()` spawn round; see `start()` for the coalescing wrapper
     /// around this.
+    ///
+    /// The round sets `inFlightStart` to `nil` when it ends, also when it throws.
     /// - Throws: Rethrows `ProjectDetection.detectProjects(rootDirectory:)`'s errors.
     private func performStart() async throws {
+        defer { inFlightStart = nil }
         let detectedProjects = try ProjectDetection.detectProjects(rootDirectory: workspaceRoot)
         await spawnAndRegister(specs: serverSpecs(detectedProjects))
     }
@@ -212,6 +263,10 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// A new daemon replaces the entry of a stopped command. The old install task of that entry
     /// is cancelled first, as `insertDaemonForTesting(spec:daemon:)` does. A stopped entry has no
     /// health loop task, thus there is no health loop task to cancel.
+    ///
+    /// When a `shutdown()` came after the last `start()` (see `stopState`), the method shuts each
+    /// new daemon down and does not register it. The check and the registration occur on the
+    /// actor with no suspension point between them.
     /// - Parameter specs: The candidate specs; any whose command is managed and not stopped are
     ///   skipped.
     private func spawnAndRegister(specs: [ServerSpec]) async {
@@ -219,6 +274,10 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
         guard !specsToSpawn.isEmpty else { return }
 
         for (spec, daemon) in await spawnDaemons(for: specsToSpawn) {
+            guard acceptsNewDaemons else {
+                await daemon.shutdown()
+                continue
+            }
             managedDaemons[spec.command]?.installTask?.cancel()
             registerManagedDaemon(spec: spec, daemon: daemon)
             await triggerAutoInstallIfNeeded(spec: spec, daemon: daemon)
@@ -432,7 +491,28 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     ///
     /// Each preserved entry is stopped: it has no health-check task. A later `start()` starts the
     /// stopped servers again (see `start()`).
+    ///
+    /// A `start()` spawn round can run when this method is called. The method first sets the
+    /// stop state to `.stopping`, thus the round does not register a daemon that it makes after
+    /// this point (see `stopState`). Then it cancels the round and waits until the round is
+    /// complete, before it reads `managedDaemons`. Thus a daemon that the round registered before
+    /// the stop state changed is shut down here, and no daemon or health loop of the round runs
+    /// after this method returns. A second `shutdown()` during this one waits for this one.
     func shutdown() async {
+        if case .stopping(let shutdownRound) = stopState {
+            await shutdownRound.value
+            return
+        }
+        let shutdownRound = Task { await self.performShutdown() }
+        stopState = .stopping(shutdownRound)
+        await shutdownRound.value
+    }
+
+    /// Does the work of one `shutdown()`; see `shutdown()` for the wrapper that lets a second
+    /// call wait for this one. Sets the stop state to `.stopped` when it is complete.
+    private func performShutdown() async {
+        await cancelInFlightStart()
+
         let healthLoopTasks = managedDaemons.values.compactMap(\.healthLoopTask)
         let installTasks = managedDaemons.values.compactMap(\.installTask)
         for command in managedDaemons.keys {
@@ -454,6 +534,20 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
                 group.addTask { await daemon.shutdown() }
             }
         }
+        stopState = .stopped
+    }
+
+    /// Cancels the `start()` spawn round that runs, if one runs, and waits until it is complete.
+    ///
+    /// A cancel does not stop a connection factory or a handshake call that does not look for
+    /// cancellation, thus the wait can last until that call returns. The round then sees the
+    /// stop state and shuts down each daemon that it did not register yet.
+    private func cancelInFlightStart() async {
+        guard let inFlightStart else {
+            return
+        }
+        inFlightStart.cancel()
+        _ = try? await inFlightStart.value
     }
 
     // MARK: - Status and control
@@ -573,9 +667,14 @@ actor LspSupervisor<Connection: LanguageServerConnection> {
     /// this supervisor itself (so its `.notFound` transition and the ensuing auto-install trigger
     /// happen for real), without depending on `ProjectDetection` finding a real project marker or a
     /// real language-server binary.
+    ///
+    /// As `start()`, the method first waits for a `shutdown()` that runs and clears the stop
+    /// state. Unlike `start()`, the round does not go into `inFlightStart`, thus a `shutdown()`
+    /// does not cancel it or wait for it, and only the stop state stops its registration.
     /// - Parameter specs: The specs to spawn and register, exactly as `performStart()` would with
     ///   specs from real project detection.
     func startForTesting(specs: [ServerSpec]) async {
+        await clearStopState()
         await spawnAndRegister(specs: specs)
     }
 }

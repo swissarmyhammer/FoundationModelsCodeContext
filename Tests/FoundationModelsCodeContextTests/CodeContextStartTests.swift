@@ -69,13 +69,15 @@ struct CodeContextStartTests {
     ///   - eventSource: The file event source of the watcher.
     ///   - processState: The liveness of each fake server process.
     ///   - serverSpecs: Gives the server specs of the detected projects.
+    ///   - configureConnection: Configures each fake connection before the daemon gets it.
     private static func makeCodeContext(
         rootDirectory: URL,
         embedder: PooledEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
         eventSource: FakeFileEventSource = FakeFileEventSource(),
         processState: ProcessState = ProcessState(),
-        serverSpecs: @escaping ServerSpecsForProjects = ProjectDetection.serverSpecs(for:)
+        serverSpecs: @escaping ServerSpecsForProjects = ProjectDetection.serverSpecs(for:),
+        configureConnection: @escaping @Sendable (FakeLanguageServerConnection) async -> Void = { _ in }
     ) async throws -> CodeContext<FakeLanguageServerConnection> {
         try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: rootDirectory,
@@ -84,7 +86,11 @@ struct CodeContextStartTests {
             eventSource: eventSource,
             autoInstall: LspAutoInstall(isEnabled: false),
             serverSpecs: serverSpecs,
-            connectionFactory: fakeConnectionFactory(pid: Self.fakeServerPid, processState: processState)
+            connectionFactory: fakeConnectionFactory(
+                pid: Self.fakeServerPid,
+                processState: processState,
+                configureConnection: configureConnection
+            )
         )
     }
 
@@ -423,19 +429,27 @@ struct CodeContextStartTests {
     ///   - root: The workspace root of the context.
     ///   - binaryDirectory: The directory that gets the fake binary of the Rust server.
     ///   - processState: The liveness of the fake server process.
+    ///   - embedder: The embedder of the context, or `nil` to turn the embedding layer off.
+    ///   - clock: The clock of the context, of its supervisor and of each daemon.
+    ///   - configureConnection: Configures each fake connection before the daemon gets it.
     /// - Returns: The context. The caller starts it and stops it.
     private static func makeRustContext(
         root: URL,
         binaryDirectory: URL,
-        processState: ProcessState = ProcessState()
+        processState: ProcessState = ProcessState(),
+        embedder: PooledEmbedding? = nil,
+        clock: any Clock<Duration> = ContinuousClock(),
+        configureConnection: @escaping @Sendable (FakeLanguageServerConnection) async -> Void = { _ in }
     ) async throws -> CodeContext<FakeLanguageServerConnection> {
         try writeRustProjectMarker(in: root)
         try writeFakeRustServerBinary(in: binaryDirectory)
         return try await makeCodeContext(
             rootDirectory: root,
-            embedder: nil,
+            embedder: embedder,
+            clock: clock,
             processState: processState,
-            serverSpecs: serverSpecs(searching: binaryDirectory)
+            serverSpecs: serverSpecs(searching: binaryDirectory),
+            configureConnection: configureConnection
         )
     }
 
@@ -587,6 +601,114 @@ struct CodeContextStartTests {
                 let published = await context.state.servers
                 await context.stop()
 
+                #expect(servers == [Self.runningRustServer])
+                #expect(published == servers)
+            }
+        }
+    }
+
+    // MARK: - Lifecycle calls during a stop
+
+    /// The real time that a test waits after it starts a lifecycle call in a task, thus the call
+    /// arrives at the context while the stop before it still runs.
+    private static let lifecycleCallArrivalWindow: Duration = .milliseconds(100)
+
+    /// The name of the Rust source file that the LSP index worker opens.
+    private static let rustSourceFileName = "lib.rs"
+
+    /// The shutdown grace of each daemon: the time that a stop waits for a server that does not
+    /// exit, before it kills the server.
+    private static let shutdownGrace = LSPDaemonLimits.defaultShutdownGrace
+
+    /// Writes one Rust source file into `root`. The LSP index worker of the Rust server opens it,
+    /// and the embedding step embeds its chunks.
+    /// - Parameter root: The workspace root to write the file into.
+    private static func writeRustSource(in root: URL) throws {
+        try write("fn greet() -> &'static str {\n    \"hello\"\n}\n", to: rustSourceFileName, in: root)
+    }
+
+    /// A `start()` that comes while a `stop()` waits for an LSP index task waits until the stop is
+    /// complete. Thus the stop does not stop the watcher of that start, and after the two calls
+    /// the context watches the workspace and its server runs.
+    ///
+    /// The embedding gate stays closed, thus the first index pass ends only when the stop cancels
+    /// it. When `waitForFirstIndexPass()` returns, the stop is past the index loop and waits for
+    /// the LSP index task, which waits at the closed `didOpen` gate. A cancel does not stop that
+    /// wait.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func aStartDuringAStopWaitsForTheStopAndLeavesTheContextWatchingWithItsServerRunning() async throws {
+        try await withTemporaryWorkspace { root in
+            try await withTemporaryWorkspace { binaryDirectory in
+                try Self.writeRustSource(in: root)
+                let log = EmbedCallLog()
+                await log.closeGate()
+                let didOpenGate = AsyncGate()
+                let didOpenArrivals = Counter()
+                let context = try await Self.makeRustContext(
+                    root: root,
+                    binaryDirectory: binaryDirectory,
+                    embedder: GatedEmbedder(vectorLength: Self.dimension, log: log),
+                    configureConnection: { connection in
+                        await connection.setDidOpenCallHook {
+                            await didOpenArrivals.increment()
+                            await didOpenGate.waitUntilOpen()
+                        }
+                    }
+                )
+                try await context.start()
+                await log.waitForFirstCall()
+                try await waitUntil { await didOpenArrivals.value > 0 }
+
+                let stop = Task { await context.stop() }
+                await context.waitForFirstIndexPass()
+                let start = Task { try await context.start() }
+                try await Task.sleep(for: Self.lifecycleCallArrivalWindow)
+                await didOpenGate.open()
+                await stop.value
+                try await start.value
+                let isWatching = await context.isWatching
+                let servers = await context.lspStatus()
+                await log.openGate()
+                await context.stop()
+
+                #expect(isWatching, "the stop must not stop the watcher of the start that came during the stop")
+                #expect(servers == [Self.runningRustServer])
+            }
+        }
+    }
+
+    /// A `startLanguageServers()` call that comes while a `stopLanguageServers()` call still waits
+    /// for the server to exit leaves one running server for each detected project.
+    ///
+    /// The fake process does not exit by itself, thus the stop waits for the shutdown grace on
+    /// the manual clock until the test advances the clock.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func startLanguageServersDuringAStopLeavesOneRunningServerForEachProject() async throws {
+        try await withTemporaryWorkspace { root in
+            try await withTemporaryWorkspace { binaryDirectory in
+                let clock = ManualClock()
+                let processState = ProcessState()
+                await processState.setHangsOnWaitForExit(true)
+                let context = try await Self.makeRustContext(
+                    root: root,
+                    binaryDirectory: binaryDirectory,
+                    processState: processState,
+                    clock: clock
+                )
+                try await context.start()
+
+                let stop = Task { await context.stopLanguageServers() }
+                await clock.waitForWaiter(withDeadline: clock.now.advanced(by: Self.shutdownGrace))
+                let start = Task { try await context.startLanguageServers() }
+                try await Task.sleep(for: Self.lifecycleCallArrivalWindow)
+                clock.advance(by: Self.shutdownGrace)
+                let stopped = await stop.value
+                let servers = try await start.value
+                let published = await context.state.servers
+                await processState.setHangsOnWaitForExit(false)
+                await context.stop()
+
+                #expect(stopped == [ServerStatus(command: Self.rustServerCommand, state: .notStarted)])
                 #expect(servers == [Self.runningRustServer])
                 #expect(published == servers)
             }
