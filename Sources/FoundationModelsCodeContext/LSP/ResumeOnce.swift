@@ -7,7 +7,7 @@ import Foundation
 /// race, just shaped differently:
 /// - `PendingRequestTable` wraps every registered continuation in one of these, keyed by JSON-RPC
 ///   request id, because a request's real response (`resolveOrBuffer(id:response:)`) and its
-///   timeout (`resolve(id:with:)`) can both fire for the same id.
+///   timeout (`timeOut(id:with:)`) can both fire for the same id.
 /// - `ProcessInstallRunner` (`ServerInstaller.swift`) uses one directly for a single continuation,
 ///   racing a process's natural exit (`Process.terminationHandler`) against an install timeout.
 ///

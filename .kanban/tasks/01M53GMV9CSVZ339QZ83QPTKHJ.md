@@ -71,10 +71,26 @@ comments:
     - evidence: swift test: 961 tests in 85 suites passed, 0 failures, 0 skipped; swift build --package-path IntegrationTests --build-tests: Build complete; forced recompile of all test files: 0 warnings from this package (only a SwiftPM "missing creator for mutated node" notice for the mlx-swift_Cmlx dependency bundle)
     - next: commit
   timestamp: 2026-10-18T08:48:33.971297+00:00
+- actor: claude-code
+  id: 01m573dk9fs8ba8hama04154ax
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (6289269). 0 findings, 0 confirmed, 0 refuted. 4 files reviewed. The prior finding (WireTests.swift:373 reuse/reuse) is checked and fixed: one generic helper TestJSON.encodedObject in TestSupport.swift returns NSDictionary, and no other copy of encodedObject exists.
+    - next: none. The task is in done.
+  timestamp: 2026-10-18T08:52:56.751974+00:00
+- actor: claude-code
+  id: 01m573dwj7ef9xarhvxgp85djm
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 4 test files (one shared TestJSON.encodedObject helper)
+    - test: green — swift test, 961 passed
+    - commit: 6289269
+    - review: clean — 0 findings; 1 of 1 prior item checked
+  timestamp: 2026-10-18T08:53:06.247695+00:00
 depends_on:
 - 01M53GMNX7EAT4AWQ756WN1DJV
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ea80
 title: Send real client capabilities and the configured initializationOptions in initialize
 ---
 ## Problem

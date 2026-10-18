@@ -250,6 +250,13 @@ struct JSONRPCEnvelopePeek: Decodable {
 /// wire — `initialized`, `shutdown` and `exit`.
 struct EmptyPayload: Codable {}
 
+/// Params for the `$/cancelRequest` notification: the id of the request that the client does
+/// not wait for any more.
+struct CancelParams: Encodable {
+    /// The id of the request to cancel, in the same form as the request sent it.
+    let id: JSONRPCID
+}
+
 // MARK: - initialize / initialized / shutdown / exit
 
 /// Params for the `initialize` request.

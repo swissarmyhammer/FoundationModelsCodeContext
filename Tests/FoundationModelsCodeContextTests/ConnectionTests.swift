@@ -48,6 +48,10 @@ struct ConnectionTests {
     /// The JSON-RPC id of the unknown server request. It is not the id of a client request.
     private static let unknownServerRequestID = 41
 
+    /// The request timeout of the `$/cancelRequest` test. The test advances its `ManualClock` by
+    /// this time, thus the value has no effect on the real duration of the test.
+    private static let cancelTestRequestTimeout: Duration = .seconds(30)
+
     /// Spawns a `ProcessLanguageServerConnection` against the scripted subprocess.
     /// - Parameters:
     ///   - steps: The subprocess's script, per `scripted-lsp-server.swift`'s DSL.
@@ -366,6 +370,39 @@ struct ConnectionTests {
                     return
                 }
             }
+        }
+    }
+
+    @Test
+    func aTimedOutRequestSendsCancelRequestWithItsID() async throws {
+        // The script reads the request, and then reads the `$/cancelRequest` notification and
+        // asserts the id that it holds. A missing or wrong notification stops the script, and then
+        // the next request fails. The script then answers the timed-out request late, and after
+        // that it answers the next request. Thus the next request also proves that the late reply
+        // does not answer it.
+        let timedOutURI = "file:///timed-out.swift"
+        let nextURI = "file:///next.swift"
+        let steps: [[String: Any]] = [
+            ["action": "read", "expectID": Self.firstClientRequestID, "expectURI": timedOutURI],
+            ["action": "read", "expectMethod": "$/cancelRequest", "expectParams": ["id": Self.firstClientRequestID]],
+            ["action": "respond", "uri": timedOutURI, "result": [Self.documentSymbolJSON(name: "late")]],
+            ["action": "read", "expectURI": nextURI],
+            ["action": "respond", "uri": nextURI, "result": [Self.documentSymbolJSON(name: "widget")]],
+        ]
+        let clock = ManualClock()
+        try await Self.withConnection(steps: steps, requestTimeout: Self.cancelTestRequestTimeout, clock: clock) { connection in
+            let timedOutCall = Task {
+                try await connection.documentSymbols(in: DocumentURI(timedOutURI))
+            }
+            await clock.waitForWaiter()
+            clock.advance(by: Self.cancelTestRequestTimeout)
+            let error = await #expect(throws: CodeContextError.self) {
+                try await timedOutCall.value
+            }
+            #expect(error?.caseName == "timeout")
+
+            let symbols = try await connection.documentSymbols(in: DocumentURI(nextURI))
+            #expect(symbols.map(\.name) == ["widget"])
         }
     }
 

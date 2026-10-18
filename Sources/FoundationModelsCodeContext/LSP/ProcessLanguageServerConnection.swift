@@ -15,7 +15,7 @@ import Tracing
 ///
 /// Every registered continuation is wrapped in a `ResumeOnce` (see its doc comment) rather than
 /// stored raw: the table's own dictionary removal already hands each continuation to exactly one
-/// of `resolve(id:with:)` / `resolveOrBuffer(id:response:)` / `failAll(with:)`, but routing every
+/// of `timeOut(id:with:)` / `resolveOrBuffer(id:response:)` / `failAll(with:)`, but routing every
 /// resume through the same primitive `ProcessInstallRunner` uses keeps the "resume at most once"
 /// guarantee in one place instead of each call site re-deriving it from dictionary-removal
 /// semantics on its own.
@@ -24,10 +24,62 @@ import Tracing
 /// register/resolve ordering it guarantees is only reliably exercisable this
 /// way — reproducing the real race below via an actual child process would
 /// require winning a microsecond-scale scheduling race on demand.
+///
+/// The table keeps a response only for a request that waits for it. A response for a request that
+/// timed out, for an id that the client never sent, or a second response for one id is dropped.
+/// Thus no response stays in the table for ever.
 final class PendingRequestTable: @unchecked Sendable {
+    /// What `resolveOrBuffer(id:response:)` did with one response.
+    enum ResponseDisposition: Equatable {
+        /// A registered continuation got the response.
+        case delivered
+
+        /// The request is sent, but its continuation is not registered yet. The table keeps the
+        /// response until `register(id:continuation:)` takes it.
+        case buffered
+
+        /// The response answers a request that timed out. The table dropped it.
+        case droppedLate
+
+        /// The response answers no request that waits: an id that the client never sent, or a
+        /// second response for one id. The table dropped it.
+        case droppedUnknown
+    }
+
+    /// The maximum count of timed-out ids that the table keeps. A server that never answers a
+    /// timed-out request must not make the set grow without a limit. When the set is full, the
+    /// oldest id goes first. A late response for that id is then `droppedUnknown`, and the table
+    /// also drops it.
+    static let timedOutIDLimit = 1024
+
     private let lock = NSLock()
     private var continuations: [Int: ResumeOnce<Data>] = [:]
     private var earlyResponses: [Int: Data] = [:]
+
+    /// The ids of the sent requests that no response answered yet. Only a response for one of
+    /// these ids goes into `earlyResponses`, thus a registration always takes each buffered
+    /// response.
+    private var awaitedIDs: Set<Int> = []
+
+    /// The ids of the requests that timed out and that no late response answered yet. The set
+    /// holds at most `timedOutIDLimit` ids.
+    private var timedOutIDs: Set<Int> = []
+
+    /// Records that the request `id` is sent and waits for its response.
+    ///
+    /// Call this before the request is written: the response can arrive before the write
+    /// returns.
+    /// - Parameter id: The JSON-RPC id of the request.
+    func expectResponse(id: Int) {
+        lock.withLock { _ = awaitedIDs.insert(id) }
+    }
+
+    /// Removes the request `id` from the sent requests, because its write failed. No response
+    /// can come for it.
+    /// - Parameter id: The JSON-RPC id of the request.
+    func abandon(id: Int) {
+        lock.withLock { _ = awaitedIDs.remove(id) }
+    }
 
     /// Registers `continuation` as awaiting the response to request `id`.
     ///
@@ -49,7 +101,9 @@ final class PendingRequestTable: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// Resolves the pending request `id` with `result`, if it is still pending.
+    /// Fails the pending request `id` with `error` when its timeout fires, and records `id` as
+    /// timed out. The table then drops a late response for `id` (see
+    /// `resolveOrBuffer(id:response:)`).
     ///
     /// Used by the request-timeout race in `awaitResponse(id:)`: unlike
     /// `resolveOrBuffer(id:response:)`, a miss here always means the request was already resolved
@@ -57,20 +111,37 @@ final class PendingRequestTable: @unchecked Sendable {
     /// task exists per id — another timeout), never that its continuation hasn't registered yet,
     /// so there is nothing to buffer.
     /// - Parameters:
-    ///   - id: The JSON-RPC id to resolve.
-    ///   - result: The response payload to resume with, or an error (e.g. a timeout).
-    /// - Returns: `true` if a pending continuation for `id` was found and resumed; `false` if
-    ///   `id` was already resolved, in which case `result` is discarded — this is what lets a
-    ///   timeout and a real response race safely.
+    ///   - id: The JSON-RPC id of the request that timed out.
+    ///   - error: The error to fail the request with.
+    /// - Returns: `true` if a pending continuation for `id` was found and failed; `false` if
+    ///   `id` was already resolved, in which case `error` is discarded and `id` is not recorded —
+    ///   this is what lets a timeout and a real response race safely.
     @discardableResult
-    func resolve(id: Int, with result: Result<Data, Error>) -> Bool {
-        lock.lock()
-        guard let resumer = continuations.removeValue(forKey: id) else {
-            lock.unlock()
+    func timeOut(id: Int, with error: Error) -> Bool {
+        let resumer: ResumeOnce<Data>? = lock.withLock {
+            guard let resumer = continuations.removeValue(forKey: id) else {
+                return nil
+            }
+            awaitedIDs.remove(id)
+            recordTimedOut(id: id)
+            return resumer
+        }
+        guard let resumer else {
             return false
         }
-        lock.unlock()
-        return resumer.resume(with: result)
+        return resumer.resume(with: .failure(error))
+    }
+
+    /// Adds `id` to `timedOutIDs`, and removes the oldest id when the set holds more than
+    /// `timedOutIDLimit` ids. The ids of one connection increase monotonically, thus the smallest
+    /// id is the oldest. The caller holds `lock`.
+    /// - Parameter id: The JSON-RPC id of the request that timed out.
+    private func recordTimedOut(id: Int) {
+        timedOutIDs.insert(id)
+        guard timedOutIDs.count > Self.timedOutIDLimit, let oldestID = timedOutIDs.min() else {
+            return
+        }
+        timedOutIDs.remove(oldestID)
     }
 
     /// Resolves the pending request `id` with `response` if it is already registered; otherwise
@@ -89,29 +160,58 @@ final class PendingRequestTable: @unchecked Sendable {
     /// followed was orphaned: nothing but its own sibling timeout task would ever resolve it, and
     /// that task's wakeup could itself be starved by the same load that lost the race in the first
     /// place — manifesting as exactly the "genuinely un-resumed continuation" hang this fixes.
+    ///
+    /// Only a response for a sent request that waits (see `expectResponse(id:)`) is buffered. A
+    /// late response for a timed-out request removes its id from the timed-out ids and is
+    /// dropped. A response for an id that no request waits for is dropped too. Thus no response
+    /// stays in `earlyResponses` for ever.
     /// - Parameters:
     ///   - id: The JSON-RPC id the response answers.
     ///   - response: The raw response message bytes.
-    func resolveOrBuffer(id: Int, response: Data) {
-        lock.lock()
-        guard let resumer = continuations.removeValue(forKey: id) else {
-            earlyResponses[id] = response
-            lock.unlock()
-            return
+    /// - Returns: What the table did with the response.
+    @discardableResult
+    func resolveOrBuffer(id: Int, response: Data) -> ResponseDisposition {
+        let (disposition, resumer) = lock.withLock {
+            dispose(ofResponse: response, id: id)
         }
-        lock.unlock()
-        resumer.resume(returning: response)
+        resumer?.resume(returning: response)
+        return disposition
+    }
+
+    /// Decides what happens to one response, and updates the state of the table. The caller
+    /// holds `lock`, and resumes the continuation that this function gives outside the lock.
+    /// - Parameters:
+    ///   - response: The raw response message bytes.
+    ///   - id: The JSON-RPC id the response answers.
+    /// - Returns: What the table did with the response, and the continuation that gets it when
+    ///   the disposition is `.delivered`.
+    private func dispose(ofResponse response: Data, id: Int) -> (ResponseDisposition, ResumeOnce<Data>?) {
+        if timedOutIDs.remove(id) != nil {
+            return (.droppedLate, nil)
+        }
+        let isAwaited = awaitedIDs.remove(id) != nil
+        if let resumer = continuations.removeValue(forKey: id) {
+            return (.delivered, resumer)
+        }
+        guard isAwaited else {
+            return (.droppedUnknown, nil)
+        }
+        earlyResponses[id] = response
+        return (.buffered, nil)
     }
 
     /// Fails every still-pending request with `error`, used when the connection closes or the
     /// child process exits unexpectedly. Also discards any buffered early responses: nothing will
-    /// ever register for them once the connection is going away.
+    /// ever register for them once the connection is going away. Also forgets the sent and the
+    /// timed-out ids, because no response comes after this point.
     /// - Parameter error: The error to fail every pending request with.
     func failAll(with error: Error) {
         lock.lock()
         let pending = continuations
         continuations.removeAll()
         earlyResponses.removeAll()
+        awaitedIDs.removeAll()
+        timedOutIDs.removeAll()
         lock.unlock()
         for resumer in pending.values {
             resumer.resume(throwing: error)
@@ -706,14 +806,39 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///   - span: The span of the request. It gets the size of the encoded request.
     /// - Returns: The raw response message bytes.
     /// - Throws: `CodeContextError.notRunning` if the connection can't write to the process;
-    ///   `CodeContextError.timeout` if no response arrived in time.
+    ///   `CodeContextError.timeout` if no response arrived in time. A timeout also sends
+    ///   `$/cancelRequest` for `id` to the server (see `cancelOnServer(id:)`).
     private func sendRequest<Params: Encodable>(id: Int, method: String, params: Params, span: any Span) async throws -> Data {
         let envelope = JSONRPCRequestEnvelope(id: id, method: method, params: params)
         let payload = try JSONEncoder().encode(envelope)
         span.attributes[CodeContextTracing.AttributeKey.lspRequestBytes] = payload.count
-        try writeToStdin(JSONRPCFraming.frame(payload: payload))
+        try writeRequest(id: id, payload: payload)
         Self.logWireMessage(.toServer, serverName: serverName, method: method, id: .number(id), byteCount: payload.count)
-        return try await awaitResponse(id: id)
+        do {
+            return try await awaitResponse(id: id)
+        } catch CodeContextError.timeout(let timeout) {
+            await cancelOnServer(id: id)
+            throw CodeContextError.timeout(timeout)
+        }
+    }
+
+    /// Writes one encoded request to the server, and tells `pendingRequests` that the request
+    /// waits for its response.
+    ///
+    /// `pendingRequests` gets the id before the write, because the response can arrive before
+    /// the write returns. When the write fails, `pendingRequests` removes the id again.
+    /// - Parameters:
+    ///   - id: The JSON-RPC id of the request.
+    ///   - payload: The encoded request, not framed.
+    /// - Throws: `CodeContextError.notRunning` if the connection can't write to the process.
+    private func writeRequest(id: Int, payload: Data) throws {
+        pendingRequests.expectResponse(id: id)
+        do {
+            try writeToStdin(JSONRPCFraming.frame(payload: payload))
+        } catch {
+            pendingRequests.abandon(id: id)
+            throw error
+        }
     }
 
     /// Sends a fire-and-forget notification (no response expected).
@@ -739,12 +864,33 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
             try writeToStdin(JSONRPCFraming.frame(payload: reply.payload))
             Self.logWireMessage(.toServer, serverName: serverName, method: nil, id: reply.id, byteCount: reply.payload.count)
         } catch {
-            Log.lspWire.debug(
+            Self.logRequestEvent(
                 "a reply to a server request was not written; the language server is not running",
-                metadata: [
-                    CodeContextTracing.MetadataKey.lspServer: .string(serverName),
-                    CodeContextTracing.MetadataKey.lspRequestId: .stringConvertible(reply.id),
-                ]
+                serverName: serverName,
+                id: reply.id
+            )
+        }
+    }
+
+    /// Tells the server with the notification `$/cancelRequest` that the client does not wait
+    /// for the request `id` any more, after its timeout. The server can then stop the work. A
+    /// late response that the server still sends is dropped (see
+    /// `PendingRequestTable.resolveOrBuffer(id:response:)`).
+    ///
+    /// The write goes through the actor, the same as each other write to stdin, thus it does not
+    /// interleave with the replies that `replyTask` writes. A notification that cannot be written
+    /// is dropped with one `.debug` record: the write fails only when the connection closes or the
+    /// server exits, and then the server does no more work.
+    /// - Parameter id: The JSON-RPC id of the request that timed out.
+    private func cancelOnServer(id: Int) async {
+        guard !isClosed else { return }
+        do {
+            try await notify(method: "$/cancelRequest", params: CancelParams(id: .number(id)))
+        } catch {
+            Self.logRequestEvent(
+                "a $/cancelRequest notification was not written; the language server is not running",
+                serverName: serverName,
+                id: .number(id)
             )
         }
     }
@@ -818,7 +964,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// Sleeps for `timeout`, then resolves `id` with a timeout failure and throws — the "give up
     /// waiting" side of `awaitResponse(id:)`'s race. Never actually returns a value: if the real
     /// response already resolved `id` through `awaitRegisteredResponse` by the time this fires,
-    /// `pendingRequests.resolve(id:with:)` returns `false` and this throws `CancellationError()`
+    /// `pendingRequests.timeOut(id:with:)` returns `false` and this throws `CancellationError()`
     /// instead, so `awaitResponse(id:)`'s `group.next()` sees the real response's task win rather
     /// than mistaking this branch's own wakeup for a timeout that didn't happen.
     /// - Parameters:
@@ -832,7 +978,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         id: Int, timeout: Duration, clock: any Clock<Duration>, pendingRequests: PendingRequestTable
     ) async throws -> Data {
         try await clock.sleep(for: timeout)
-        if pendingRequests.resolve(id: id, with: .failure(CodeContextError.timeout(timeout))) {
+        if pendingRequests.timeOut(id: id, with: CodeContextError.timeout(timeout)) {
             throw CodeContextError.timeout(timeout)
         }
         throw CancellationError()
@@ -952,7 +1098,9 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///
     /// Each message writes one `.trace` record to `Log.lspWire` with its method name, request
     /// id, direction and byte size. A message that is not valid JSON-RPC writes one `.error`
-    /// record with its byte size only. No record holds the payload.
+    /// record with its byte size only. A response that the pending-request table drops also
+    /// writes one `.debug` record (see `logDroppedResponse(_:id:serverName:)`). No record holds
+    /// the payload.
     /// - Parameters:
     ///   - message: The raw message bytes.
     ///   - serverName: The command name of the language server, for the wire log records.
@@ -973,7 +1121,8 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
 
         switch peek.route {
         case .response(let id):
-            sinks.pendingRequests.resolveOrBuffer(id: id, response: message)
+            let disposition = sinks.pendingRequests.resolveOrBuffer(id: id, response: message)
+            logDroppedResponse(disposition, id: id, serverName: serverName)
         case .serverRequest(let id, let method):
             replyToServerRequest(message, id: id, method: method, serverName: serverName, replies: sinks.replies)
         case .notification(let method):
@@ -983,6 +1132,44 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
             // and no method: no part of the client waits for it.
             break
         }
+    }
+
+    /// Writes one `.debug` record to `Log.lspWire` for a response that the pending-request table
+    /// dropped, and writes nothing for a response that the table kept.
+    ///
+    /// A late response to a timed-out request is normal after `$/cancelRequest`. A response that
+    /// answers no waiting request shows a fault of the server.
+    /// - Parameters:
+    ///   - disposition: What the table did with the response.
+    ///   - id: The JSON-RPC id that the response holds.
+    ///   - serverName: The command name of the language server.
+    private static func logDroppedResponse(_ disposition: PendingRequestTable.ResponseDisposition, id: Int, serverName: String) {
+        let message: Logger.Message
+        switch disposition {
+        case .delivered, .buffered:
+            return
+        case .droppedLate:
+            message = "a late response to a timed-out request was dropped"
+        case .droppedUnknown:
+            message = "a response that answers no waiting request was dropped"
+        }
+        logRequestEvent(message, serverName: serverName, id: .number(id))
+    }
+
+    /// Writes one `.debug` record to `Log.lspWire` about one request. The record holds only the
+    /// server name and the request id, never a payload.
+    /// - Parameters:
+    ///   - message: What occurred.
+    ///   - serverName: The command name of the language server.
+    ///   - id: The JSON-RPC id of the request.
+    private static func logRequestEvent(_ message: Logger.Message, serverName: String, id: JSONRPCID) {
+        Log.lspWire.debug(
+            message,
+            metadata: [
+                CodeContextTracing.MetadataKey.lspServer: .string(serverName),
+                CodeContextTracing.MetadataKey.lspRequestId: .stringConvertible(id),
+            ]
+        )
     }
 
     /// Makes the reply to one server request and puts it in the reply stream.
