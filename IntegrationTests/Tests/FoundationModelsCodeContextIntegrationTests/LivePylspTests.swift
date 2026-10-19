@@ -26,11 +26,6 @@ struct LivePylspTests {
     /// The callers of `helper` that the references fallback must find.
     private static let expectedCallers = ["caller_two", "main"]
 
-    /// Whether `pylsp` resolves on `$PATH`.
-    private static var isPylspOnPath: Bool {
-        BinaryLookup.isOnPath("pylsp")
-    }
-
     /// Writes the Python fixture: a `pyproject.toml` marker (so the project
     /// detection starts `pylsp`) and the two modules.
     private static func writeFixture(in root: URL) throws {
@@ -51,7 +46,7 @@ struct LivePylspTests {
     /// layer drains in less than two seconds on a developer machine.
     private static let indexBudget: Duration = .seconds(20)
 
-    @Test(.enabled(if: LivePylspTests.isPylspOnPath, "pylsp not found on $PATH"), .timeLimit(.minutes(1)))
+    @Test(.enabled(if: LiveServers.isPylspOnPath, "pylsp not found on $PATH"), .timeLimit(.minutes(1)))
     func pythonCallersComeFromReferencesBecausePylspHasNoCallHierarchy() async throws {
         try await withTemporaryWorkspace { root in
             try Self.writeFixture(in: root)

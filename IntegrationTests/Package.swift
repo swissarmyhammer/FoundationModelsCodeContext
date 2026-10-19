@@ -26,6 +26,11 @@ import PackageDescription
 // `swift build --package-path IntegrationTests --build-tests` on every run.
 // A build of this package is cheap; only the run is slow. Do not drop that
 // step. `.github/workflows/ci.yml` carries it in the unit job.
+
+// The helper host executable of the hard-kill tests. Its name is also the name
+// of its module and of its folder under `Sources/`.
+let hostHelperName = "LanguageServerHost"
+
 let package = Package(
     name: "FoundationModelsCodeContextIntegrationTests",
     // Commit to macOS 27, exactly as `../Package.swift` does; a lower floor
@@ -57,6 +62,17 @@ let package = Package(
         .package(url: "git@github.com:swissarmyhammer/FoundationModelsExtras.git", branch: "main"),
     ],
     targets: [
+        // A host process that starts one language server through the real
+        // connection and waits. The hard-kill tests kill it with `SIGKILL` and
+        // count what stays of the server. It uses `@testable import` for the
+        // internal connection, so debug builds only, as the test target.
+        .executableTarget(
+            name: hostHelperName,
+            dependencies: [
+                .product(name: "FoundationModelsCodeContext", package: "FoundationModelsCodeContext")
+            ],
+            path: "Sources/\(hostHelperName)"
+        ),
         // The live language server suites, and the tests that start a real
         // scripted language server subprocess. It uses
         // `@testable import` for the root module's internal connection
@@ -64,6 +80,9 @@ let package = Package(
         .testTarget(
             name: "FoundationModelsCodeContextIntegrationTests",
             dependencies: [
+                // The dependency makes SwiftPM build the helper next to the test bundle, and lets
+                // the tests use its `HostConfiguration`.
+                .target(name: hostHelperName),
                 .product(name: "FoundationModelsCodeContext", package: "FoundationModelsCodeContext"),
                 // `ScriptedLSPServer` writes the script file of the scripted language server
                 // through the same helper as the unit tests of `../Package.swift`. The process

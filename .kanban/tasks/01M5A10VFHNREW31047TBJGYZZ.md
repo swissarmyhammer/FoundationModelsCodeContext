@@ -1,0 +1,32 @@
+---
+assignees:
+- claude-code
+position_column: todo
+position_ordinal: '80'
+title: Log the reason of a failed language server install (npm error code), not only exit_code
+---
+## What
+SWE-bench run of 2026-10-18 (peer report, FoundationModelsACPAgent bench/run.code-context.log): 16 times
+`error ... lsp.installer=npm lsp.server=typescript-language-server process.exit_code=1 the installer of the language server failed`.
+The real cause, `npm error code UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, was only in the npm log. Our log line kept just `exit_code=1`.
+
+## Where
+- `Sources/FoundationModelsCodeContext/LSP/ServerInstaller.swift` `ServerInstaller.performInstall` (~line 459): the failure branch logs only `exitCode`.
+- `InstallRunResult.output` (~line 145) already holds a bounded tail of stdout+stderr (from `ProcessInstallRunner`'s `BoundedTailBuffer`), but it is never logged.
+- The doc comment of `performInstall` says on purpose: a log record never holds installer output, because output can hold content. Keep that rule.
+
+## Approach
+Pull a short, safe reason out of the output tail, not the raw tail:
+- npm: the token after `npm error code ` / `npm ERR! code ` (e.g. `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, `E404`, `EACCES`). Restrict to `[A-Z0-9_]{1,64}`.
+- Other installers (brew, go, pipx, cargo...): no structured code → no reason key (or a fixed "unknown"). Do not log free text.
+- Add a metadata key, e.g. `CodeContextTracing.MetadataKey.installFailureReason` (`lsp.install.reason`), next to `exitCode`.
+- Make the extractor a pure static function so it is unit-testable.
+
+## TDD
+1. Failing test in `ServerInstallerTests`: a `FakeInstallRunner` returns exit 1 with output containing `npm error code UNABLE_TO_GET_ISSUER_CERT_LOCALLY\nnpm error ...secret path...`; capture the log record and assert it has `lsp.install.reason=UNABLE_TO_GET_ISSUER_CERT_LOCALLY` and does NOT contain the rest of the output.
+2. Unit tests for the extractor: old `npm ERR! code` form, new `npm error code` form, no code → nil, overlong/odd chars → nil.
+3. Implement; run the suite.
+
+## Acceptance
+- The failure log line names the npm error code.
+- No raw installer output in any log record. #lsp #bug

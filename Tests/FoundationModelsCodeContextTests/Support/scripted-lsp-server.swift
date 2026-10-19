@@ -96,6 +96,16 @@
 //     Writes `text` to stderr, unframed — used to drive `ConnectionTests`'
 //     `recentStderrTail()` scenario.
 //
+//   {"action": "spawnGrandchild", "pidFile": <String>, "exitsAtEndOfInput": <Bool>}
+//     Starts a child process of the script — a grandchild of the client —
+//     and writes its pid to `pidFile`. The child models the Jedi subprocess
+//     of `pylsp`: it is in the process group of the script (no new group),
+//     it ignores `SIGTERM`, and its standard input is a pipe whose write end
+//     the script keeps open until the script exits. With `exitsAtEndOfInput`
+//     true, the child reads that pipe and exits at its end, as Jedi does;
+//     otherwise it sleeps, and only `SIGKILL` stops it. Used to prove that a
+//     stop of the server kills each process of its group.
+//
 // Deliberately does not import FoundationModelsCodeContext: this runs as an independent
 // process, not linked against the package under test.
 //
@@ -302,6 +312,68 @@ func writeResponse(step: [String: Any], requestsReadSoFar: [ReadRequest], fields
     writeEnvelope(response)
 }
 
+/// The seconds that the child of a "spawnGrandchild" step with no
+/// `exitsAtEndOfInput` sleeps. Much longer than each test, thus only a kill
+/// stops the child in a test.
+let grandchildSleepSeconds = 600
+
+/// The input pipe of each child of a "spawnGrandchild" step. The script keeps
+/// each write end open, thus a child that reads its input until the end runs
+/// until the script exits.
+var grandchildInputs: [Pipe] = []
+
+/// Writes `message` to stderr and exits with status 1.
+func fail(_ message: String) -> Never {
+    FileHandle.standardError.write(Data("scripted-lsp-server: \(message)\n".utf8))
+    exit(1)
+}
+
+/// Starts `/bin/sh -c <command>` with `posix_spawn(2)` in the process group of
+/// the script, with `input` as its standard input and the null device as its
+/// standard output and standard error. `POSIX_SPAWN_CLOEXEC_DEFAULT` gives
+/// the child no other file descriptor of the script, as `subprocess.Popen`
+/// with its default `close_fds` does for Jedi.
+func spawnInScriptGroup(command: String, input: Pipe) -> pid_t {
+    var fileActions: posix_spawn_file_actions_t?
+    posix_spawn_file_actions_init(&fileActions)
+    defer { posix_spawn_file_actions_destroy(&fileActions) }
+    posix_spawn_file_actions_adddup2(&fileActions, input.fileHandleForReading.fileDescriptor, STDIN_FILENO)
+    posix_spawn_file_actions_addopen(&fileActions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0)
+    posix_spawn_file_actions_addopen(&fileActions, STDERR_FILENO, "/dev/null", O_WRONLY, 0)
+    var attributes: posix_spawnattr_t?
+    posix_spawnattr_init(&attributes)
+    defer { posix_spawnattr_destroy(&attributes) }
+    posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
+    let arguments = ["/bin/sh", "-c", command].map { strdup($0) } + [nil]
+    defer { arguments.forEach { free($0) } }
+    var pid: pid_t = 0
+    let result = posix_spawn(&pid, "/bin/sh", &fileActions, &attributes, arguments, environ)
+    guard result == 0 else {
+        fail("spawnGrandchild could not start the child: errno \(result)")
+    }
+    return pid
+}
+
+/// Runs a "spawnGrandchild" step: starts the child that the header comment
+/// describes, keeps its input pipe open, and writes its pid to `pidFile`.
+func spawnGrandchild(step: [String: Any]) {
+    guard let pidFile = step["pidFile"] as? String else {
+        fail("spawnGrandchild needs a pidFile")
+    }
+    let exitsAtEndOfInput = step["exitsAtEndOfInput"] as? Bool ?? false
+    let wait = exitsAtEndOfInput ? "cat > /dev/null" : "sleep \(grandchildSleepSeconds)"
+    let input = Pipe()
+    // `trap '' TERM` sets SIGTERM to ignored, and `exec` keeps an ignored signal ignored.
+    let pid = spawnInScriptGroup(command: "trap '' TERM; exec \(wait)", input: input)
+    try? input.fileHandleForReading.close()
+    grandchildInputs.append(input)
+    do {
+        try Data("\(pid)".utf8).write(to: URL(fileURLWithPath: pidFile), options: .atomic)
+    } catch {
+        fail("spawnGrandchild could not write \(pidFile): \(error)")
+    }
+}
+
 guard CommandLine.arguments.count > 1,
     let scriptData = CommandLine.arguments[1].data(using: .utf8),
     let steps = try? JSONSerialization.jsonObject(with: scriptData) as? [[String: Any]]
@@ -348,6 +420,9 @@ for step in steps {
     case "stderr":
         let text = step["text"] as? String ?? ""
         FileHandle.standardError.write(Data(text.utf8))
+
+    case "spawnGrandchild":
+        spawnGrandchild(step: step)
 
     default:
         break

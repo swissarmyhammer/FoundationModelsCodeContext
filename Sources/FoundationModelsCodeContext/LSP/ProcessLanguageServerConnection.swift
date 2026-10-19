@@ -240,6 +240,15 @@ final class PendingRequestTable: @unchecked Sendable {
 /// the full group and waits for the exit of the server. A connection that is released with no
 /// `close()` kills the group in `deinit`. Thus no process that the server started stays after
 /// the connection.
+///
+/// When the host process is killed with `SIGKILL`, or crashes, neither `close()` nor `deinit`
+/// runs, and nothing in the host can kill the group. The kernel then closes the pipes of the
+/// host: the server reads the end of its standard input and exits, as each language server does.
+/// A process that the server started stops when it reads the end of a pipe from the server, as
+/// the Jedi subprocess of `pylsp` does. The `HardKilledHostTests` of the `IntegrationTests`
+/// package measure this for the scripted server and for a real `pylsp`: no process of the group
+/// stays. A process that the server started and that reads no pipe from the server does not see
+/// the death of the host, and it stays with the parent process id 1 until something kills it.
 public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// The server process, the leader of its own process group.
     private nonisolated let child: ProcessGroupChild

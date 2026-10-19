@@ -39,6 +39,16 @@ func write(_ content: String, to relativePath: String, in root: URL) throws {
     try content.write(to: url, atomically: true, encoding: .utf8)
 }
 
+/// The real language servers that the live suites need on `$PATH`. Each
+/// `.enabled(if:)` trait of a live test reads one of these, thus a machine
+/// without the server skips the test.
+internal enum LiveServers {
+    /// Whether `pylsp` resolves on `$PATH`.
+    internal static var isPylspOnPath: Bool {
+        BinaryLookup.isOnPath("pylsp")
+    }
+}
+
 /// The default time between two polls of `poll(budget:interval:until:)`,
 /// in milliseconds.
 let defaultPollIntervalMilliseconds = 250
