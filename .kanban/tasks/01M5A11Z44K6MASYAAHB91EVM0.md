@@ -39,6 +39,13 @@ comments:
     - evidence: `swift test` — 1020 tests in 90 suites passed, 0 failed, 0 skipped; `swift test --package-path IntegrationTests` — 22 tests in 16 suites passed, 0 failed, 0 skipped. Only warning: pre-existing mlx-swift_Cmlx "missing creator for mutated node" SwiftPM warning (reported, not chased).
     - next: review/commit
   timestamp: 2026-10-19T13:12:53.183980+00:00
+- actor: claude-code
+  id: 01m5a4pxkw5khr4154xamwrc1h
+  text: |-
+    ### commit — changed
+    - evidence: f2bc7ab fix(index): tell a gone file from a non-UTF-8 file and from a read error ^b91evm0
+    - next: review
+  timestamp: 2026-10-19T13:13:14.108683+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'Tree-sitter worker: a file deleted between the watch event and the read is not a warning'
