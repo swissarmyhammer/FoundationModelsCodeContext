@@ -18,8 +18,9 @@ import Testing
 /// integration test, and it lives in this nested package. It starts the child
 /// with `ProcessGroupChild.spawn`, not through a connection, because a
 /// connection cannot close only the standard input of its server.
-/// `ProcessGroupChild` reaps the child on its own thread, thus the process id
-/// goes away when the child exits.
+/// `ProcessGroupChild` keeps the exited child unreaped while the test holds it,
+/// thus its process id stays until the cleanup. So the test reads the exit
+/// from `ProcessGroupChild.isRunning`, which is `false` from the exit on.
 @Suite
 internal struct ScriptedLSPServerHangTests {
     /// The line that the script writes to its standard error just before its
@@ -68,10 +69,10 @@ internal struct ScriptedLSPServerHangTests {
 
             try standardInput.fileHandleForWriting.close()
 
-            let isGone = try await poll(budget: Self.exitBudget, interval: Self.pollInterval) {
-                !processExists(pid)
+            let isExited = try await poll(budget: Self.exitBudget, interval: Self.pollInterval) {
+                !child.isRunning
             }
-            #expect(isGone, "the script at its hang step is alive after its standard input closed")
+            #expect(isExited, "the script at its hang step is alive after its standard input closed")
         } cleanup: {
             child.signalGroup(SIGKILL)
             await child.waitUntilExit()

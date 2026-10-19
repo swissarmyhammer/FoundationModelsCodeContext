@@ -457,12 +457,13 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
 
     /// Kills the process group of the server when the connection is released with no `close()`.
     ///
-    /// A `deinit` cannot `await`, thus it sends `SIGKILL` to the group and does not wait. The
-    /// reaper thread of `ProcessGroupChild` reaps the server after the kill. The signal goes to
-    /// the group also when the server already exited, because a process that the server started
-    /// can still run. After `close()`, the group already got `SIGKILL`, thus `deinit` does
-    /// nothing. Also finishes `serverNotifications`, thus no consumer of the stream waits for
-    /// ever.
+    /// A `deinit` cannot `await`, thus it sends `SIGKILL` to the group and does not wait.
+    /// `ProcessGroupChild` reaps the server after the kill: at the release of the child, or at
+    /// the exit of the server when the exit comes later. The signal goes to the group also when
+    /// the server already exited, because a process that the server started can still run; the
+    /// exited server stays unreaped until the signal went out, thus its pid cannot name another
+    /// group. After `close()`, the group already got `SIGKILL`, thus `deinit` does nothing. Also
+    /// finishes `serverNotifications`, thus no consumer of the stream waits for ever.
     deinit {
         guard !isClosed else { return }
         child.signalGroup(SIGKILL)
@@ -475,13 +476,13 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///
     /// Backs the `isAlive` hook `LSPDaemon.processConnectionFactory()` bundles into a
     /// `ConnectionHandle`, so the daemon's `healthCheck()` can detect an unexpected exit.
-    /// - Returns: `true` if the server process is not reaped yet; `false` after the reap.
+    /// - Returns: `true` if the server process did not exit yet; `false` after its exit.
     func isRunning() -> Bool {
         child.isRunning
     }
 
-    /// Suspends until the server process exits and is reaped, or until the task of the caller
-    /// is cancelled. Returns at once when the server process already exited.
+    /// Suspends until the server process exits, or until the task of the caller is cancelled.
+    /// Returns at once when the server process already exited.
     ///
     /// A cancel stops the wait, thus `LSPDaemon.shutdown()` can race this wait against its grace
     /// period.

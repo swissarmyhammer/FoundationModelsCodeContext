@@ -38,8 +38,24 @@ comments:
     - evidence: swift build ok; swift test 1052 tests in 93 suites passed (0 failed, 0 skipped); swift test --package-path IntegrationTests 22 tests in 16 suites passed; swift format lint --strict --recursive Sources Tests clean after fixing CodeEntitiesTests.swift (AddLines/Indentation on a multi-element #expect array literal, formatted with swift format). Only warning: known mlx-swift_Cmlx "missing creator for mutated node" (^3a92r6p, ^kw00hcn).
     - next: review
   timestamp: 2026-10-19T15:32:14.739686+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5actdeqmkdw72xd22n0hj1m
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (1c9d41d) — 0 findings, 0 confirmed, 0 refuted; 7 validator runs attempted, 0 failed; 5 files reviewed, 10 .kanban/ files excluded by .reviewignore
+    - next: none — task moved to done
+  timestamp: 2026-10-19T15:34:57.239199+00:00
+- actor: claude-code
+  id: 01m5acv076e3y8y5shab68p3a5
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 4 files (ProcessUtilities.runReadLoop owns and closes each pipe read end; close() closes only stdin)
+    - test: green — swift test 1052 passed; IntegrationTests 22 passed; swift format lint --strict clean
+    - commit: 1c9d41d
+    - review: clean — 0 findings; task moved to done
+  timestamp: 2026-10-19T15:35:16.454081+00:00
+position_column: done
+position_ordinal: ff80
 title: LanguageServerGrandchildTests.forceRestartKillsTheGrandchildOfTheOldServer times out in the handshake under full-suite load
 ---
 ## What

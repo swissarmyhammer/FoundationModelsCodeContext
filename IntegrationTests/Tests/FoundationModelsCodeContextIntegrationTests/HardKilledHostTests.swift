@@ -50,10 +50,11 @@ internal struct HardKilledHostTests {
     internal func aHardKilledHostLeavesNoProcessOfTheScriptedServerGroup() async throws {
         try await withTemporaryWorkspace { root in
             let pidFile = root.appending(path: Self.pidFileName)
-            let steps = GrandchildScript.handshakeSteps + [
-                GrandchildScript.spawnStep(pidFile: pidFile, wait: .untilEndOfInput),
-                ["action": "hang"],
-            ]
+            let steps =
+                GrandchildScript.handshakeSteps + [
+                    GrandchildScript.spawnStep(pidFile: pidFile, wait: .untilEndOfInput),
+                    ["action": "hang"],
+                ]
             let configuration = HostConfiguration(
                 command: ScriptedLSPServer.command,
                 arguments: try ScriptedLSPServer.arguments(steps: steps),
