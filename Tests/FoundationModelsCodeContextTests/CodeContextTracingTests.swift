@@ -69,6 +69,7 @@ struct CodeContextTracingTests {
         CodeContextTracing.MetadataKey.lspErrorCode,
         CodeContextTracing.MetadataKey.lspInstaller,
         CodeContextTracing.MetadataKey.exitCode,
+        CodeContextTracing.MetadataKey.installFailureReason,
         CodeContextTracing.MetadataKey.pathEntryCount,
         CodeContextTracing.MetadataKey.pathNonAbsoluteEntries,
         CodeContextTracing.MetadataKey.embeddingDimension,

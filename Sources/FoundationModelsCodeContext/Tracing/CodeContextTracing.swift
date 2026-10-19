@@ -229,6 +229,12 @@ public enum CodeContextTracing {
         /// The exit code of a process that the package ran.
         public static let exitCode = "process.exit_code"
 
+        /// The error code that a failed install of a language server printed, for example
+        /// `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` or `E404` from `npm`. The value is only a code of
+        /// capital letters, digits and underscores. It is never the output of the installer,
+        /// because that output can hold content.
+        public static let installFailureReason = "lsp.install.reason"
+
         /// The number of entries of the `PATH` of this process that the binary lookup searches.
         public static let pathEntryCount = "process.path.entry_count"
 

@@ -141,8 +141,51 @@ struct InstallRunResult: Sendable, Equatable {
     let exitCode: Int32
 
     /// A bounded tail of the installer's combined stdout+stderr output, for error reporting when
-    /// `exitCode != 0`.
+    /// `exitCode != 0`. A log record never holds it; `InstallFailureReason.code(in:)` takes the
+    /// only part a log record may hold.
     let output: String
+}
+
+/// Takes the error code that a failed installer printed out of the output of the installer.
+///
+/// `npm` prints its error code on a line of its own: `npm error code <code>` (npm 10 and later)
+/// or `npm ERR! code <code>` (npm 9 and earlier), for example
+/// `npm error code UNABLE_TO_GET_ISSUER_CERT_LOCALLY`. The other installers (`brew`, `go`,
+/// `pipx`, `cargo`, ...) print no such code, thus their output gives no code.
+///
+/// A log record holds the code, so the code must not hold content. The extractor gives a code
+/// only when the code is all of the text after the prefix, and is one to `maximumCodeLength`
+/// characters of `codeCharacters`. Free text (a path, a URL, a package name) gives no code.
+enum InstallFailureReason {
+    /// The start of the line that holds the code, in each output form of `npm`.
+    private static let codeLinePrefixes = ["npm error code ", "npm ERR! code "]
+
+    /// The longest code that the extractor gives.
+    private static let maximumCodeLength = 64
+
+    /// The characters of a code: capital letters, digits and the underscore.
+    private static let codeCharacters = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+
+    /// Gives the error code that `npm` printed in `output`.
+    /// - Parameter output: The output of the installer.
+    /// - Returns: The code of the first line that holds a safe code, or `nil` when no line does.
+    static func code(in output: String) -> String? {
+        output.split(whereSeparator: \.isNewline).lazy.compactMap(code(inLine:)).first
+    }
+
+    /// Gives the error code of one line of installer output.
+    /// - Parameter line: One line of the output, with no line break.
+    /// - Returns: The text after a code line prefix when that text is a safe code, else `nil`.
+    private static func code(inLine line: Substring) -> String? {
+        guard let prefix = codeLinePrefixes.first(where: { line.hasPrefix($0) }) else {
+            return nil
+        }
+        let code = line.dropFirst(prefix.count)
+        guard (1...maximumCodeLength).contains(code.count), code.allSatisfy(codeCharacters.contains) else {
+            return nil
+        }
+        return String(code)
+    }
 }
 
 /// The process-running seam `ServerInstaller` drives, mirroring how `ConnectionFactory` decouples
@@ -395,9 +438,10 @@ actor ServerInstaller {
 
     /// Runs one installer command to completion, logging start/success/failure via `Log.lsp`.
     ///
-    /// A log record holds the server command, the installer tool name, the exit code and the
-    /// type name of an error. It never holds the installer arguments, the installer output or
-    /// the description of an error, because each of them can hold content.
+    /// A log record holds the server command, the installer tool name, the exit code, the error
+    /// code that `InstallFailureReason.code(in:)` takes out of the installer output, and the
+    /// type name of an error. It never holds the installer arguments, any other text of the
+    /// installer output or the description of an error, because each of them can hold content.
     /// - Parameters:
     ///   - runner: The process-running seam to invoke.
     ///   - command: The server command being installed, for logging.
@@ -421,9 +465,7 @@ actor ServerInstaller {
             guard result.exitCode == 0 else {
                 Log.lsp.error(
                     "the installer of the language server failed",
-                    metadata: installMetadata.merging(
-                        [CodeContextTracing.MetadataKey.exitCode: .stringConvertible(result.exitCode)]
-                    ) { _, exitCode in exitCode }
+                    metadata: installMetadata.merging(failureMetadata(of: result)) { _, failure in failure }
                 )
                 return false
             }
@@ -436,5 +478,17 @@ actor ServerInstaller {
             )
             return false
         }
+    }
+
+    /// Gives the metadata of the record of an installer that exited nonzero: the exit code, and
+    /// the error code of the output when `InstallFailureReason.code(in:)` finds one.
+    /// - Parameter result: The completed run of the installer.
+    /// - Returns: The exit code and the error code metadata. It holds no other output text.
+    private static func failureMetadata(of result: InstallRunResult) -> Logger.Metadata {
+        var metadata: Logger.Metadata = [CodeContextTracing.MetadataKey.exitCode: .stringConvertible(result.exitCode)]
+        if let reason = InstallFailureReason.code(in: result.output) {
+            metadata[CodeContextTracing.MetadataKey.installFailureReason] = .string(reason)
+        }
+        return metadata
     }
 }

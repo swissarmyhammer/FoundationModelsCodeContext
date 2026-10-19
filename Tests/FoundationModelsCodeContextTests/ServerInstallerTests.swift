@@ -54,6 +54,52 @@ struct ServerInstallerTests {
     }
 
     @Test
+    func aFailedNpmInstallLogsTheNpmErrorCodeAndNoOtherOutput() async {
+        _ = CapturedLogRecords.handler
+        let marker = "cck-install-output-\(UUID().uuidString)"
+        let output = """
+            npm error code UNABLE_TO_GET_ISSUER_CERT_LOCALLY
+            npm error request to https://registry.npmjs.org/ failed, reason: unable to get local issuer certificate
+            npm error A complete log of this run can be found in: /Users/\(marker)/.npm/_logs/debug-0.log
+            """
+        let runner = FakeInstallRunner()
+        await runner.updateResult(.success(InstallRunResult(exitCode: 1, output: output)))
+        let command = "fake-npm-cert-failure-\(UUID().uuidString)"
+        let spec = Self.serverSpec(command: command, installerTool: "true")
+
+        let succeeded = await ServerInstaller(runner: runner).install(spec: spec)
+
+        #expect(!succeeded)
+        let failureRecords = CapturedLogRecords.entries(matching: [
+            CodeContextTracing.MetadataKey.lspServer: command,
+            CodeContextTracing.MetadataKey.exitCode: "1",
+            CodeContextTracing.MetadataKey.installFailureReason: "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+        ])
+        #expect(failureRecords.count == 1)
+        #expect(CapturedLogRecords.entries(holding: marker).isEmpty)
+        #expect(CapturedLogRecords.entries(holding: "registry.npmjs.org").isEmpty)
+    }
+
+    @Test
+    func aFailedInstallWithNoErrorCodeLogsNoReason() async {
+        _ = CapturedLogRecords.handler
+        let runner = FakeInstallRunner()
+        await runner.updateResult(.success(InstallRunResult(exitCode: 1, output: "Error: No available formula")))
+        let command = "fake-brew-failure-\(UUID().uuidString)"
+        let spec = Self.serverSpec(command: command, installerTool: "true")
+
+        let succeeded = await ServerInstaller(runner: runner).install(spec: spec)
+
+        #expect(!succeeded)
+        let failureRecords = CapturedLogRecords.entries(matching: [
+            CodeContextTracing.MetadataKey.lspServer: command,
+            CodeContextTracing.MetadataKey.exitCode: "1",
+        ])
+        #expect(failureRecords.count == 1)
+        #expect(failureRecords.allSatisfy { $0.metadata[CodeContextTracing.MetadataKey.installFailureReason] == nil })
+    }
+
+    @Test
     func throwingRunnerReturnsFalse() async {
         struct SimulatedInstallFailure: Error {}
         let runner = FakeInstallRunner()
@@ -142,6 +188,54 @@ struct ServerInstallerTests {
         #expect(secondResult)
         let invocations = await runner.invocations
         #expect(invocations.count == 1)
+    }
+}
+
+/// Tests for `InstallFailureReason.code(in:)`: the npm error code is the only text that the
+/// extractor takes out of installer output, and only when the code has the safe alphabet.
+struct InstallFailureReasonTests {
+    /// The longest code that the extractor gives: 64 characters of the safe alphabet.
+    private static let longestCode = String(repeating: "E", count: 64)
+
+    @Test
+    func theCodeOfTheCurrentNpmErrorFormIsTheReason() {
+        let output = "npm error code UNABLE_TO_GET_ISSUER_CERT_LOCALLY\nnpm error errno UNABLE_TO_GET_ISSUER_CERT_LOCALLY\n"
+
+        #expect(InstallFailureReason.code(in: output) == "UNABLE_TO_GET_ISSUER_CERT_LOCALLY")
+    }
+
+    @Test
+    func theCodeOfTheOldNpmErrorFormIsTheReason() {
+        let output = "npm ERR! code E404\nnpm ERR! 404 Not Found - GET https://registry.npmjs.org/nope\n"
+
+        #expect(InstallFailureReason.code(in: output) == "E404")
+    }
+
+    @Test
+    func theCodeLineCanFollowOtherOutputAndEndInACarriageReturn() {
+        let output = "added 0 packages\r\nnpm error code EACCES\r\nnpm error syscall mkdir\r\n"
+
+        #expect(InstallFailureReason.code(in: output) == "EACCES")
+    }
+
+    @Test
+    func aCodeOfTheLongestLengthIsTheReason() {
+        #expect(InstallFailureReason.code(in: "npm error code \(Self.longestCode)") == Self.longestCode)
+    }
+
+    @Test(arguments: [
+        "Error: No available formula with the name \"nope\"",
+        "",
+        "npm error 404 Not Found",
+        "npm error code ",
+        "npm error code \(longestCode)E",
+        "npm error code eacces",
+        "npm error code E404 /Users/someone/secret",
+        "npm error code ../../etc/passwd",
+        "some text npm error code E404",
+    ])
+    func outputWithNoSafeNpmErrorCodeHasNoReason(output: String) {
+        #expect(InstallFailureReason.code(in: output) == nil)
     }
 }
 

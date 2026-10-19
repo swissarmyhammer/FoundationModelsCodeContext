@@ -46,8 +46,24 @@ comments:
     - evidence: swift test — 1027 tests in 90 suites passed, 0 failures, 0 skipped; swift test --package-path IntegrationTests — 22 tests in 16 suites passed, 0 failures. Only warning: pre-existing mlx-swift_Cmlx "missing creator for mutated node" (both packages, not chased). LanguageServerGrandchildTests did not flake (^t71wvkm). ProcessInstallRunnerTests passed in 3.4s and LspSupervisorTests in 1.6s under full-suite load.
     - next: review/commit
   timestamp: 2026-10-19T13:52:12.323080+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5a72f3h1x9e0xxxz0xenfw5
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (9592bb1); 0 findings, 0 confirmed, 0 refuted; 7 validator runs attempted, 0 failed. The validators did not cover docs/language-servers.md or plan.md, because no validator matches them. The .reviewignore rules excluded the .kanban/ files.
+    - next: none — moved to done
+  timestamp: 2026-10-19T13:54:29.617644+00:00
+- actor: claude-code
+  id: 01m5a72qyse4jsjraqy7mn748n
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 8 files (ServerInstaller, ProcessGroupChild, ProcessUtilities, 2 doc-only, ServerInstallerTests +5, docs/language-servers.md, plan.md)
+    - test: green — swift test 1027 passed, IntegrationTests 22 passed, 0 skipped
+    - commit: 9592bb1
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-10-19T13:54:38.681728+00:00
+position_column: done
+position_ordinal: fc80
 title: Installer timeout and cancel must kill the full process group of the installer, not only its pid
 ---
 ## What
