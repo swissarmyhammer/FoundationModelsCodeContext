@@ -345,7 +345,11 @@ func spawnInScriptGroup(command: String, input: Pipe) -> pid_t {
     defer { posix_spawnattr_destroy(&attributes) }
     posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
     let arguments = ["/bin/sh", "-c", command].map { strdup($0) } + [nil]
-    defer { arguments.forEach { free($0) } }
+    defer {
+        for argument in arguments {
+            free(argument)
+        }
+    }
     var pid: pid_t = 0
     let result = posix_spawn(&pid, "/bin/sh", &fileActions, &attributes, arguments, environ)
     guard result == 0 else {

@@ -71,6 +71,36 @@ comments:
     - evidence: d418a56 test: prove no Jedi or grandchild process stays after close or a killed host ^sgdcvtq
     - next: not pushed. .claude/settings.local.json is local config and was left out of the commit.
   timestamp: 2026-10-19T12:50:29.798695+00:00
+- actor: claude-code
+  id: 01m5a3mcrwcwawsqa2a77v8txj
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (40fde36) — 1 finding (1 confirmed, 0 refuted): Tests/FoundationModelsCodeContextTests/Support/scripted-lsp-server.swift:348 `code-hygiene/idioms-swift` ReplaceForEachWithForLoop
+    - next: implement — replace every `.forEach { ... }` with a for-in loop across scripted-lsp-server.swift, then re-review
+  timestamp: 2026-10-19T12:54:22.748892+00:00
+- actor: claude-code
+  id: 01m5a3mtvsa4c852zcdeksvz5c
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 13 files (8 new IntegrationTests files, 5 modified)
+    - test: green — swift test 1015 passed, IntegrationTests 22 passed, 0 skipped
+    - commit: 40fde36
+    - review: findings — Tests/FoundationModelsCodeContextTests/Support/scripted-lsp-server.swift:348 (idioms-swift ReplaceForEachWithForLoop)
+  timestamp: 2026-10-19T12:54:37.177577+00:00
+- actor: claude-code
+  id: 01m5a3qk99arv9jph9dqyg2q6t
+  text: |-
+    ### implement — changed
+    - evidence: Tests/FoundationModelsCodeContextTests/Support/scripted-lsp-server.swift `spawnInScriptGroup` — `defer { arguments.forEach { free($0) } }` replaced by `defer { for argument in arguments { free(argument) } }`. This was the only `.forEach` in the file (grep), so the cause is gone from the whole file. No `where` clause applies, because the loop does not filter. `swift test --package-path IntegrationTests --filter 'LanguageServerGrandchildTests|HardKilledHostTests'`: 5 tests / 2 suites passed. `swift test --filter ConnectionTests`: 24 tests / 1 suite passed. Only warning: the mlx-swift_Cmlx "missing creator for mutated node" warning, which was there before this change. Finding flipped to [x].
+    - next: review
+  timestamp: 2026-10-19T12:56:07.721356+00:00
+- actor: claude-code
+  id: 01m5a3v96rpybv5z1jphpd3r48
+  text: |-
+    ### test — green
+    - evidence: swift test — 1015 tests in 90 suites passed, 0 failed, 0 skipped; swift test --package-path IntegrationTests — 22 tests in 16 suites passed. Only build warning: pre-existing mlx-swift_Cmlx "missing creator for mutated node" (reported, not chased). The runtime log lines "warning ... language server is not on the PATH" come from a test that deliberately starts a nonexistent binary.
+    - next: review/commit
+  timestamp: 2026-10-19T12:58:08.472861+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'pylsp Jedi subprocess children: prove a pylsp stop reaps them and the count does not grow in one session'
@@ -98,3 +128,12 @@ Peer report: in a SWE-bench run of 2026-10-18 that hung, at 12:51 there were 19 
 - A stop / restart of pylsp leaves 0 Jedi processes.
 - In one session the Jedi count stays bounded.
 - The hard-kill case is tested and either fixed or documented. #lsp #bug
+
+## Review Findings (2026-10-19 07:50)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 13 file(s) reviewed, 10 not reviewed.
+
+> 10 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 10 file(s)
+
+- [x] `Tests/FoundationModelsCodeContextTests/Support/scripted-lsp-server.swift:348` `code-hygiene/idioms-swift` — ReplaceForEachWithForLoop: replace use of '.forEach { ... }' with for-in loop.
