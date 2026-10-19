@@ -68,11 +68,27 @@ comments:
     - evidence: swift build complete, only the allowed mlx-swift_Cmlx "missing creator for mutated node" warning; swift test — 1062 tests in 94 suites passed, 0 failed, 0 skipped; swift test --package-path IntegrationTests — 22 tests in 16 suites passed, 0 skipped, 0 warnings; swift format lint --strict --recursive Sources Tests IntegrationTests/Tests — no output, clean
     - next: review
   timestamp: 2026-10-19T18:11:22.506215+00:00
+- actor: claude-code
+  id: 01m5anv1x2aa4p6g3k1hc1yj1c
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (2efb94c) — 0 findings, 0 confirmed, 0 refuted; 7 validator pairs attempted, 0 failed; 1 file reviewed (ConnectionTests.swift), 4 .kanban files excluded by .reviewignore
+    - next: task moved to done
+  timestamp: 2026-10-19T18:12:35.362185+00:00
+- actor: claude-code
+  id: 01m5anvdn768w5by7jqqa92p40
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 1 file (retry wrapper removed); load: 24/24 concurrent runs passed, 0 timeouts
+    - test: green — swift test 1062 passed; IntegrationTests 22 passed; lint clean
+    - commit: 2efb94c
+    - review: clean — 0 findings; task moved to done
+  timestamp: 2026-10-19T18:12:47.399360+00:00
 depends_on:
 - 01M5A5ACEVQWJ9PC8GXT71WVKM
 - 01M5AJHWKFWBSV0SK09TFBETG3
-position_column: doing
-position_ordinal: '8180'
+position_column: done
+position_ordinal: ff8480
 title: 'ConnectionTests: remove withRetryOnSpawnContention now that the descriptor-reuse cause is fixed'
 ---
 ## What
