@@ -33,6 +33,47 @@ comments:
     - evidence: swift test — 1067 tests in 94 suites passed, 0 failures, 0 skipped; swift test --package-path IntegrationTests — 22 tests in 16 suites passed, 0 failures, 0 skipped; swift format lint --strict --recursive Sources Tests IntegrationTests/Tests — exit 0, no diagnostics. Only warning in build output is the allowed mlx-swift_Cmlx "missing creator for mutated node".
     - next: review/commit
   timestamp: 2026-10-19T20:37:46.592765+00:00
+- actor: claude-code
+  id: 01m5ay5q3sv98gfxxsv5g01krx
+  text: |-
+    ### commit — changed
+    - evidence: 1521998 fix(lsp): pin the TypeScript install to typescript@6, which ships the tsserver.js that typescript-language-server needs, and give a WireError failure record a content-safe case, code and request ^680j5zr
+    - next: review
+  timestamp: 2026-10-19T20:38:13.369080+00:00
+- actor: claude-code
+  id: 01m5aycdw7zsbmh54zbtz8wfvc
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (1521998), 5 findings (5 confirmed, 0 refuted) — Sources/FoundationModelsCodeContext/LSP/LSPDaemon.swift:622, Sources/FoundationModelsCodeContext/LSP/LspSession.swift:715, Sources/FoundationModelsCodeContext/Logging/Log.swift:86, Sources/FoundationModelsCodeContext/Logging/Log.swift:88, Sources/FoundationModelsCodeContext/Logging/Log.swift:135. Not reviewed: docs/language-servers.md (no validator matches this file); .kanban/ (2 files, .reviewignore).
+    - next: implement the 5 unchecked swift/naming-clarity items in the 2026-10-19 15:38 Review Findings section; task stays in review.
+  timestamp: 2026-10-19T20:41:53.287867+00:00
+- actor: claude-code
+  id: 01m5aycvw0j09hcwrx2yr2pajd
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 11 files
+    - test: green — swift test 1067 passed; IntegrationTests 22 passed; swift format lint clean
+    - commit: 1521998
+    - review: findings — Sources/FoundationModelsCodeContext/LSP/LSPDaemon.swift:622, Sources/FoundationModelsCodeContext/LSP/LspSession.swift:715, Sources/FoundationModelsCodeContext/Logging/Log.swift:86, Sources/FoundationModelsCodeContext/Logging/Log.swift:88, Sources/FoundationModelsCodeContext/Logging/Log.swift:135
+  timestamp: 2026-10-19T20:42:07.616147+00:00
+- actor: claude-code
+  id: 01m5ayg1mzeyp39v6vz00phhxf
+  text: 'Review findings (swift/naming-clarity) fixed. Commit 1521998 added five merge closures, and each one now names its first parameter `existing` and still returns it, so the left-hand value still wins exactly as before: LSPDaemon.recordFailure (`daemon`), LspSession.logFailure (`request`, which shadowed the function parameter), Log.errorDetail (two `type`) and Log.serverFailureMetadata (`server`, which shadowed the function parameter). The findings rule says to remove the cause from the whole file, so I also renamed the older `{ server, _ in server }` in LSPDaemon.spawnAndHandshake (the not-on-the-PATH warning) to `{ existing, _ in existing }`. ServerInstaller.swift has merges that keep the right-hand side (`recorded`/`failure`). Those names describe the incoming value, the file is not in this change, and I left them alone. This is a pure rename with no behavior change, so I added no new test; the existing exact-map and content tests cover these paths. Note: two parallel edit calls on Log.swift raced and one replacement was lost. I re-applied it, so edit one file at a time.'
+  timestamp: 2026-10-19T20:43:51.839538+00:00
+- actor: claude-code
+  id: 01m5ayg3vsvpqpjz7qbzed10e0
+  text: |-
+    ### implement — changed
+    - evidence: 3 files — Sources/FoundationModelsCodeContext/LSP/LSPDaemon.swift, Sources/FoundationModelsCodeContext/LSP/LspSession.swift, Sources/FoundationModelsCodeContext/Logging/Log.swift (6 closure renames; 5 Review Findings flipped to [x]). swift build: clean except the allowed mlx-swift_Cmlx warning. swift test --filter 'LoggingContentTests|ScaffoldTests|LspSessionCapabilityTests|LSPDaemon': 57 tests in 5 suites passed, 0 failures. swift format lint --strict on the 3 files: exit 0. Not committed.
+    - next: /test, then /review
+  timestamp: 2026-10-19T20:43:54.105682+00:00
+- actor: claude-code
+  id: 01m5aym9vjrnbea161j7mmafps
+  text: |-
+    ### test — green
+    - evidence: swift test — 1067 tests in 94 suites passed, 0 failed, 0 skipped; swift test --package-path IntegrationTests — 22 tests in 16 suites passed, 0 failed, 0 skipped; swift format lint --strict --recursive Sources Tests IntegrationTests/Tests — exit 0, no findings. Only warning in either run: the allowed mlx-swift_Cmlx "missing creator for mutated node".
+    - next: review/commit
+  timestamp: 2026-10-19T20:46:11.314040+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'typescript-language-server daemon fails the handshake: npm installs TypeScript 7, which has no tsserver.js; and the WireError failure record has no content-safe reason'
@@ -70,3 +111,19 @@ With `npm install -g --prefix <scratch> typescript-language-server typescript@6`
 ## Acceptance
 
 - `swift test`, `swift test --package-path IntegrationTests` and `swift format lint --strict --recursive Sources Tests IntegrationTests/Tests` are green. The allowed mlx-swift warning is the only warning.
+
+## Review Findings (2026-10-19 15:38)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 10 file(s) reviewed, 3 not reviewed.
+
+> 2 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 2 file(s)
+
+> 1 file(s) not reviewed — no validator matched:
+> - `docs/language-servers.md` — no validator matches this file
+
+- [x] `Sources/FoundationModelsCodeContext/LSP/LSPDaemon.swift:622` `swift/naming-clarity` — The merge closure parameter `daemon` misnames a metadata value. In a dictionary merge, the closure receives two values from the dictionaries being merged, not daemon objects. The name should reflect that it's an existing/left-side metadata value. Rename the parameter to something more descriptive like `existing` or `lhs`: `{ existing, _ in existing }`.
+- [x] `Sources/FoundationModelsCodeContext/LSP/LspSession.swift:715` `swift/naming-clarity` — The merge closure parameter `request` shadows the function parameter `request: SessionRequest` (line 706), creating confusion about which `request` is being referenced. The closure parameter should not reuse the outer name. Rename the closure parameter to something like `existing`: `requestMetadata.merging(Log.errorDetail(of: error)) { existing, _ in existing }`.
+- [x] `Sources/FoundationModelsCodeContext/Logging/Log.swift:86` `swift/naming-clarity` — The merge closure parameter `type` misnames a metadata value. In a dictionary merge, the closure receives `Logger.Metadata` values, not type objects. The name should reflect what it actually is. Rename to `existing` or `lhs`: `return metadata.merging(caseDetail(of: error)) { existing, _ in existing }`.
+- [x] `Sources/FoundationModelsCodeContext/Logging/Log.swift:88` `swift/naming-clarity` — The merge closure parameter `type` misnames a metadata value for the same reason as line 86 — the parameter receives a metadata value, not a type. Rename to `existing` or `lhs`: `return metadata.merging(caseDetail(of: error)) { existing, _ in existing }`.
+- [x] `Sources/FoundationModelsCodeContext/Logging/Log.swift:135` `swift/naming-clarity` — The merge closure parameter `server` shadows the function parameter `server: String` (line 134), creating confusion about which `server` is referenced. The closure parameter should not reuse the outer name. Rename the closure parameter to something like `existing`: `serverMetadata(server: server).merging(errorDetail(of: error)) { existing, _ in existing }`.

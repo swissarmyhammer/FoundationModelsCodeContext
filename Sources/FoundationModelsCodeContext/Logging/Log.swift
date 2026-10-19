@@ -83,9 +83,9 @@ public enum Log {
         let metadata: Logger.Metadata = [CodeContextTracing.MetadataKey.errorType: errorType(of: error)]
         switch error {
         case let error as CodeContextError:
-            return metadata.merging(caseDetail(of: error)) { type, _ in type }
+            return metadata.merging(caseDetail(of: error)) { existing, _ in existing }
         case let error as WireError:
-            return metadata.merging(caseDetail(of: error)) { type, _ in type }
+            return metadata.merging(caseDetail(of: error)) { existing, _ in existing }
         default:
             return metadata
         }
@@ -132,6 +132,6 @@ public enum Log {
     /// - Returns: The server name under `CodeContextTracing.MetadataKey.lspServer`, and the
     ///   metadata of ``errorDetail(of:)``.
     internal static func serverFailureMetadata(server: String, error: any Error) -> Logger.Metadata {
-        serverMetadata(server: server).merging(errorDetail(of: error)) { server, _ in server }
+        serverMetadata(server: server).merging(errorDetail(of: error)) { existing, _ in existing }
     }
 }

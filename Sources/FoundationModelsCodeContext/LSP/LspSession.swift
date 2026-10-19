@@ -712,7 +712,7 @@ actor LspSession<Connection: LanguageServerConnection> {
             CodeContextTracing.MetadataKey.lspRequest: .string(request.rawValue),
             CodeContextTracing.MetadataKey.filePath: .string(filePath),
         ]
-        let metadata = requestMetadata.merging(Log.errorDetail(of: error)) { request, _ in request }
+        let metadata = requestMetadata.merging(Log.errorDetail(of: error)) { existing, _ in existing }
         logger.warning(
             "a language server request failed; the log does not show the next failures of this request for this server",
             metadata: metadata

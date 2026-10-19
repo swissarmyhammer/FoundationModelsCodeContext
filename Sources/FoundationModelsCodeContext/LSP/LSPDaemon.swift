@@ -349,7 +349,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
                 let pathDiagnostics = BinaryLookup.pathDiagnostics(pathVariable: ProcessInfo.processInfo.environment["PATH"])
                 Log.lsp.warning(
                     "the binary of the language server is not on the PATH",
-                    metadata: serverMetadata.merging(pathDiagnostics.logMetadata) { server, _ in server }
+                    metadata: serverMetadata.merging(pathDiagnostics.logMetadata) { existing, _ in existing }
                 )
                 hasWarnedNotFound = true
             }
@@ -619,7 +619,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
             metadata[CodeContextTracing.MetadataKey.lspRequest] = .string(request)
         }
         if let error {
-            metadata.merge(Log.errorDetail(of: error)) { daemon, _ in daemon }
+            metadata.merge(Log.errorDetail(of: error)) { existing, _ in existing }
         }
         Log.lsp.error("the language server daemon failed", metadata: metadata)
         currentState = .failed(reason: reason, attempts: consecutiveFailures)
