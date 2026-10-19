@@ -34,8 +34,24 @@ comments:
     - evidence: swift build ok; swift test — 1058 passed, 0 failed, 0 skipped; swift test --package-path IntegrationTests — 22 passed, 0 failed, 0 skipped; swift format lint --strict clean. Only warning is the known upstream mlx-swift_Cmlx one (^3a92r6p). Fixed one lint failure (AddLines/Indentation) in IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/HardKilledHostTests.swift via swift format (whitespace only), then re-ran lint and integration tests.
     - next: review
   timestamp: 2026-10-19T15:53:11.487200+00:00
-position_column: doing
-position_ordinal: '8180'
+- actor: claude-code
+  id: 01m5ae08vdyvc5xj57sxgesxhd
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (5aa59c0) — 0 findings, 0 confirmed, 0 refuted; 7 files attempted, 0 failed; 6 .kanban/ files excluded by .reviewignore
+    - next: none — task moved to done
+  timestamp: 2026-10-19T15:55:37.709340+00:00
+- actor: claude-code
+  id: 01m5ae0j7970d4kw3cx24wn7e0
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 6 files (leader kept as a zombie via waitid WNOWAIT until every group signal is sent; ProcessGroupCalls seam; 6 new tests, 4 RED before the fix)
+    - test: green — swift test 1058 passed; IntegrationTests 22 passed; swift format lint --strict clean
+    - commit: 5aa59c0
+    - review: clean — 0 findings; task moved to done
+  timestamp: 2026-10-19T15:55:47.305770+00:00
+position_column: done
+position_ordinal: ff8180
 title: ProcessGroupChild signals -pid after the reap of the leader; a reused pid can be another group
 ---
 ## What
