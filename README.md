@@ -52,7 +52,10 @@ Above the indexed layer, `CodeContext` gives live LSP operations —
 `definition`, `hover`, `references`, `renameEdits`, and `codeActions` — and
 an `@Observable` `CodeContextState` (server status, index progress,
 diagnostics) that SwiftUI views can bind to. When a language server binary
-is missing, `CodeContext` installs it automatically by default; see
+is missing, `CodeContext` installs it automatically by default. A failed
+installation is recorded per user in
+`~/Library/Caches/FoundationModelsCodeContext/install-failures.json` and is
+not tried again for 24 hours; delete that file to try again now. See
 [docs/language-servers.md](docs/language-servers.md).
 
 ## Tools

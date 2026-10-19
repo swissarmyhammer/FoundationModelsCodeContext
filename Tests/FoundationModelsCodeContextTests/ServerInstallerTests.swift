@@ -29,7 +29,7 @@ struct ServerInstallerTests {
     @Test
     func successfulInstallReturnsTrueAndInvokesRunnerOnce() async {
         let runner = FakeInstallRunner()
-        let installer = ServerInstaller(runner: runner)
+        let installer = ServerInstaller(policy: .withoutFailureRecord, runner: runner)
         let spec = Self.serverSpec(command: "fake-success", installerTool: "true", installerArguments: ["--flag"])
 
         let succeeded = await installer.install(spec: spec)
@@ -43,7 +43,7 @@ struct ServerInstallerTests {
     func nonzeroExitReturnsFalseAndStillInvokesRunnerOnce() async {
         let runner = FakeInstallRunner()
         await runner.updateResult(.success(InstallRunResult(exitCode: 1, output: "boom")))
-        let installer = ServerInstaller(runner: runner)
+        let installer = ServerInstaller(policy: .withoutFailureRecord, runner: runner)
         let spec = Self.serverSpec(command: "fake-nonzero", installerTool: "true")
 
         let succeeded = await installer.install(spec: spec)
@@ -67,7 +67,7 @@ struct ServerInstallerTests {
         let command = "fake-npm-cert-failure-\(UUID().uuidString)"
         let spec = Self.serverSpec(command: command, installerTool: "true")
 
-        let succeeded = await ServerInstaller(runner: runner).install(spec: spec)
+        let succeeded = await ServerInstaller(policy: .withoutFailureRecord, runner: runner).install(spec: spec)
 
         #expect(!succeeded)
         let failureRecords = CapturedLogRecords.entries(matching: [
@@ -88,7 +88,7 @@ struct ServerInstallerTests {
         let command = "fake-brew-failure-\(UUID().uuidString)"
         let spec = Self.serverSpec(command: command, installerTool: "true")
 
-        let succeeded = await ServerInstaller(runner: runner).install(spec: spec)
+        let succeeded = await ServerInstaller(policy: .withoutFailureRecord, runner: runner).install(spec: spec)
 
         #expect(!succeeded)
         let failureRecords = CapturedLogRecords.entries(matching: [
@@ -104,7 +104,7 @@ struct ServerInstallerTests {
         struct SimulatedInstallFailure: Error {}
         let runner = FakeInstallRunner()
         await runner.updateResult(.failure(SimulatedInstallFailure()))
-        let installer = ServerInstaller(runner: runner)
+        let installer = ServerInstaller(policy: .withoutFailureRecord, runner: runner)
         let spec = Self.serverSpec(command: "fake-throws", installerTool: "true")
 
         let succeeded = await installer.install(spec: spec)
@@ -128,7 +128,7 @@ struct ServerInstallerTests {
     @Test
     func nilInstallerReturnsFalseWithoutInvokingRunner() async {
         let runner = FakeInstallRunner()
-        let installer = ServerInstaller(runner: runner)
+        let installer = ServerInstaller(policy: .withoutFailureRecord, runner: runner)
         let spec = ServerSpec(command: "fake-nil-installer", languageIDs: ["fake"], installHint: "install it by hand")
 
         let succeeded = await installer.install(spec: spec)
@@ -141,7 +141,7 @@ struct ServerInstallerTests {
     @Test
     func missingInstallerToolReturnsFalseWithoutInvokingRunner() async {
         let runner = FakeInstallRunner()
-        let installer = ServerInstaller(runner: runner)
+        let installer = ServerInstaller(policy: .withoutFailureRecord, runner: runner)
         let spec = Self.serverSpec(command: "fake-missing-tool", installerTool: "definitely-not-a-real-installer-tool-xyz123")
 
         let succeeded = await installer.install(spec: spec)
@@ -156,7 +156,7 @@ struct ServerInstallerTests {
     @Test
     func sameCommandInstalledTwiceSequentiallyInvokesRunnerOnce() async {
         let runner = FakeInstallRunner()
-        let installer = ServerInstaller(runner: runner)
+        let installer = ServerInstaller(policy: .withoutFailureRecord, runner: runner)
         let spec = Self.serverSpec(command: "fake-sequential", installerTool: "true")
 
         let first = await installer.install(spec: spec)
@@ -172,7 +172,7 @@ struct ServerInstallerTests {
     func sameCommandInstalledConcurrentlyInvokesRunnerOnce() async throws {
         let runner = FakeInstallRunner()
         await runner.closeGate()
-        let installer = ServerInstaller(runner: runner)
+        let installer = ServerInstaller(policy: .withoutFailureRecord, runner: runner)
         let spec = Self.serverSpec(command: "fake-concurrent", installerTool: "true")
 
         async let first = installer.install(spec: spec)

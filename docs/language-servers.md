@@ -11,7 +11,9 @@ starts the server.
 A server with an installation in progress shows as `.installing` in
 `CodeContextState.servers`. When the installation is complete, the server
 shows as `.running` (installed) or `.notFound` (not found). Each command
-runs one time as a maximum, so a failed installation cannot loop.
+runs one time as a maximum in a session, so a failed installation cannot
+loop. A failed command also waits 24 hours before any other session runs it
+again; see below.
 
 | Language(s) | Server | Auto-install command | Installer tool |
 |---|---|---|---|
@@ -67,6 +69,49 @@ stopped with all the processes that it started (for example the `node` and
 No process of the installer stays after the stop, and none keeps a lock
 for the next session. Thus a stop never takes much longer than the time
 limit.
+
+## A failed installation is not tried again for 24 hours
+
+A failed installation (a nonzero exit, a timeout, or an installer that
+does not start) is written to a record of the user, not of the workspace:
+`~/Library/Caches/FoundationModelsCodeContext/install-failures.json`. The
+record holds one entry for each installer command (the server command,
+the installer tool and its arguments) with the failure time, the exit
+code and the error code of the output (for example the `npm` code
+`UNABLE_TO_GET_ISSUER_CERT_LOCALLY`). Each session of each workspace on
+the machine reads it. While an entry is younger than `failureBackoff`
+(default 24 hours), no session runs that installer command again: the
+server stays `.notFound`, and the `lsp` logger writes at info "the
+installer of the language server failed before; it is not tried again
+until the retry time", with the reason and the retry time
+(`lsp.install.retry_time`). Thus an installer that fails because of the
+machine (a certificate, a proxy, a missing toolchain) runs one time a day,
+not one time for each new clone.
+
+A successful installation removes its entry. A changed installer command
+(other arguments, another version) has its own entry, so it runs at once.
+A record that cannot be read or written never stops an installation; the
+logger writes a warning and the installation goes on.
+
+To try every failed installation again now, delete the record file:
+
+```sh
+rm ~/Library/Caches/FoundationModelsCodeContext/install-failures.json
+```
+
+To change the window, or the place of the record, give the values to
+`LspAutoInstall`. A `nil` directory keeps no record, thus each session
+tries a failed installation again:
+
+```swift
+let manager = await CodeContextManager(
+    embedder: embedder,
+    autoInstall: LspAutoInstall(
+        failureBackoff: .seconds(60 * 60),
+        failureRecordDirectory: URL(fileURLWithPath: "/shared/cache/code-context")
+    )
+)
+```
 
 ## Server capabilities
 

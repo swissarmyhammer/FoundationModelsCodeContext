@@ -114,7 +114,28 @@ enum BinaryLookup {
 /// same as if the user had typed the command themselves. Set `isEnabled` to `false` to opt out
 /// and fall back to `installHint`-only guidance — exactly the behavior before auto-install
 /// existed, and always the behavior for a spec whose `installer` is `nil`.
+///
+/// A failed install is remembered per user, not per session or per workspace: a record file in
+/// `failureRecordDirectory` holds each failed installer command, and no session on the machine
+/// runs that command again until `failureBackoff` has elapsed. A success clears the entry.
 public struct LspAutoInstall: Sendable, Equatable {
+    /// The number of seconds in `defaultFailureBackoff`: 24 hours.
+    public static let defaultFailureBackoffSeconds: Int64 = 24 * 60 * 60
+
+    /// The default of `failureBackoff`: 24 hours.
+    public static let defaultFailureBackoff: Duration = .seconds(defaultFailureBackoffSeconds)
+
+    /// The name of the directory of the failure record below the user caches directory.
+    private static let failureRecordDirectoryName = "FoundationModelsCodeContext"
+
+    /// The default of `failureRecordDirectory`: `FoundationModelsCodeContext` below the caches
+    /// directory of the user (`~/Library/Caches` on macOS), or `nil` when the system names no
+    /// caches directory.
+    public static var defaultFailureRecordDirectory: URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent(failureRecordDirectoryName, isDirectory: true)
+    }
+
     /// Whether `ServerInstaller` may run a spec's installer automatically. Defaults to `true`.
     public var isEnabled: Bool
 
@@ -123,14 +144,36 @@ public struct LspAutoInstall: Sendable, Equatable {
     /// slow connection, but still bounded.
     public var timeout: Duration
 
+    /// How long after a failed install the same installer command is not run again, by any
+    /// session that shares `failureRecordDirectory`. Defaults to `defaultFailureBackoff`
+    /// (24 hours).
+    public var failureBackoff: Duration
+
+    /// The directory of the record of failed installs, `install-failures.json`, or `nil` to keep
+    /// no record (each session then tries a failed install again). Defaults to
+    /// `defaultFailureRecordDirectory`. Delete the record file to try every failed install again
+    /// at once.
+    public var failureRecordDirectory: URL?
+
     /// Creates an auto-install policy.
     /// - Parameters:
     ///   - isEnabled: Whether auto-install is permitted. Defaults to `true`.
     ///   - timeout: How long one install command may run before it is force-terminated as failed.
     ///     Defaults to 300 seconds.
-    public init(isEnabled: Bool = true, timeout: Duration = .seconds(300)) {
+    ///   - failureBackoff: How long after a failed install the same installer command is not
+    ///     run again. Defaults to `defaultFailureBackoff` (24 hours).
+    ///   - failureRecordDirectory: The directory of the record of failed installs, or `nil` to
+    ///     keep no record. Defaults to `defaultFailureRecordDirectory`.
+    public init(
+        isEnabled: Bool = true,
+        timeout: Duration = .seconds(300),
+        failureBackoff: Duration = defaultFailureBackoff,
+        failureRecordDirectory: URL? = defaultFailureRecordDirectory
+    ) {
         self.isEnabled = isEnabled
         self.timeout = timeout
+        self.failureBackoff = failureBackoff
+        self.failureRecordDirectory = failureRecordDirectory
     }
 }
 
@@ -376,6 +419,12 @@ struct ProcessInstallRunner: InstallRunner {
 /// in-flight `Task`, so the underlying installer runs exactly once no matter how many callers ask
 /// concurrently.
 ///
+/// That dedupe lasts one instance, thus one session. Across sessions and workspaces the
+/// `InstallFailureRecord` in `LspAutoInstall.failureRecordDirectory` carries a failure: before
+/// it runs an installer command, an attempt reads the record, and when the same command failed
+/// less than `LspAutoInstall.failureBackoff` ago the attempt does not run it and gives `false`.
+/// A failed run writes its failure into the record, and a successful run removes it.
+///
 /// Note the cancellation semantics of that shared in-flight `Task`: a caller whose own await of
 /// `install(spec:)` is cancelled does *not* cancel the underlying install — the `Task` backing an
 /// in-flight attempt is intentionally unstructured (not a structured child of any one caller), so
@@ -396,14 +445,28 @@ actor ServerInstaller {
     /// dictionary — successfully or not — is never retried by this instance again.
     private var attempts: [String: Task<Bool, Never>] = [:]
 
+    /// The backoff over the per-user record of failed installs, or `nil` when
+    /// `policy.failureRecordDirectory` is `nil` and no record is kept.
+    private let failureBackoff: InstallFailureBackoff?
+
     /// Creates a server installer.
     /// - Parameters:
     ///   - policy: The opt-out policy gating auto-install. Defaults to `LspAutoInstall()`
-    ///     (enabled, 300-second timeout).
+    ///     (enabled, 300-second timeout, 24-hour failure backoff, record in the user caches
+    ///     directory).
     ///   - runner: The process-running seam. Defaults to `ProcessInstallRunner()`.
-    init(policy: LspAutoInstall = LspAutoInstall(), runner: any InstallRunner = ProcessInstallRunner()) {
+    ///   - now: Gives the current time for the failure record. Defaults to the system time;
+    ///     tests give a fixed time.
+    init(
+        policy: LspAutoInstall = LspAutoInstall(),
+        runner: any InstallRunner = ProcessInstallRunner(),
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.policy = policy
         self.runner = runner
+        failureBackoff = policy.failureRecordDirectory.map { directory in
+            InstallFailureBackoff(record: InstallFailureRecord(directory: directory), window: policy.failureBackoff, now: now)
+        }
     }
 
     /// Attempts to install `spec.command` via its `installer`, subject to the auto-install policy.
@@ -414,10 +477,12 @@ actor ServerInstaller {
     /// Otherwise runs `runner.run(tool:arguments:timeout:)` at most once for this command: a
     /// second call (concurrent or sequential) for the same `spec.command` awaits the first
     /// attempt's already-in-flight or already-completed `Task` instead of running the installer
-    /// again.
+    /// again. The attempt also does not run the installer when the per-user failure record holds
+    /// a failure of the same installer command that is younger than `policy.failureBackoff`.
     /// - Parameter spec: The server spec whose `installer` (if any) to run.
     /// - Returns: `true` if the installer command exited `0`; `false` for a disabled policy, a
-    ///   nil/unrunnable installer, a nonzero exit, or a runner throw/timeout.
+    ///   nil/unrunnable installer, a recorded failure inside the backoff window, a nonzero exit,
+    ///   or a runner throw/timeout.
     func install(spec: ServerSpec) async -> Bool {
         guard policy.isEnabled else { return false }
         guard let installer = spec.installer else { return false }
@@ -429,11 +494,84 @@ actor ServerInstaller {
 
         let runner = self.runner
         let timeout = policy.timeout
+        let failureBackoff = self.failureBackoff
         let task = Task<Bool, Never> {
-            await Self.performInstall(runner: runner, command: spec.command, installer: installer, timeout: timeout)
+            await Self.performAttempt(
+                runner: runner,
+                command: spec.command,
+                installer: installer,
+                timeout: timeout,
+                failureBackoff: failureBackoff
+            )
         }
         attempts[spec.command] = task
         return await task.value
+    }
+
+    /// The end of one run of an installer.
+    private enum InstallOutcome {
+        /// The installer exited `0`.
+        case succeeded
+
+        /// The installer exited nonzero, or the run did not complete.
+        /// - exitCode: The exit code, or `nil` when the run threw (a timeout or a failed spawn).
+        /// - reason: The error code that `InstallFailureReason.code(in:)` took out of the
+        ///   output, or `nil`.
+        case failed(exitCode: Int32?, reason: String?)
+    }
+
+    /// Runs one install attempt: skips the installer when `failureBackoff` holds a recent
+    /// failure of the same installer command, else runs it and records the outcome.
+    /// - Parameters:
+    ///   - runner: The process-running seam to invoke.
+    ///   - command: The server command being installed.
+    ///   - installer: The installer to run.
+    ///   - timeout: How long the installer may run before it is force-terminated as failed.
+    ///   - failureBackoff: The backoff over the per-user failure record, or `nil` for none.
+    /// - Returns: `true` if the installer ran and exited `0`; `false` for a skipped run, a
+    ///   nonzero exit or a runner throw/timeout.
+    private static func performAttempt(
+        runner: any InstallRunner,
+        command: String,
+        installer: ServerSpec.InstallSpec,
+        timeout: Duration,
+        failureBackoff: InstallFailureBackoff?
+    ) async -> Bool {
+        let installMetadata: Logger.Metadata = [
+            CodeContextTracing.MetadataKey.lspServer: .string(command),
+            CodeContextTracing.MetadataKey.lspInstaller: .string(installer.tool),
+        ]
+        let key = InstallFailureRecord.Key(command: command, tool: installer.tool, arguments: installer.arguments)
+        if let failureBackoff, let failure = failureBackoff.activeFailure(for: key) {
+            logSkippedRun(after: failure, retryTime: failureBackoff.retryTime(after: failure), metadata: installMetadata)
+            return false
+        }
+        let outcome = await performInstall(runner: runner, installer: installer, timeout: timeout, metadata: installMetadata)
+        switch outcome {
+        case .succeeded:
+            failureBackoff?.noteSuccess(of: key)
+            return true
+        case let .failed(exitCode, reason):
+            failureBackoff?.noteFailure(of: key, exitCode: exitCode, reason: reason)
+            return false
+        }
+    }
+
+    /// Logs at info that an installer command is not run, because it failed before.
+    ///
+    /// The record holds the exit code and the error code of the earlier failure when it has
+    /// them, and the retry time in ISO 8601.
+    /// - Parameters:
+    ///   - failure: The recorded failure.
+    ///   - retryTime: The time from which the installer command may run again.
+    ///   - metadata: The server and installer metadata of the attempt.
+    private static func logSkippedRun(after failure: InstallFailureRecord.Entry, retryTime: Date, metadata: Logger.Metadata) {
+        var skipMetadata = metadata.merging(failureMetadata(exitCode: failure.exitCode, reason: failure.reason)) { _, recorded in recorded }
+        skipMetadata[CodeContextTracing.MetadataKey.installRetryTime] = .string(retryTime.ISO8601Format())
+        Log.lsp.info(
+            "the installer of the language server failed before; it is not tried again until the retry time",
+            metadata: skipMetadata
+        )
     }
 
     /// Runs one installer command to completion, logging start/success/failure via `Log.lsp`.
@@ -444,49 +582,50 @@ actor ServerInstaller {
     /// installer output or the description of an error, because each of them can hold content.
     /// - Parameters:
     ///   - runner: The process-running seam to invoke.
-    ///   - command: The server command being installed, for logging.
     ///   - installer: The installer to run.
     ///   - timeout: How long the installer may run before it is force-terminated as failed.
-    /// - Returns: `true` if the installer exited `0`; `false` for a nonzero exit or a runner
-    ///   throw/timeout.
+    ///   - metadata: The server and installer metadata of each record.
+    /// - Returns: The outcome of the run.
     private static func performInstall(
         runner: any InstallRunner,
-        command: String,
         installer: ServerSpec.InstallSpec,
-        timeout: Duration
-    ) async -> Bool {
-        let installMetadata: Logger.Metadata = [
-            CodeContextTracing.MetadataKey.lspServer: .string(command),
-            CodeContextTracing.MetadataKey.lspInstaller: .string(installer.tool),
-        ]
-        Log.lsp.info("the installer of the language server starts", metadata: installMetadata)
+        timeout: Duration,
+        metadata: Logger.Metadata
+    ) async -> InstallOutcome {
+        Log.lsp.info("the installer of the language server starts", metadata: metadata)
         do {
             let result = try await runner.run(tool: installer.tool, arguments: installer.arguments, timeout: timeout)
             guard result.exitCode == 0 else {
+                let reason = InstallFailureReason.code(in: result.output)
                 Log.lsp.error(
                     "the installer of the language server failed",
-                    metadata: installMetadata.merging(failureMetadata(of: result)) { _, failure in failure }
+                    metadata: metadata.merging(failureMetadata(exitCode: result.exitCode, reason: reason)) { _, failure in failure }
                 )
-                return false
+                return .failed(exitCode: result.exitCode, reason: reason)
             }
-            Log.lsp.info("the installer of the language server succeeded", metadata: installMetadata)
-            return true
+            Log.lsp.info("the installer of the language server succeeded", metadata: metadata)
+            return .succeeded
         } catch {
             Log.lsp.error(
                 "the installer of the language server did not complete",
-                metadata: installMetadata.merging(Log.serverFailureMetadata(server: command, error: error)) { _, failure in failure }
+                metadata: metadata.merging([CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error)]) { _, failure in failure }
             )
-            return false
+            return .failed(exitCode: nil, reason: nil)
         }
     }
 
-    /// Gives the metadata of the record of an installer that exited nonzero: the exit code, and
-    /// the error code of the output when `InstallFailureReason.code(in:)` finds one.
-    /// - Parameter result: The completed run of the installer.
+    /// Gives the metadata of a failed install: the exit code when there is one, and the error
+    /// code of the output when `InstallFailureReason.code(in:)` found one.
+    /// - Parameters:
+    ///   - exitCode: The exit code of the installer, or `nil` when the run did not complete.
+    ///   - reason: The error code of the output, or `nil`.
     /// - Returns: The exit code and the error code metadata. It holds no other output text.
-    private static func failureMetadata(of result: InstallRunResult) -> Logger.Metadata {
-        var metadata: Logger.Metadata = [CodeContextTracing.MetadataKey.exitCode: .stringConvertible(result.exitCode)]
-        if let reason = InstallFailureReason.code(in: result.output) {
+    private static func failureMetadata(exitCode: Int32?, reason: String?) -> Logger.Metadata {
+        var metadata: Logger.Metadata = [:]
+        if let exitCode {
+            metadata[CodeContextTracing.MetadataKey.exitCode] = .stringConvertible(exitCode)
+        }
+        if let reason {
             metadata[CodeContextTracing.MetadataKey.installFailureReason] = .string(reason)
         }
         return metadata

@@ -229,6 +229,7 @@ internal struct MetricsTests {
         let supervisor = LspSupervisor<FakeLanguageServerConnection>(
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
+            autoInstall: .withoutFailureRecord,
             installRunner: FakeInstallRunner(),
             metrics: CodeContextMetrics(factory: metrics),
             connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())

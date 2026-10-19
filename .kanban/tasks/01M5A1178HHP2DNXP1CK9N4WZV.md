@@ -1,10 +1,46 @@
 ---
 assignees:
 - claude-code
+comments:
+- actor: claude-code
+  id: 01m5a7ttz06mf4erg962cv4rfq
+  text: |-
+    Research (implement):
+    - `ServerInstaller` is built in exactly one production place: `LspSupervisor.init` (`ServerInstaller(policy: autoInstall, runner: installRunner)`); `LspAutoInstall` is already plumbed CodeContextManager -> CodeContext -> LspSupervisor -> ServerInstaller. So the record location and backoff go on `LspAutoInstall` (`failureBackoff: Duration`, default 24 h; `failureRecordDirectory: URL?`, default `<user caches>/FoundationModelsCodeContext`, nil = no record). No new plumbing parameters needed at any layer.
+    - Hazard: many existing tests build `ServerInstaller(runner:)` / supervisors / CodeContexts with auto-install ON and a FakeInstallRunner (ServerInstallerTests, LoggingContentTests, LspSupervisorTests autoInstall*, MetricsTests, CodeContextE2ETests, CodeContextManagerTests, CodeContextStartTests). With the default directory those would write ~/Library/Caches and (worse) a second test run would skip the runner and fail. Each must get a temp `failureRecordDirectory`. Tests with `isEnabled: false` never reach the record.
+    - `ServerInstaller`'s inner install Task is unstructured; the supervisor's cancel of `installTask` does not cancel it, so a recorded exit code is never a cancel signal number.
+    - `InstallFailureReason.code(in:)` (^tbjgyzz) gives the npm code; it is stored as the record's `reason`. Exit code nil for a thrown run (timeout/spawn).
+    - ~/Library/Caches/FoundationModelsCodeContext does not exist before this work; checked again after the full suite.
+  timestamp: 2026-10-19T14:07:48.192782+00:00
+- actor: claude-code
+  id: 01m5a8c6zrm7qv33vqagjwpvnp
+  text: |-
+    Implementation landed (not committed):
+    - New `Sources/FoundationModelsCodeContext/LSP/InstallFailureRecord.swift`: `InstallFailureRecord` (JSON array of entries `{key: {command, tool, arguments}, failedAt (ISO 8601), exitCode?, reason?}` in `<dir>/install-failures.json`, atomic `Data.write(.atomic)`, read/decode/write errors logged at warning with error type only, missing file silent) and `InstallFailureBackoff` (window + injectable `now`).
+    - `LspAutoInstall` gains `failureBackoff` (default `defaultFailureBackoff` = 24 h) and `failureRecordDirectory: URL?` (default `defaultFailureRecordDirectory` = `<user caches>/FoundationModelsCodeContext`; nil = no record). No new plumbing at CodeContext/Manager/Supervisor: the policy already flows there.
+    - `ServerInstaller.init(policy:runner:now:)`; the attempt task checks the record before the runner, logs info "the installer of the language server failed before; it is not tried again until the retry time" with exit code, `lsp.install.reason` and new `lsp.install.retry_time` (ISO 8601), returns false. Failure (nonzero exit or throw) stores the entry; success removes it.
+    - Test hygiene: new test helper `LspAutoInstall.withoutFailureRecord`; every existing test that runs with auto-install ON (ServerInstallerTests, LoggingContentTests, LspSupervisorTests autoInstall*, MetricsTests, CodeContextE2ETests, CodeContextManagerTests, CodeContextStartTests) now passes it. Verified ~/Library/Caches/FoundationModelsCodeContext still does not exist after the full suite.
+    - Gotcha: the `files` tool `replace_all: true` replaced only the first match per call here; I re-ran edits and checked with rg.
+    - Docs: docs/language-servers.md new section "A failed installation is not tried again for 24 hours" (path, behavior, `rm` to clear, config example); README sentence.
+  timestamp: 2026-10-19T14:17:17.560647+00:00
+- actor: claude-code
+  id: 01m5a8cbgskqwbenymeqecy0at
+  text: |-
+    ### implement — changed
+    - evidence: 16 files. New: Sources/FoundationModelsCodeContext/LSP/InstallFailureRecord.swift, Tests/FoundationModelsCodeContextTests/InstallFailureRecordTests.swift (14 tests), Tests/FoundationModelsCodeContextTests/Support/LspAutoInstall+Testing.swift. Modified: Sources/.../LSP/ServerInstaller.swift, Sources/.../Tracing/CodeContextTracing.swift, Tests: CodeContextE2ETests, CodeContextManagerTests, CodeContextStartTests, CodeContextTracingTests, LoggingContentTests, LspSupervisorTests, MetricsTests, ServerInstallerTests; README.md, docs/language-servers.md. RED: `swift test --filter InstallFailureRecordTests` failed to compile (no failureRecordDirectory/failureBackoff/InstallFailureRecord). GREEN: same filter 12/12 passed. Full `swift test`: 1048 tests in 92 suites passed, 0 failed, 0 skipped; only output warning is the pre-existing SwiftPM "missing creator for mutated node ... mlx-swift_Cmlx.bundle" (not from this change). Real ~/Library/Caches/FoundationModelsCodeContext absent after the run.
+    - next: /review
+  timestamp: 2026-10-19T14:17:22.201267+00:00
+- actor: claude-code
+  id: 01m5a8h98kc7qd4yah89c8pzr1
+  text: |-
+    ### test — green
+    - evidence: swift test: 1048 tests in 92 suites passed, 0 failures, 0 skipped. swift test --package-path IntegrationTests: 22 tests in 16 suites passed. Only warning is the pre-existing mlx-swift_Cmlx "missing creator for mutated node" (reported, not chased). LanguageServerGrandchildTests flake (^t71wvkm) did not appear. ~/Library/Caches/FoundationModelsCodeContext absent before and after both runs (no install-failure record written).
+    - next: review/commit
+  timestamp: 2026-10-19T14:20:03.731005+00:00
 depends_on:
 - 01M5A10VFHNREW31047TBJGYZZ
-position_column: todo
-position_ordinal: '8180'
+position_column: doing
+position_ordinal: '80'
 title: Remember a failed language server install across sessions and do not run it again in each new session
 ---
 ## What

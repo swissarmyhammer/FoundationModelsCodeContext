@@ -235,6 +235,10 @@ public enum CodeContextTracing {
         /// because that output can hold content.
         public static let installFailureReason = "lsp.install.reason"
 
+        /// The time, in ISO 8601, from which an installer command that failed before may run
+        /// again, for example `2026-10-19T15:20:43Z`. It is a time, never a path of the record.
+        public static let installRetryTime = "lsp.install.retry_time"
+
         /// The number of entries of the `PATH` of this process that the binary lookup searches.
         public static let pathEntryCount = "process.path.entry_count"
 

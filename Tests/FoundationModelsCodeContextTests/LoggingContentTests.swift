@@ -149,7 +149,7 @@ struct LoggingContentTests {
             installer: ServerSpec.InstallSpec(tool: "true", arguments: [])
         )
 
-        let succeeded = await ServerInstaller(runner: runner).install(spec: spec)
+        let succeeded = await ServerInstaller(policy: .withoutFailureRecord, runner: runner).install(spec: spec)
 
         #expect(!succeeded)
         #expect(CapturedLogRecords.entries(holding: marker).isEmpty)
@@ -173,7 +173,7 @@ struct LoggingContentTests {
             installer: ServerSpec.InstallSpec(tool: "true", arguments: [])
         )
 
-        let succeeded = await ServerInstaller(runner: runner).install(spec: spec)
+        let succeeded = await ServerInstaller(policy: .withoutFailureRecord, runner: runner).install(spec: spec)
 
         #expect(!succeeded)
         #expect(CapturedLogRecords.entries(holding: marker).isEmpty)

@@ -461,6 +461,7 @@ struct CodeContextManagerTests {
             let manager = await CodeContextManager<FakeLanguageServerConnection>(
                 embedder: FakeEmbedder(vectorLength: 8),
                 eventSource: FakeFileEventSource(),
+                autoInstall: .withoutFailureRecord,
                 installRunner: runner,
                 connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
             )

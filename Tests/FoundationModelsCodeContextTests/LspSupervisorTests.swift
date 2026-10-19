@@ -620,6 +620,7 @@ struct LspSupervisorTests {
         let supervisor = LspSupervisor<FakeLanguageServerConnection>(
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
+            autoInstall: .withoutFailureRecord,
             installRunner: runner,
             connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
         )
@@ -667,6 +668,7 @@ struct LspSupervisorTests {
         let supervisor = LspSupervisor<FakeLanguageServerConnection>(
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
+            autoInstall: .withoutFailureRecord,
             installRunner: runner,
             connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
         )
@@ -732,6 +734,7 @@ struct LspSupervisorTests {
         let supervisor = LspSupervisor<FakeLanguageServerConnection>(
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
+            autoInstall: .withoutFailureRecord,
             installRunner: runner,
             connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
         )
@@ -761,6 +764,7 @@ struct LspSupervisorTests {
         let supervisor = LspSupervisor<FakeLanguageServerConnection>(
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
+            autoInstall: .withoutFailureRecord,
             installRunner: runner,
             connectionFactory: fakeConnectionFactory(pid: 42, processState: ProcessState())
         )
@@ -814,6 +818,7 @@ struct LspSupervisorTests {
         let supervisor = LspSupervisor<FakeLanguageServerConnection>(
             workspaceRoot: Self.workspaceRoot,
             clock: ManualClock(),
+            autoInstall: .withoutFailureRecord,
             installRunner: runner,
             metrics: CodeContextMetrics(factory: metrics),
             connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())

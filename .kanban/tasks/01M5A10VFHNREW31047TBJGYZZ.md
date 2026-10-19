@@ -38,8 +38,24 @@ comments:
     - evidence: swift test — 1034 tests in 91 suites passed, 0 failed, 0 skipped; swift test --package-path IntegrationTests — 22 tests in 16 suites passed, 0 failed, 0 skipped. Only warning: pre-existing mlx-swift_Cmlx "missing creator for mutated node" (not chased). LanguageServerGrandchildTests flake (^t71wvkm) did not appear.
     - next: review/commit
   timestamp: 2026-10-19T14:01:22.440130+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5a7khwzgwe53bkgrsxpw081
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (a585815) — 0 findings, 0 confirmed, 0 refuted; 7 validator attempts, 0 failed; 4 .kanban/ files excluded by .reviewignore
+    - next: none — task moved to done
+  timestamp: 2026-10-19T14:03:49.535801+00:00
+- actor: claude-code
+  id: 01m5a7ks9jvekmr2dsf6gzt5ej
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — ServerInstaller.swift, CodeContextTracing.swift, 2 test files
+    - test: green — swift test 1034 passed, IntegrationTests 22 passed, 0 skipped
+    - commit: a585815
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-10-19T14:03:57.106678+00:00
+position_column: done
+position_ordinal: fd80
 title: Log the reason of a failed language server install (npm error code), not only exit_code
 ---
 ## What

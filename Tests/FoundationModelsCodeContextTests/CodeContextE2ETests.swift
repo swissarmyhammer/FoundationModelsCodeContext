@@ -272,6 +272,7 @@ struct CodeContextE2ETests {
                 rootDirectory: root,
                 embedder: FakeEmbedder(vectorLength: 8),
                 eventSource: FakeFileEventSource(),
+                autoInstall: .withoutFailureRecord,
                 installRunner: runner,
                 connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
             )

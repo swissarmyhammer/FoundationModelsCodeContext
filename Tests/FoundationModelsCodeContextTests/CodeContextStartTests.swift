@@ -524,6 +524,7 @@ struct CodeContextStartTests {
                     rootDirectory: root,
                     embedder: nil,
                     eventSource: FakeFileEventSource(),
+                    autoInstall: .withoutFailureRecord,
                     installRunner: runner,
                     serverSpecs: Self.serverSpecs(searching: binaryDirectory, missingCommand: missingCommand),
                     connectionFactory: fakeConnectionFactory(pid: Self.fakeServerPid, processState: ProcessState())
