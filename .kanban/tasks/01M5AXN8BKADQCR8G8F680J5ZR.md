@@ -74,8 +74,31 @@ comments:
     - evidence: swift test — 1067 tests in 94 suites passed, 0 failed, 0 skipped; swift test --package-path IntegrationTests — 22 tests in 16 suites passed, 0 failed, 0 skipped; swift format lint --strict --recursive Sources Tests IntegrationTests/Tests — exit 0, no findings. Only warning in either run: the allowed mlx-swift_Cmlx "missing creator for mutated node".
     - next: review/commit
   timestamp: 2026-10-19T20:46:11.314040+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5aymqd11kzvpnhgvypag604
+  text: |-
+    ### commit — changed
+    - evidence: ea11cb0 refactor(lsp): name the kept value of each failure-metadata merge closure existing ^680j5zr
+    - next: review
+  timestamp: 2026-10-19T20:46:25.185474+00:00
+- actor: claude-code
+  id: 01m5ayqqfgxbp927490eg1e19x
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (ea11cb0) — 0 findings, 0 confirmed, 0 refuted; 7 validator runs attempted, 0 failed; 3 files reviewed, 2 .kanban files excluded by .reviewignore. All 5 prior Review Findings (2026-10-19 15:38) items are checked.
+    - next: none — task moved to done.
+  timestamp: 2026-10-19T20:48:03.568378+00:00
+- actor: claude-code
+  id: 01m5ayqxzmvde2fgvgynceqwdh
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — 3 files (merge closure renames)
+    - test: green — swift test 1067 passed; IntegrationTests 22 passed; swift format lint clean
+    - commit: ea11cb0
+    - review: clean — no findings
+  timestamp: 2026-10-19T20:48:10.228818+00:00
+position_column: done
+position_ordinal: ff8580
 title: 'typescript-language-server daemon fails the handshake: npm installs TypeScript 7, which has no tsserver.js; and the WireError failure record has no content-safe reason'
 ---
 ## Problem
