@@ -229,6 +229,25 @@ public enum CodeContextTracing {
         /// The exit code of a process that the package ran.
         public static let exitCode = "process.exit_code"
 
+        /// The process id of a process that the package started, for example a language server.
+        public static let processID = "process.pid"
+
+        /// Whether a language server process still ran at the time of the record: `true` or
+        /// `false`.
+        public static let lspServerRunning = "lsp.server.running"
+
+        /// The phase of the loop that reads the standard output of a language server:
+        /// `not-started`, `reading` or `stopped`.
+        public static let lspReaderPhase = "lsp.reader.phase"
+
+        /// The count of bytes that the loop read from the standard output of a language server.
+        /// It is never the bytes themselves.
+        public static let lspReaderBytes = "lsp.reader.bytes"
+
+        /// The count of JSON-RPC frames that the loop decoded from the standard output of a
+        /// language server.
+        public static let lspReaderFrames = "lsp.reader.frames"
+
         /// The error code that a failed install of a language server printed, for example
         /// `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` or `E404` from `npm`. The value is only a code of
         /// capital letters, digits and underscores. It is never the output of the installer,

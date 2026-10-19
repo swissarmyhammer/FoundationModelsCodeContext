@@ -64,6 +64,10 @@ final class PendingRequestTable: @unchecked Sendable {
     /// holds at most `timedOutIDLimit` ids.
     private var timedOutIDs: Set<Int> = []
 
+    /// The error of the first `failAll(with:)` call, or `nil` before it. After that call no
+    /// response comes, thus a registration with no buffered response gets this error at once.
+    private var failure: (any Error)?
+
     /// Records that the request `id` is sent and waits for its response.
     ///
     /// Call this before the request is written: the response can arrive before the write
@@ -86,18 +90,27 @@ final class PendingRequestTable: @unchecked Sendable {
     /// call ever ran, `continuation` is resumed immediately with the buffered response instead of
     /// being stored — see `resolveOrBuffer(id:response:)`'s doc comment for why that race is
     /// always possible and why silently losing it used to hang the caller forever.
+    ///
+    /// After `failAll(with:)`, a registration with no buffered response is resumed at once with
+    /// the error of `failAll(with:)`: no response comes after that call, thus the registration
+    /// would otherwise wait until its timeout.
     /// - Parameters:
     ///   - id: The JSON-RPC id of the outstanding request.
     ///   - continuation: The continuation to resume when a response or timeout resolves `id`.
     func register(id: Int, continuation: CheckedContinuation<Data, Error>) {
-        lock.lock()
-        if let buffered = earlyResponses.removeValue(forKey: id) {
-            lock.unlock()
-            continuation.resume(returning: buffered)
-            return
+        let outcome: Result<Data, any Error>? = lock.withLock {
+            if let buffered = earlyResponses.removeValue(forKey: id) {
+                return .success(buffered)
+            }
+            if let failure {
+                return .failure(failure)
+            }
+            continuations[id] = ResumeOnce(continuation: continuation)
+            return nil
         }
-        continuations[id] = ResumeOnce(continuation: continuation)
-        lock.unlock()
+        if let outcome {
+            continuation.resume(with: outcome)
+        }
     }
 
     /// Fails the pending request `id` with `error` when its timeout fires, and records `id` as
@@ -200,19 +213,29 @@ final class PendingRequestTable: @unchecked Sendable {
     }
 
     /// Fails every still-pending request with `error`, used when the connection closes or the
-    /// child process exits unexpectedly. Also discards any buffered early responses: nothing will
-    /// ever register for them once the connection is going away. Also forgets the sent and the
-    /// timed-out ids, because no response comes after this point.
+    /// child process exits unexpectedly. Also forgets the sent and the timed-out ids, because no
+    /// response comes after this point. A later registration with no buffered response gets the
+    /// error of the first call at once (see `register(id:continuation:)`).
+    ///
+    /// Keeps each buffered early response. It is the true answer of a sent request whose
+    /// registration did not run yet, and that registration always runs and takes it. A server
+    /// that answers and exits at once, before a loaded cooperative pool starts the registering
+    /// task, makes exactly this order: the reader loop buffers the response, reads the end of
+    /// the file and calls this function, and only then does the request register. A drop of the
+    /// buffered response here made that request wait until its timeout.
     /// - Parameter error: The error to fail every pending request with.
     func failAll(with error: Error) {
-        lock.lock()
-        let pending = continuations
-        continuations.removeAll()
-        earlyResponses.removeAll()
-        awaitedIDs.removeAll()
-        timedOutIDs.removeAll()
-        lock.unlock()
-        for resumer in pending.values {
+        let pending: [ResumeOnce<Data>] = lock.withLock {
+            if failure == nil {
+                failure = error
+            }
+            let pending = Array(continuations.values)
+            continuations.removeAll()
+            awaitedIDs.removeAll()
+            timedOutIDs.removeAll()
+            return pending
+        }
+        for resumer in pending {
             resumer.resume(throwing: error)
         }
     }
@@ -231,7 +254,8 @@ final class PendingRequestTable: @unchecked Sendable {
 /// with only their method name, request id, direction and byte size, never the payload.
 /// Every request races against an injectable `Clock`-driven timeout
 /// (30 seconds by default), so a server that never answers fails the caller
-/// rather than hanging it forever. Each request records its duration in the
+/// rather than hanging it forever. A timeout writes one `.warning` record to `Log.lspWire` with
+/// the state of the server and of the reader loop (see `ReaderLoopProgress`), and no payload. Each request records its duration in the
 /// injected `CodeContextMetrics`, with the method name, the server name and the
 /// outcome as dimensions.
 ///
@@ -273,6 +297,9 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     static let terminationGrace: Duration = .milliseconds(terminationGraceMilliseconds)
 
     private nonisolated let stderrTailBuffer = BoundedTailBuffer(maxChunks: stderrTailChunkLimit)
+
+    /// What the stdout reader loop did so far. A request that times out logs it.
+    private nonisolated let readerProgress = ReaderLoopProgress()
     private let requestTimeout: Duration
     private let clock: any Clock<Duration>
 
@@ -389,7 +416,12 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         // for each open connection can fill the pool on a machine with few cores, and then no
         // request timeout and no `close()` can run. See
         // `ProcessUtilities.runOnDedicatedThread(name:_:)`.
-        let sinks = MessageSinks(pendingRequests: self.pendingRequests, notifications: continuation, replies: replyContinuation)
+        let sinks = MessageSinks(
+            pendingRequests: self.pendingRequests,
+            notifications: continuation,
+            replies: replyContinuation,
+            progress: self.readerProgress
+        )
         self.readerTask = ProcessUtilities.runReadLoop(name: "lsp-reader \(command)", readEnd: stdoutPipe.fileHandleForReading) {
             stdoutFileDescriptor in
             let isOutOfStep = Self.runReaderLoop(serverName: command, stdoutFileDescriptor: stdoutFileDescriptor, sinks: sinks)
@@ -499,6 +531,16 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///   none have been captured yet.
     nonisolated func recentStderrTail() -> String {
         stderrTailBuffer.snapshot()
+    }
+
+    /// What the stdout reader loop did so far: its phase, and the counts of the bytes and the
+    /// frames that it read from the server.
+    ///
+    /// A request that times out writes the same values to its log record (see
+    /// `logTimeout(id:method:)`). Tests read it to find where a lost response went.
+    /// - Returns: The state of the reader loop now.
+    nonisolated func readerLoopProgress() -> ReaderLoopProgress.Snapshot {
+        readerProgress.snapshot
     }
 
     // MARK: - LanguageServerConnection
@@ -836,8 +878,9 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///   - span: The span of the request. It gets the size of the encoded request.
     /// - Returns: The raw response message bytes.
     /// - Throws: `CodeContextError.notRunning` if the connection can't write to the process;
-    ///   `CodeContextError.timeout` if no response arrived in time. A timeout also sends
-    ///   `$/cancelRequest` for `id` to the server (see `cancelOnServer(id:)`).
+    ///   `CodeContextError.timeout` if no response arrived in time. A timeout also writes one
+    ///   `.warning` record (see `logTimeout(id:method:)`) and sends `$/cancelRequest` for `id` to
+    ///   the server (see `cancelOnServer(id:)`).
     private func sendRequest<Params: Encodable>(id: Int, method: String, params: Params, span: any Span) async throws -> Data {
         let envelope = JSONRPCRequestEnvelope(id: id, method: method, params: params)
         let payload = try JSONEncoder().encode(envelope)
@@ -847,9 +890,38 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         do {
             return try await awaitResponse(id: id)
         } catch CodeContextError.timeout(let timeout) {
+            logTimeout(id: id, method: method)
             await cancelOnServer(id: id)
             throw CodeContextError.timeout(timeout)
         }
+    }
+
+    /// Writes one `.warning` record to `Log.lspWire` for a request that timed out, with the state
+    /// of the server and of the reader loop at that time.
+    ///
+    /// The record tells where a lost response went: a server that does not run, a reader loop
+    /// that stopped or never started, or a loop that read no frame since the request. It holds
+    /// the server name, the pid, the method name, the request id, whether the server runs, and
+    /// the phase and the byte and frame counts of the reader loop. It never holds a payload or
+    /// the standard error text of the server.
+    /// - Parameters:
+    ///   - id: The JSON-RPC id of the request that timed out.
+    ///   - method: The JSON-RPC method name of the request.
+    private func logTimeout(id: Int, method: String) {
+        let progress = readerProgress.snapshot
+        Log.lspWire.warning(
+            "a request to the language server timed out",
+            metadata: [
+                CodeContextTracing.MetadataKey.lspServer: .string(serverName),
+                CodeContextTracing.MetadataKey.processID: .stringConvertible(pid),
+                CodeContextTracing.MetadataKey.lspMethod: .string(method),
+                CodeContextTracing.MetadataKey.lspRequestId: .stringConvertible(id),
+                CodeContextTracing.MetadataKey.lspServerRunning: .stringConvertible(child.isRunning),
+                CodeContextTracing.MetadataKey.lspReaderPhase: .string(progress.phase.rawValue),
+                CodeContextTracing.MetadataKey.lspReaderBytes: .stringConvertible(progress.byteCount),
+                CodeContextTracing.MetadataKey.lspReaderFrames: .stringConvertible(progress.frameCount),
+            ]
+        )
     }
 
     /// Writes one encoded request to the server, and tells `pendingRequests` that the request
@@ -1050,6 +1122,9 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// still-pending request with `CodeContextError.notRunning`, finishes the reply stream, and
     /// stops. It does not read the next bytes as a header. The caller must then close the
     /// connection.
+    ///
+    /// The loop records its phase, each read and each decoded frame in `sinks.progress`, thus a
+    /// request that times out can log what the loop read.
     /// - Parameters:
     ///   - serverName: The command name of the language server, for the wire log records.
     ///   - stdoutFileDescriptor: The child process's stdout read end's raw file descriptor.
@@ -1057,12 +1132,15 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// - Returns: `true` when the loop stopped at a bad frame header; `false` when it stopped at
     ///   EOF.
     private static func runReaderLoop(serverName: String, stdoutFileDescriptor: Int32, sinks: MessageSinks) -> Bool {
+        sinks.progress.recordStart()
         defer {
+            sinks.progress.recordStop()
             sinks.pendingRequests.failAll(with: CodeContextError.notRunning)
             sinks.replies.finish()
         }
         var decoder = JSONRPCMessageDecoder()
         while let chunk = ProcessUtilities.readChunk(from: stdoutFileDescriptor, bufferSize: ProcessUtilities.defaultChunkSize) {
+            sinks.progress.recordRead(byteCount: chunk.count)
             let messages: [Data]
             do {
                 messages = try decoder.append(bytes: chunk)
@@ -1070,6 +1148,7 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
                 logFrameError(error, serverName: serverName)
                 return true
             }
+            sinks.progress.recordFrames(messages.count)
             for message in messages {
                 route(message: message, serverName: serverName, sinks: sinks)
             }
@@ -1318,6 +1397,9 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
 
         /// The stream that gets the reply to each server request.
         let replies: AsyncStream<ServerReply>.Continuation
+
+        /// Gets the phase of the loop and the count of each read and each decoded frame.
+        let progress: ReaderLoopProgress
     }
 
     // MARK: - Wire log

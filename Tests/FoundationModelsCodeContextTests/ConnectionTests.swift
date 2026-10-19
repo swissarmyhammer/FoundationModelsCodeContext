@@ -91,10 +91,16 @@ struct ConnectionTests {
     /// had finished reporting. This helper is the fix: `close()` now runs on every exit path.
     /// `close()` kills the full process group of the script and waits for the exit of the
     /// script, thus a child process that `swift <script>` starts does not keep the pipes open.
+    ///
+    /// When `body` throws `CodeContextError.timeout`, the helper first records the state of the
+    /// server as an attachment of the test (see `recordTimeoutState(of:markerFile:)`), while the
+    /// server still runs.
     /// - Parameters:
     ///   - steps: The subprocess's script, per `scripted-lsp-server.swift`'s DSL.
     ///   - requestTimeout: The per-request timeout to configure the connection with.
     ///   - clock: The clock to configure the connection with.
+    ///   - markerFile: The file that the "mark" steps of `steps` write, or `nil` when the script
+    ///     writes no marker. The timeout attachment holds its text.
     ///   - body: The test body, given the live connection.
     /// - Returns: `body`'s result.
     /// - Throws: Rethrows whatever `body` throws, after `close()` has already run.
@@ -102,6 +108,7 @@ struct ConnectionTests {
         steps: [[String: Any]],
         requestTimeout: Duration = .seconds(30),
         clock: any Clock<Duration> = ContinuousClock(),
+        markerFile: URL? = nil,
         _ body: (ProcessLanguageServerConnection) async throws -> T
     ) async throws -> T {
         let connection = try makeConnection(steps: steps, requestTimeout: requestTimeout, clock: clock)
@@ -109,10 +116,60 @@ struct ConnectionTests {
             let result = try await body(connection)
             await connection.close()
             return result
+        } catch CodeContextError.timeout(let timeout) {
+            await recordTimeoutState(of: connection, markerFile: markerFile)
+            await connection.close()
+            throw CodeContextError.timeout(timeout)
         } catch {
             await connection.close()
             throw error
         }
+    }
+
+    /// Records the state of the server of a request that timed out, as a text attachment of
+    /// the current test: whether the server runs, what the reader loop read, the text of the
+    /// marker file and the end of the standard error of the server.
+    ///
+    /// The text tells where the response went: a script that never started writes no marker,
+    /// a script that read the request writes its "read" marker, and a reader loop that read
+    /// no frame shows a response that the pipe lost. Run `swift test --attachments-path <dir>`
+    /// to keep the attachment as a file. The standard error text stays in the test: the log of
+    /// the package never gets it.
+    /// - Parameters:
+    ///   - connection: The connection whose request timed out. It is not closed yet.
+    ///   - markerFile: The file that the "mark" steps of the script write, or `nil`.
+    private static func recordTimeoutState(of connection: ProcessLanguageServerConnection, markerFile: URL?) async {
+        let progress = connection.readerLoopProgress()
+        let markers = markerFile.map { (try? String(contentsOf: $0, encoding: .utf8)) ?? "(no marker file)" } ?? "(no marker file given)"
+        let text = """
+            pid: \(connection.pid)
+            server running: \(await connection.isRunning())
+            reader loop: \(progress.phase.rawValue), \(progress.byteCount) bytes, \(progress.frameCount) frames
+            markers:
+            \(markers)
+            standard error tail:
+            \(connection.recentStderrTail())
+            """
+        Attachment.record(text, named: "connection-timeout-\(connection.pid).txt")
+    }
+
+    /// Makes the steps of a script that answer one request, with a "mark" step before the read,
+    /// after the read and after the answer.
+    ///
+    /// The marks go to `markerFile`, outside each pipe. A timeout attachment (see
+    /// `recordTimeoutState(of:markerFile:)`) then tells how far the script ran.
+    /// - Parameters:
+    ///   - markerFile: The file that the "mark" steps write.
+    ///   - answer: The "respond" step of the script.
+    /// - Returns: The steps of the script.
+    private static func markedExchange(markerFile: URL, answer: [String: Any]) -> [[String: Any]] {
+        [
+            ["action": "mark", "path": markerFile.path, "text": "started"],
+            ["action": "read"],
+            ["action": "mark", "path": markerFile.path, "text": "read the request"],
+            answer,
+            ["action": "mark", "path": markerFile.path, "text": "wrote the response"],
+        ]
     }
 
     /// Retries `operation` once if it throws `CodeContextError.timeout`, giving a spawn-contention
@@ -183,10 +240,12 @@ struct ConnectionTests {
 
     @Test
     func requestReceivesItsScriptedTypedResponse() async throws {
-        let steps: [[String: Any]] = [
-            ["action": "read"],
-            ["action": "respond", "which": 0, "result": [Self.documentSymbolJSON(name: "widget")]],
-        ]
+        let markerFile = TemporaryItem.makeURL(prefix: "connection-markers")
+        defer { try? FileManager.default.removeItem(at: markerFile) }
+        let steps = Self.markedExchange(
+            markerFile: markerFile,
+            answer: ["action": "respond", "which": 0, "result": [Self.documentSymbolJSON(name: "widget")]]
+        )
         // Observed flaky under a loaded machine (2/5 full-suite runs in one filed bug report): a
         // `swift <script>` interpreter cold start can occasionally be starved enough that its
         // pipes close before the scripted exchange completes within the default 30s per-request
@@ -203,7 +262,7 @@ struct ConnectionTests {
         // weaken the assertions below: both attempts run the identical real exchange against a
         // real subprocess, and a second `.timeout` still fails the test.
         let symbols = try await Self.withRetryOnSpawnContention {
-            try await Self.withConnection(steps: steps) { connection in
+            try await Self.withConnection(steps: steps, markerFile: markerFile) { connection in
                 try await connection.documentSymbols(in: DocumentURI("file:///a.swift"))
             }
         }
@@ -211,6 +270,21 @@ struct ConnectionTests {
         #expect(symbols.count == 1)
         #expect(symbols.first?.name == "widget")
         #expect(symbols.first?.kind == .function)
+    }
+
+    @Test
+    func theMarkStepsOfAnAnsweredRequestWriteEachMarkerInOrder() async throws {
+        let markerFile = TemporaryItem.makeURL(prefix: "connection-markers")
+        defer { try? FileManager.default.removeItem(at: markerFile) }
+        let steps = Self.markedExchange(markerFile: markerFile, answer: ["action": "respond", "which": 0, "result": [[String: Any]]()])
+
+        try await Self.withConnection(steps: steps, markerFile: markerFile) { connection in
+            _ = try await connection.documentSymbols(in: DocumentURI("file:///a.swift"))
+            await connection.waitUntilExit()
+        }
+
+        let markers = try String(contentsOf: markerFile, encoding: .utf8)
+        #expect(markers == "started\nread the request\nwrote the response\n")
     }
 
     @Test
@@ -364,6 +438,61 @@ struct ConnectionTests {
                     return
                 }
             }
+        }
+    }
+
+    @Test
+    func aRequestTimeoutLogsTheStateOfTheServerAndOfTheReaderLoopButNoStandardErrorText() async throws {
+        _ = CapturedLogRecords.handler
+        let marker = "cck-timeout-marker-\(UUID().uuidString)"
+        let steps: [[String: Any]] = [
+            ["action": "read"],
+            ["action": "stderr", "text": marker],
+            ["action": "notify", "method": "window/logMessage", "params": ["type": 3, "message": "indexing"]],
+            ["action": "hang"],
+        ]
+        let clock = ManualClock()
+        try await Self.withConnection(steps: steps, clock: clock) { connection in
+            let pendingCall = Task {
+                try await connection.documentSymbols(in: DocumentURI("file:///never-answered.swift"))
+            }
+            // The server read the request when its notification and its stderr text came back.
+            let hasAnsweredWithTheNotification = try await waitUntil(timeout: Self.stderrCaptureTimeout, pollInterval: Self.processPollInterval) {
+                connection.readerLoopProgress().frameCount == 1 && connection.recentStderrTail().contains(marker)
+            }
+            #expect(hasAnsweredWithTheNotification)
+            await clock.waitForWaiter()
+            clock.advance(by: .seconds(30))
+            await #expect(throws: CodeContextError.self) {
+                try await pendingCall.value
+            }
+
+            let timeoutRecords = CapturedLogRecords.entries(matching: [
+                CodeContextTracing.MetadataKey.processID: "\(connection.pid)",
+                CodeContextTracing.MetadataKey.lspMethod: "textDocument/documentSymbol",
+                CodeContextTracing.MetadataKey.lspRequestId: "\(Self.firstClientRequestID)",
+                CodeContextTracing.MetadataKey.lspServerRunning: "true",
+                CodeContextTracing.MetadataKey.lspReaderPhase: ReaderLoopProgress.Phase.reading.rawValue,
+                CodeContextTracing.MetadataKey.lspReaderFrames: "1",
+            ])
+            let timeoutRecord = try #require(timeoutRecords.first)
+            #expect(timeoutRecord.level == .warning)
+            let readerBytes = timeoutRecord.metadata[CodeContextTracing.MetadataKey.lspReaderBytes]?.description
+            #expect(readerBytes.flatMap(Int.init) ?? 0 > 0)
+            #expect(CapturedLogRecords.entries(holding: marker).isEmpty)
+        }
+    }
+
+    @Test
+    func theReaderLoopProgressIsStoppedAfterTheServerExits() async throws {
+        try await Self.withConnection(steps: []) { connection in
+            await connection.waitUntilExit()
+
+            let hasStopped = try await waitUntil(timeout: Self.processReapTimeout, pollInterval: Self.processPollInterval) {
+                connection.readerLoopProgress().phase == .stopped
+            }
+            #expect(hasStopped)
+            #expect(connection.readerLoopProgress().byteCount == 0)
         }
     }
 

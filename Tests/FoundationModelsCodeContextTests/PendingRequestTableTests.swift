@@ -52,6 +52,25 @@ struct PendingRequestTableTests {
         }
     }
 
+    /// Registers a continuation for `id`, times `id` out right after the registration, and
+    /// gives what the continuation gets.
+    ///
+    /// A registration that the table resolves at once gets its response or its error, and the
+    /// timeout then finds nothing to fail. A registration that the table keeps gets the timeout
+    /// error. Thus the call never waits for ever.
+    /// - Parameters:
+    ///   - table: The table under test.
+    ///   - id: The JSON-RPC id to register.
+    /// - Returns: The response that the continuation gets.
+    /// - Throws: The error that the continuation gets: `timeoutError` when the table kept the
+    ///   registration.
+    private static func registerAndTimeOut(in table: PendingRequestTable, id: Int) async throws -> Data {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            table.register(id: id, continuation: continuation)
+            table.timeOut(id: id, with: Self.timeoutError)
+        }
+    }
+
     /// Sends the request `id`, registers its continuation, and times it out.
     /// - Parameters:
     ///   - table: The table under test.
@@ -138,23 +157,39 @@ struct PendingRequestTableTests {
         #expect(isTimedOut == false)
     }
 
+    /// The lost response of `^tfbetg3`: the server answers and exits before the request
+    /// registers its continuation, because a loaded cooperative pool starts the registering task
+    /// late. The reader loop buffers the response, then reads the end of the file and calls
+    /// `failAll(with:)`. The buffered response is the true answer of a request that still waits,
+    /// thus the registration that comes after `failAll(with:)` must get it, and must not wait
+    /// until its timeout.
     @Test
-    func failAllDiscardsABufferedEarlyResponseSoALaterRegistrationDoesNotReceiveIt() async throws {
+    func aResponseBufferedBeforeFailAllStillReachesTheLaterRegistration() async throws {
         let table = PendingRequestTable()
-        let staleResponse = Self.response(id: Self.requestID, result: #""stale""#)
-        let freshResponse = Self.response(id: Self.requestID, result: #""fresh""#)
+        let response = Self.response(id: Self.requestID, result: #"{"ok":true}"#)
         table.expectResponse(id: Self.requestID)
+        #expect(table.resolveOrBuffer(id: Self.requestID, response: response) == .buffered)
 
-        table.resolveOrBuffer(id: Self.requestID, response: staleResponse)
         table.failAll(with: CodeContextError.notRunning)
 
-        // Register again for the same id, as a brand new request reusing an id would (ids are
-        // per-connection monotonic in practice, but the table itself doesn't assume that). If
-        // `failAll` had left the stale buffered response in place instead of discarding it, this
-        // would resolve immediately with `staleResponse` instead of `freshResponse`.
-        let delivered = try await Self.registerAndReceive(in: table, id: Self.requestID, fresh: freshResponse)
+        let delivered = try await Self.registerAndTimeOut(in: table, id: Self.requestID)
+        #expect(delivered == response)
+    }
 
-        #expect(delivered == freshResponse)
+    /// A request that registers after `failAll(with:)` and has no buffered response gets the
+    /// error of `failAll(with:)` at once: no response can come after that point, thus a wait for
+    /// one would end only at the timeout.
+    @Test
+    func aRegistrationAfterFailAllWithNoBufferedResponseGetsTheErrorOfFailAll() async {
+        let table = PendingRequestTable()
+        table.expectResponse(id: Self.requestID)
+
+        table.failAll(with: CodeContextError.notRunning)
+
+        let error = await #expect(throws: CodeContextError.self) {
+            try await Self.registerAndTimeOut(in: table, id: Self.requestID)
+        }
+        #expect(error?.caseName == "notRunning")
     }
 
     @Test

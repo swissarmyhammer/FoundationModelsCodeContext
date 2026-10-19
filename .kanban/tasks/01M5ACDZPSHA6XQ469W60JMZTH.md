@@ -43,6 +43,7 @@ comments:
   timestamp: 2026-10-19T16:06:24.837511+00:00
 depends_on:
 - 01M5A5ACEVQWJ9PC8GXT71WVKM
+- 01M5AJHWKFWBSV0SK09TFBETG3
 position_column: doing
 position_ordinal: '8180'
 title: 'ConnectionTests: remove withRetryOnSpawnContention now that the descriptor-reuse cause is fixed'

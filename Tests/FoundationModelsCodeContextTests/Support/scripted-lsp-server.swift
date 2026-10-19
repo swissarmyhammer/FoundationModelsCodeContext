@@ -96,6 +96,14 @@
 //     Writes `text` to stderr, unframed — used to drive `ConnectionTests`'
 //     `recentStderrTail()` scenario.
 //
+//   {"action": "mark", "path": <String>, "text": <String>}
+//     Appends `text` and a newline to the file at `path`, and makes the
+//     file when it is not there. The file does not go through a pipe of the
+//     client, thus a test that reads it learns how far the script ran also
+//     when a message on a pipe got lost — used by `ConnectionTests` to tell
+//     a script that never started from one that read the request and
+//     answered it.
+//
 //   {"action": "spawnGrandchild", "pidFile": <String>, "exitsAtEndOfInput": <Bool>}
 //     Starts a child process of the script — a grandchild of the client —
 //     and writes its pid to `pidFile`. The child models the Jedi subprocess
@@ -378,6 +386,24 @@ func spawnGrandchild(step: [String: Any]) {
     }
 }
 
+/// Runs a "mark" step: appends its `text` and a newline to the file at its
+/// `path`, as the header comment describes.
+func appendMark(step: [String: Any]) {
+    guard let path = step["path"] as? String else {
+        fail("mark needs a path")
+    }
+    let line = Data(((step["text"] as? String ?? "") + "\n").utf8)
+    if !FileManager.default.fileExists(atPath: path) {
+        FileManager.default.createFile(atPath: path, contents: nil)
+    }
+    guard let handle = FileHandle(forWritingAtPath: path) else {
+        fail("mark could not open \(path)")
+    }
+    handle.seekToEndOfFile()
+    handle.write(line)
+    try? handle.close()
+}
+
 guard CommandLine.arguments.count > 1,
     let scriptData = CommandLine.arguments[1].data(using: .utf8),
     let steps = try? JSONSerialization.jsonObject(with: scriptData) as? [[String: Any]]
@@ -424,6 +450,9 @@ for step in steps {
     case "stderr":
         let text = step["text"] as? String ?? ""
         FileHandle.standardError.write(Data(text.utf8))
+
+    case "mark":
+        appendMark(step: step)
 
     case "spawnGrandchild":
         spawnGrandchild(step: step)
