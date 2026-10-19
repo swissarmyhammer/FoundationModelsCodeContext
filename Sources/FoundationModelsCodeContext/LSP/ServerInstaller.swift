@@ -363,19 +363,19 @@ struct ProcessInstallRunner: InstallRunner {
     ///
     /// The read blocks in `read(2)` until each process that holds the write end of the pipe
     /// exits, thus it runs on a dedicated thread, not on a pool thread (see
-    /// `ProcessUtilities.runOnDedicatedThread(name:_:)`). The thread keeps `outputPipe`, thus the
-    /// read end stays open until the read ends, also when the run returns first.
+    /// `ProcessUtilities.runOnDedicatedThread(name:_:)`). The loop owns the read end of
+    /// `outputPipe` (see `ProcessUtilities.runReadLoop(name:readEnd:_:)`), thus the read end
+    /// stays open until the read ends, also when the run returns first, and the loop then closes
+    /// it.
     /// - Parameters:
     ///   - outputPipe: The pipe that gets the output of the installer.
     ///   - tailBuffer: The bounded tail buffer to append every read chunk to.
     /// - Returns: The end of the output: `true` after the read reached the end of the pipe.
     private static func startDrain(of outputPipe: Pipe, into tailBuffer: BoundedTailBuffer) -> CancellableWaiters<Bool> {
         let outputEnd = CancellableWaiters(false) { isEnded in isEnded }
-        let outputFileDescriptor = outputPipe.fileHandleForReading.fileDescriptor
-        _ = ProcessUtilities.runOnDedicatedThread(name: "install-output-drain") {
-            withExtendedLifetime(outputPipe) {
-                drainOutput(fileDescriptor: outputFileDescriptor, into: tailBuffer)
-            }
+        _ = ProcessUtilities.runReadLoop(name: "install-output-drain", readEnd: outputPipe.fileHandleForReading) {
+            outputFileDescriptor in
+            drainOutput(fileDescriptor: outputFileDescriptor, into: tailBuffer)
             outputEnd.update { isEnded in isEnded = true }
         }
         return outputEnd

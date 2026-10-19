@@ -77,10 +77,26 @@ comments:
     - evidence: `swift test` — 1049 tests in 92 suites passed, 0 failed, 0 skipped; `swift test --package-path IntegrationTests` — 22 tests in 16 suites passed, 0 failed, 0 skipped. No compiler warnings. Only warning: pre-existing mlx-swift_Cmlx "missing creator for mutated node" (reported, not chased). LanguageServerGrandchildTests did not flake (^t71wvkm). ~/Library/Caches/FoundationModelsCodeContext absent before and after both runs.
     - next: review/commit
   timestamp: 2026-10-19T14:28:38.744852+00:00
+- actor: claude-code
+  id: 01m5a9558z1037vea4pwfqqtmn
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (6c37419): 0 findings (0 confirmed, 0 refuted; 7 attempted, 0 failed). Prior items ServerInstaller.swift:123, :169 (magic-numbers-swift) and :554 (idioms-swift) all checked and fixed in the diff: the backoff and timeout values are now named constants (secondsPerHour, defaultFailureBackoffHours, defaultTimeoutSeconds, defaultTimeout), and the match is now `case .failed(let exitCode, let reason)`.
+    - next: none; task moved to done.
+  timestamp: 2026-10-19T14:30:55.007965+00:00
+- actor: claude-code
+  id: 01m5a95f9p3yn1fd77ker5ych4
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — ServerInstaller.swift named constants + case pattern; +1 test
+    - test: green — swift test 1049 passed, IntegrationTests 22 passed, 0 skipped; caches dir untouched
+    - commit: 6c37419
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-10-19T14:31:05.270129+00:00
 depends_on:
 - 01M5A10VFHNREW31047TBJGYZZ
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: fe80
 title: Remember a failed language server install across sessions and do not run it again in each new session
 ---
 ## What

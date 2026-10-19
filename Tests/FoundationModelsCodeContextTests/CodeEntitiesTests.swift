@@ -126,9 +126,10 @@ struct CodeEntitiesTests {
 
         let entities = Self.entities(source, at: "counter.rs")
 
-        #expect(entities.map(\.id) == [
-            "counter.rs::struct::Counter", "counter.rs::impl::Counter", "counter.rs::counter.rs::impl::Counter::new",
-        ])
+        #expect(
+            entities.map(\.id) == [
+                "counter.rs::struct::Counter", "counter.rs::impl::Counter", "counter.rs::counter.rs::impl::Counter::new",
+            ])
         #expect(entities.map(\.parentID) == [nil, nil, "counter.rs::impl::Counter"])
     }
 

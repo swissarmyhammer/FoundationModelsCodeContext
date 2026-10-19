@@ -102,23 +102,52 @@ enum ProcessUtilities {
         }
     }
 
+    /// Runs `body` on a new dedicated thread (see `runOnDedicatedThread(name:_:)`) with the file
+    /// descriptor of `readEnd`, and closes `readEnd` after `body` returns.
+    ///
+    /// Use this for each loop that reads a pipe of a child process. The loop is the one owner of
+    /// the read end, and no other code may close it. A closed descriptor frees its number, and
+    /// the next pipe that this process opens gets the lowest free number, thus most often that
+    /// same number. A loop whose read end other code closed, and that then calls `read(2)` one
+    /// more time, reads the pipe of another child: it takes the bytes of that child, and the
+    /// owner of that pipe never gets them. The loop can be between two reads at the time of the
+    /// close, and on a busy machine its thread can even start after the close. So the read end
+    /// stays open until `body` returns, and the loop then closes it. `body` ends at the end of
+    /// the file, when each process that holds the write end exited.
+    /// - Parameters:
+    ///   - name: The name of the thread, for a debugger or a crash report.
+    ///   - readEnd: The read end of the pipe. The loop owns it from this call on.
+    ///   - body: The read loop. It gets the descriptor of `readEnd`, and it runs one time.
+    /// - Returns: A task that completes with the value of `body` after `body` returns and the
+    ///   loop closed `readEnd`.
+    internal static func runReadLoop<Value: Sendable>(
+        name: String,
+        readEnd: FileHandle,
+        _ body: @escaping @Sendable (Int32) -> Value
+    ) -> Task<Value, Never> {
+        let fileDescriptor = readEnd.fileDescriptor
+        return runOnDedicatedThread(name: name) {
+            let value = body(fileDescriptor)
+            try? readEnd.close()
+            return value
+        }
+    }
+
     /// Reads whatever is currently available from `fileDescriptor`, up to `bufferSize` bytes.
     ///
     /// Issues a single raw POSIX `read(2)` call on the raw file descriptor rather than going
     /// through any `FileHandle` method, for two reasons neither of which alone is sufficient:
     /// `FileHandle.availableData` raises an Objective-C exception (uncatchable in Swift, crashing
-    /// the process) when the handle is closed concurrently with a blocked read, and even
-    /// `FileHandle`'s own `.fileDescriptor` property getter raises the same kind of exception once
-    /// the handle has been closed — both exactly what happens when a caller's `close()` closes a
-    /// pipe while a background drain loop is mid-read. The newer throwing
-    /// `FileHandle.read(upToCount:)` avoids the exception but loops internally trying to fill the
-    /// full requested count (or reach EOF) rather than returning as soon as any data is available,
-    /// so it can block indefinitely against a live process that has written less than `bufferSize`
-    /// bytes and has nothing further to send yet. Working from a raw file descriptor captured once
-    /// up front (by both callers, before any background loop starts) sidesteps both problems: a
-    /// single `read(2)` call returns as soon as any data is ready, matching `availableData`'s
-    /// responsiveness, and reports failure as a plain `-1`/`errno` rather than an exception, even
-    /// once the underlying descriptor has been closed out from under it.
+    /// the process) when the read fails, and the newer throwing `FileHandle.read(upToCount:)`
+    /// loops internally trying to fill the full requested count (or reach EOF) rather than
+    /// returning as soon as any data is available, so it can block indefinitely against a live
+    /// process that has written less than `bufferSize` bytes and has nothing further to send yet.
+    /// A single `read(2)` call returns as soon as any data is ready, matching `availableData`'s
+    /// responsiveness, and reports failure as a plain `-1`/`errno` rather than an exception.
+    ///
+    /// The caller reads the descriptor inside `runReadLoop(name:readEnd:_:)`, which keeps the
+    /// read end open for each call and closes it only after the loop ends. No other code closes
+    /// it, because a closed number can name the next pipe that this process opens.
     ///
     /// A `read(2)` interrupted by a signal (`EINTR`) before transferring any data is not EOF and
     /// not a real failure — POSIX requires the caller to retry. Under load this is not just a
@@ -131,8 +160,7 @@ enum ProcessUtilities {
     ///   - fileDescriptor: The pipe read end's raw file descriptor.
     ///   - bufferSize: The maximum number of bytes to read in one call.
     /// - Returns: The bytes read, or `nil` at EOF (`read` returns `0`) or on a genuine error
-    ///   (`read` returns `-1` with `errno != EINTR`, e.g. because the descriptor was closed
-    ///   concurrently) — both end the caller's loop.
+    ///   (`read` returns `-1` with `errno != EINTR`) — both end the caller's loop.
     static func readChunk(from fileDescriptor: Int32, bufferSize: Int) -> Data? {
         var buffer = [UInt8](repeating: 0, count: bufferSize)
         while true {

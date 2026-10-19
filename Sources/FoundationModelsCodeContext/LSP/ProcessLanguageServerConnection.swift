@@ -252,8 +252,6 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// The server process, the leader of its own process group.
     private nonisolated let child: ProcessGroupChild
     private let stdinHandle: FileHandle
-    private let stdoutHandle: FileHandle
-    private let stderrHandle: FileHandle
     private nonisolated let pendingRequests = PendingRequestTable()
 
     /// The count of the most recent stderr chunks that `recentStderrTail()` keeps.
@@ -368,8 +366,6 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         self.serverName = command
         self.pid = child.pid
         self.stdinHandle = stdinPipe.fileHandleForWriting
-        self.stdoutHandle = stdoutPipe.fileHandleForReading
-        self.stderrHandle = stderrPipe.fileHandleForReading
         self.initializationOptions = initializationOptions
         self.requestTimeout = requestTimeout
         self.clock = clock
@@ -382,11 +378,11 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         let (replyStream, replyContinuation) = AsyncStream.makeStream(of: ServerReply.self)
         self.replyContinuation = replyContinuation
 
-        // Captured once, here, while the handles are definitely still open:
-        // `ProcessUtilities.readChunk(from:bufferSize:)` operates on these raw descriptors rather
-        // than the `FileHandle` objects themselves, so the background loops below never touch a
-        // `FileHandle` concurrently with `close()` (see that function's doc comment for why that
-        // matters).
+        // Each loop owns the read end of its pipe, and closes it after its last `read(2)`: no
+        // other code of this connection closes the stdout or the stderr read end, also not
+        // `close()` or `deinit`. A read end that other code closes frees its descriptor number,
+        // and the loop can then read the pipe of the next server that this process starts. See
+        // `ProcessUtilities.runReadLoop(name:readEnd:_:)`.
         //
         // Each loop blocks in `read(2)` until the child process closes its pipe, thus each loop
         // runs on a dedicated thread, not on a thread of the cooperative pool. Two blocked loops
@@ -394,16 +390,16 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         // request timeout and no `close()` can run. See
         // `ProcessUtilities.runOnDedicatedThread(name:_:)`.
         let sinks = MessageSinks(pendingRequests: self.pendingRequests, notifications: continuation, replies: replyContinuation)
-        let stdoutFileDescriptor = self.stdoutHandle.fileDescriptor
-        self.readerTask = ProcessUtilities.runOnDedicatedThread(name: "lsp-reader \(command)") {
+        self.readerTask = ProcessUtilities.runReadLoop(name: "lsp-reader \(command)", readEnd: stdoutPipe.fileHandleForReading) {
+            stdoutFileDescriptor in
             let isOutOfStep = Self.runReaderLoop(serverName: command, stdoutFileDescriptor: stdoutFileDescriptor, sinks: sinks)
             guard isOutOfStep else { return }
             Self.closeOutOfStepConnection(child: child, notificationContinuation: continuation)
         }
 
-        let stderrFileDescriptor = self.stderrHandle.fileDescriptor
         let stderrTailBuffer = self.stderrTailBuffer
-        self.stderrTask = ProcessUtilities.runOnDedicatedThread(name: "lsp-stderr \(command)") {
+        self.stderrTask = ProcessUtilities.runReadLoop(name: "lsp-stderr \(command)", readEnd: stderrPipe.fileHandleForReading) {
+            stderrFileDescriptor in
             Self.runStderrDrainLoop(serverName: command, stderrFileDescriptor: stderrFileDescriptor, tailBuffer: stderrTailBuffer)
         }
 
@@ -435,10 +431,13 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// The exit of the group closes the write ends of the stdout and stderr pipes, and that
     /// stops the reader and stderr-drain loops: they block in a raw `read(2)` call outside actor
     /// isolation, thus `Task.cancel()` alone cannot stop them, and the end of the file is the
-    /// exit condition of `ProcessUtilities.readChunk(from:bufferSize:)`. `readerTask` and
-    /// `stderrTask` are also cancelled here. Fails every still-pending request with
-    /// `CodeContextError.notRunning` and finishes `serverNotifications`. Drops each reply to a
-    /// server request that is not written yet. Safe to call more than once.
+    /// exit condition of `ProcessUtilities.readChunk(from:bufferSize:)`. Each loop then closes
+    /// its own read end; this method closes only the stdin write end, because a read end that
+    /// it closed could get a new pipe under a loop that still reads (see
+    /// `ProcessUtilities.runReadLoop(name:readEnd:_:)`). `readerTask` and `stderrTask` are also
+    /// cancelled here. Fails every still-pending request with `CodeContextError.notRunning` and
+    /// finishes `serverNotifications`. Drops each reply to a server request that is not written
+    /// yet. Safe to call more than once.
     func close() async {
         guard !isClosed else { return }
         isClosed = true
@@ -451,8 +450,6 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
         await child.terminateGroup(grace: Self.terminationGrace)
 
         try? stdinHandle.close()
-        try? stdoutHandle.close()
-        try? stderrHandle.close()
 
         pendingRequests.failAll(with: CodeContextError.notRunning)
         notificationContinuation.finish()
@@ -1085,7 +1082,8 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// group of the server and finishes `serverNotifications`, the same as `close()` does. The
     /// reader loop already failed every pending request. The health check of the daemon then
     /// finds a dead process and starts the server again through its normal restart path.
-    /// `close()` later closes the pipes.
+    /// The reader loop closes the stdout read end after this returns, and `close()` later
+    /// closes the stdin write end.
     ///
     /// Runs on the thread of the reader loop, thus it does not wait for the actor.
     /// - Parameters:
