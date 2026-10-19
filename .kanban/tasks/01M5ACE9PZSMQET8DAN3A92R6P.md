@@ -39,6 +39,14 @@ comments:
     - implement: stuck — 0 files; cause is outside this repo: Swift Build marks mlx-swift_Cmlx.bundle/Contents/MacOS as mutated but no task creates it (CodeSign planned for a resource bundle with no executable). The pin, toolchain and Package files are unchanged since e11b4ac; ^kw00hcn recorded it as upstream and never removed it.
     - needs a human decision: (a) file a bug on swiftlang/swift-build, (b) ask mlx-swift to ship a prebuilt metallib, or (c) allow this one upstream warning in the zero-warning rule.
   timestamp: 2026-10-19T15:38:44.816347+00:00
+- actor: claude-code
+  id: 01m5agwk397v745n3qetxrtfyg
+  text: |-
+    ### decision — allow the warning
+    - The user chose option (c), allow the warning, on 2026-10-19.
+    - New CLAUDE.md at the repo root records this one exact upstream warning as the only exception to the zero-warning rule of /test, with its cause and when to remove the exception.
+    - next: commit, then review
+  timestamp: 2026-10-19T16:46:02.857449+00:00
 position_column: doing
 position_ordinal: '80'
 title: swift build and swift test warn "missing creator for mutated node" for the mlx-swift_Cmlx bundle again
