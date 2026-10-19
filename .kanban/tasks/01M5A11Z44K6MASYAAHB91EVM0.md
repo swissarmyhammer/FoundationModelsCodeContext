@@ -88,8 +88,24 @@ comments:
     - Only warning: the pre-existing mlx-swift_Cmlx "missing creator for mutated node" SwiftPM warning. Reported, not chased.
     - next: review
   timestamp: 2026-10-19T13:23:34.997146+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5a5dgrk8bak3c7p9xeexb5y
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (09a6c1e) — 0 findings (0 confirmed, 0 refuted; 7 validator runs, 0 failed); 1 file reviewed (LSPIndexWorker.swift), 4 .kanban files excluded by .reviewignore. Prior finding LSPIndexWorker.swift:697 swift/error-handling verified fixed: all three skipUnreadFile cases now `return await skipFile(...)`.
+    - next: none — task moved to done
+  timestamp: 2026-10-19T13:25:34.611381+00:00
+- actor: claude-code
+  id: 01m5a5dzsy2a1fmnj1zww5wbn6
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — LSPIndexWorker.swift explicit returns (skipUnreadFile, kindString)
+    - test: green — swift test 1020 passed; IntegrationTests 22 passed on final run (1 flake in LanguageServerGrandchildTests on first run → tracked as ^t71wvkm)
+    - commit: 09a6c1e
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-10-19T13:25:50.014198+00:00
+position_column: done
+position_ordinal: fa80
 title: 'Tree-sitter worker: a file deleted between the watch event and the read is not a warning'
 ---
 ## What

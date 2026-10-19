@@ -91,11 +91,12 @@ public protocol FileEventSource: Sendable {
 /// `FanoutWatcher::notify`, which maps `FileEvent` directly to an action
 /// with no separate disk check): `.created`/`.modified` marks the path
 /// dirty across all three index layers (`Store.markDirty`), reading its
-/// current content from disk to compute the hash `markDirty` records — if
-/// that read fails (e.g. the file was removed again before this debounced
-/// flush ran), the path is skipped and logged rather than treated as a
-/// delete, so it stays dirty for a future indexing pass rather than losing
-/// its history. `.removed` deletes the path (`Store.deleteFile`, cascading
+/// current content from disk to compute the hash `markDirty` records. When
+/// no file is at the path (the file was removed again before this debounced
+/// flush ran), the watcher deletes the path like a `.removed` change and logs
+/// it at the debug level. When the read fails for another reason, the path is
+/// skipped with a warning, so it keeps its row for a later event or a future
+/// reconcile. `.removed` deletes the path (`Store.deleteFile`, cascading
 /// to its chunks/symbols/edges) unconditionally — including when nothing
 /// is indexed for it yet, which is a harmless no-op `DELETE`. The flush
 /// ends with exactly one call to `nudgeWorkers`, regardless of how many
@@ -462,29 +463,15 @@ public actor Watcher {
     ///   file that the watcher cannot read is not a failed write.
     private func applyChange(relativePath: String, kind: FileChangeKind) async -> Bool {
         guard kind != .removed else {
-            do {
-                try await store.deleteFile(filePath: relativePath)
-                return true
-            } catch {
-                Log.watcher.warning(
-                    "the watcher could not delete a removed file from the index",
-                    metadata: Self.failureMetadata(relativePath: relativePath, error: error)
-                )
-                return false
-            }
+            return await deleteFile(relativePath: relativePath)
         }
 
         let fileURL = rootDirectory.appendingPathComponent(relativePath)
-        guard let hashed = try? Walker.hashFile(at: fileURL, relativePath: relativePath) else {
-            // The file was removed again (or replaced by something
-            // unreadable) between the triggering event and this debounced
-            // flush; leave it as-is rather than guessing — a later event
-            // (or a future reconcile pass) will resolve it.
-            Log.watcher.warning(
-                "the watcher cannot read a changed file and skips it in this flush",
-                metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
-            )
-            return true
+        let hashed: HashedFile
+        do {
+            hashed = try Walker.hashFile(at: fileURL, relativePath: relativePath)
+        } catch {
+            return await skipUnreadFile(relativePath: relativePath, error: error)
         }
         do {
             try await store.markDirty(filePath: hashed.relativePath, contentHash: hashed.contentHash, fileSize: hashed.fileSize)
@@ -496,6 +483,52 @@ public actor Watcher {
             )
             return false
         }
+    }
+
+    /// Deletes the `indexed_files` row of one path, with its chunks, symbols
+    /// and edges.
+    /// - Parameter relativePath: The path of the file, relative to the root
+    ///   directory.
+    /// - Returns: `false` when the delete failed, else `true`.
+    private func deleteFile(relativePath: String) async -> Bool {
+        do {
+            try await store.deleteFile(filePath: relativePath)
+            return true
+        } catch {
+            Log.watcher.warning(
+                "the watcher could not delete a removed file from the index",
+                metadata: Self.failureMetadata(relativePath: relativePath, error: error)
+            )
+            return false
+        }
+    }
+
+    /// Handles a created or modified path whose read failed, with the log
+    /// level of the reason (see `SourceText.isMissingFile(_:)`).
+    ///
+    /// No file at the path is not an error: an agent often writes a scratch
+    /// file and deletes it again inside the debounce window. The watcher logs
+    /// it at the debug level and deletes the row of the path, as for a
+    /// `.removed` change. Each other read failure is a warning with the type
+    /// name of the error, and the path keeps its row for a later event or
+    /// reconcile.
+    /// - Parameters:
+    ///   - relativePath: The path of the file, relative to the root directory.
+    ///   - error: The error of the read.
+    /// - Returns: `false` when the delete of a gone file failed, else `true`.
+    private func skipUnreadFile(relativePath: String, error: any Error) async -> Bool {
+        guard SourceText.isMissingFile(error) else {
+            Log.watcher.warning(
+                "the watcher cannot read a changed file and skips it in this flush",
+                metadata: Self.failureMetadata(relativePath: relativePath, error: error)
+            )
+            return true
+        }
+        Log.watcher.debug(
+            "the watcher finds no file at a changed path and removes the file from the index",
+            metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
+        )
+        return await deleteFile(relativePath: relativePath)
     }
 
     /// Gives the log metadata of a watcher record about a failure for one file.

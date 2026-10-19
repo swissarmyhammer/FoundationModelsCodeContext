@@ -51,9 +51,20 @@ enum SourceText {
     /// - Returns: `.missing` when no file is at the path, else `.unreadable`
     ///   with the type name of `error`.
     private static func failure(of error: any Error) -> ReadFailure {
-        guard (error as? CocoaError)?.code == .fileReadNoSuchFile else {
+        guard isMissingFile(error) else {
             return .unreadable(errorType: Log.errorType(of: error))
         }
         return .missing
+    }
+
+    /// Tells if a read error of `Data(contentsOf:)` says that no file is at
+    /// the path.
+    ///
+    /// The watcher reads the bytes of a file with `Walker.hashFile`, not its
+    /// text, and asks this function for the same split as `read(at:)`.
+    /// - Parameter error: The error of the read.
+    /// - Returns: `true` when no file is at the path.
+    static func isMissingFile(_ error: any Error) -> Bool {
+        (error as? CocoaError)?.code == .fileReadNoSuchFile
     }
 }

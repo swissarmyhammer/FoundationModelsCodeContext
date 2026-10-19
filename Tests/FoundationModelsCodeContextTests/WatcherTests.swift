@@ -753,4 +753,67 @@ struct WatcherTests {
             #expect(await watcher.pendingEventCount == 0)
         }
     }
+
+    // MARK: - Files that the flush cannot read
+
+    /// Counts the `indexed_files` rows of `filePath`.
+    /// - Parameters:
+    ///   - filePath: The workspace-relative path of the file.
+    ///   - store: The index store to read.
+    /// - Returns: The number of rows.
+    private static func indexedFileRowCount(ofFilePath filePath: String, store: Store) async throws -> Int {
+        try await store.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM \(Schema.IndexedFiles.table) WHERE file_path = ?",
+                arguments: [filePath]
+            ) ?? 0
+        }
+    }
+
+    @Test
+    func aCreatedEventForAPathWithNoFileRemovesTheRowAndLogsNoWarning() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let directory = "gone-\(UUID().uuidString)"
+            let path = "\(directory)/a.py"
+            try await store.markDirty(filePath: path, contentHash: Data([1]), fileSize: 1)
+
+            let clock = ManualClock()
+            let (watcher, eventSource) = await Self.makeStartedWatcher(store: store, rootDirectory: root, clock: clock)
+            await eventSource.emit(RawFileEvent(url: root.appendingPathComponent(path), kind: .created))
+            await Self.flushOneWindow(watcher: watcher, clock: clock)
+
+            #expect(try await Self.indexedFileRowCount(ofFilePath: path, store: store) == 0)
+            #expect(Self.watcherWarnings(under: directory).isEmpty)
+            let records = CapturedLogRecords.entries(matching: [CodeContextTracing.MetadataKey.filePath: path])
+            #expect(!records.isEmpty, "the flush writes a record for the gone file")
+            #expect(records.allSatisfy { $0.level == .debug })
+        }
+    }
+
+    @Test
+    func aChangedFileThatTheFlushCannotReadKeepsTheWarningWithTheErrorType() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let directory = "unreadable-\(UUID().uuidString)"
+            let path = "\(directory)/a.py"
+            try write("x = 1\n", to: path, in: root)
+            try await store.markDirty(filePath: path, contentHash: Data([1]), fileSize: 1)
+
+            let clock = ManualClock()
+            let (watcher, eventSource) = await Self.makeStartedWatcher(store: store, rootDirectory: root, clock: clock)
+            try await withPermissions(noAccessPermissions, at: root.appendingPathComponent(path), restoringTo: restoredFilePermissions) {
+                await eventSource.emit(RawFileEvent(url: root.appendingPathComponent(path), kind: .modified))
+                await Self.flushOneWindow(watcher: watcher, clock: clock)
+            }
+
+            #expect(try await Self.indexedFileRowCount(ofFilePath: path, store: store) == 1)
+            let warnings = Self.watcherWarnings(under: directory)
+            #expect(warnings.map(\.message.description) == ["the watcher cannot read a changed file and skips it in this flush"])
+            #expect(warnings.allSatisfy { $0.metadata[CodeContextTracing.MetadataKey.errorType] != nil })
+        }
+    }
 }
