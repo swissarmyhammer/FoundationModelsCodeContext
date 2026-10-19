@@ -41,6 +41,33 @@ comments:
     - The ConnectionTests.swift change was reverted so main keeps the retry until the remaining cause is found. Nothing was committed for this task.
     - needs: a diagnostic card. On timeout, log whether the server is alive, the end of its stderr, and whether it read the request. Then look for another fd reuse or double-close while many suites spawn at once.
   timestamp: 2026-10-19T16:06:24.837511+00:00
+- actor: claude-code
+  id: 01m5ankvbcqnqgp7x9y00mp6hr
+  text: |-
+    Second attempt, after ^tfbetg3 (314daae: PendingRequestTable.failAll no longer throws away a response that arrived before its request registered).
+
+    Change (working tree, not committed): removed `withRetryOnSpawnContention`, its doc comment, and the long comment in the body of `requestReceivesItsScriptedTypedResponse()`. The test now calls `Self.withConnection(steps:markerFile:)` once. The `markerFile:` argument stays, so a timeout still records the attachment from `recordTimeoutState(of:markerFile:)`. A repo-wide grep finds no other reference to `withRetryOnSpawnContention`.
+
+    Load proof (same method as the first attempt): built once with `swift build --build-tests`, then 4 rounds of 6 concurrent `swift test --skip-build --scratch-path <clone>`. Each clone was an APFS clone of `.build` (`cp -c -R`), and 40 `yes > /dev/null` ran the whole time. That is 24 full root runs. All 24 passed: "Test run with 1062 tests in 94 suites passed", exit 0. `requestReceivesItsScriptedTypedResponse()` passed in all 24, in 1.42 to 1.96 s. There were 0 `✘` lines and 0 `timeout(` lines in any log. Before the ^tfbetg3 fix, the same method gave 2 timeouts in 23 runs. Afterwards every `yes` was killed (`pgrep -x yes` = 0) and every clone was deleted. The script and logs are in the session scratchpad.
+
+    Plain `swift test`: 1062 tests in 94 suites passed. `swift test --package-path IntegrationTests`: 22 tests in 16 suites passed. The only warning was the allowed mlx-swift "missing creator for mutated node" (^3a92r6p).
+
+    Rule check: I read the swift and test-integrity sections of the rules dump in full. The full dump (about 750K characters) was too large to read in one pass. This change only deletes code, and it removes the "retry logic added to hide a flaky test" that test-integrity flags.
+  timestamp: 2026-10-19T18:08:39.276132+00:00
+- actor: claude-code
+  id: 01m5anky60088v7kev9j9zhtpa
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Tests/FoundationModelsCodeContextTests/ConnectionTests.swift (removed `withRetryOnSpawnContention`, its doc comment and the test-body comment; the test calls `withConnection(steps:markerFile:)` once). Load: 24 concurrent root runs (4 rounds of 6, APFS clones, 40 `yes`), 24/24 passed, 0 timeouts of requestReceivesItsScriptedTypedResponse. `swift test`: 1062/1062 in 94 suites passed. IntegrationTests: 22/22 in 16 suites passed. Only the allowed mlx warning.
+    - next: /review
+  timestamp: 2026-10-19T18:08:42.176513+00:00
+- actor: claude-code
+  id: 01m5anrtram8z4vqb4g2evxsks
+  text: |-
+    ### test — green
+    - evidence: swift build complete, only the allowed mlx-swift_Cmlx "missing creator for mutated node" warning; swift test — 1062 tests in 94 suites passed, 0 failed, 0 skipped; swift test --package-path IntegrationTests — 22 tests in 16 suites passed, 0 skipped, 0 warnings; swift format lint --strict --recursive Sources Tests IntegrationTests/Tests — no output, clean
+    - next: review
+  timestamp: 2026-10-19T18:11:22.506215+00:00
 depends_on:
 - 01M5A5ACEVQWJ9PC8GXT71WVKM
 - 01M5AJHWKFWBSV0SK09TFBETG3

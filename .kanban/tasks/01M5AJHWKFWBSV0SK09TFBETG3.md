@@ -30,8 +30,24 @@ comments:
     - evidence: swift build complete; swift test 1062 tests in 94 suites passed; swift test --package-path IntegrationTests 22 tests in 16 suites passed; swift format lint --strict clean (no output). 0 failures, 0 skipped. Only warning: allowed mlx-swift_Cmlx "missing creator for mutated node".
     - next: review
   timestamp: 2026-10-19T17:54:23.606928+00:00
-position_column: doing
-position_ordinal: '8280'
+- actor: claude-code
+  id: 01m5amy0k8jvy91d5q1qqx94b6
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (314daae) — 0 findings, 0 confirmed, 0 refuted; 7 files reviewed, 0 failed; 4 .kanban/ files excluded by .reviewignore
+    - next: task moved to done; ^60jmzth can remove the retry
+  timestamp: 2026-10-19T17:56:43.752361+00:00
+- actor: claude-code
+  id: 01m5amy9hdwvsqt5wj1rpr92kz
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — 7 files (PendingRequestTable.failAll keeps responses that already arrived; register after failAll fails at once; content-safe timeout diagnostics). Retry removed locally: 36/36 loaded runs passed, 0 timeouts.
+    - test: green — swift test 1062 passed; IntegrationTests 22 passed; lint clean
+    - commit: 314daae
+    - review: clean — 0 findings; task moved to done
+  timestamp: 2026-10-19T17:56:52.909836+00:00
+position_column: done
+position_ordinal: ff8380
 title: 'ConnectionTests timeout under load: log the server state when a request times out, and find the second cause of the lost response'
 ---
 ## What
