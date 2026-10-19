@@ -680,21 +680,21 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     private static func skipUnreadFile(relativePath: String, failure: SourceText.ReadFailure, store: Store) async -> Bool {
         switch failure {
         case .missing:
-            await skipFile(
+            return await skipFile(
                 relativePath: relativePath,
                 store: store,
                 level: .debug,
                 message: "the LSP index worker finds no file at a dirty path and marks the file indexed"
             )
         case .notUTF8:
-            await skipFile(
+            return await skipFile(
                 relativePath: relativePath,
                 store: store,
                 level: .info,
                 message: "the LSP index worker skips a file that is not UTF-8 text and marks the file indexed"
             )
         case .unreadable(let errorType):
-            await skipFile(
+            return await skipFile(
                 relativePath: relativePath,
                 store: store,
                 level: .warning,
@@ -1451,32 +1451,32 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// - Returns: The lowercase string to store as `lsp_symbols.kind`.
     static func kindString(for kind: SymbolKind) -> String {
         switch kind {
-        case .file: "file"
-        case .module: "module"
-        case .namespace: "namespace"
-        case .package: "package"
-        case .class: "class"
-        case .method: "method"
-        case .property: "property"
-        case .field: "field"
-        case .constructor: "constructor"
-        case .enum: "enum"
-        case .interface: "interface"
-        case .function: "function"
-        case .variable: "variable"
-        case .constant: "constant"
-        case .string: "string"
-        case .number: "number"
-        case .boolean: "boolean"
-        case .array: "array"
-        case .object: "object"
-        case .key: "key"
-        case .null: "null"
-        case .enumMember: "enummember"
-        case .struct: "struct"
-        case .event: "event"
-        case .operator: "operator"
-        case .typeParameter: "typeparameter"
+        case .file: return "file"
+        case .module: return "module"
+        case .namespace: return "namespace"
+        case .package: return "package"
+        case .class: return "class"
+        case .method: return "method"
+        case .property: return "property"
+        case .field: return "field"
+        case .constructor: return "constructor"
+        case .enum: return "enum"
+        case .interface: return "interface"
+        case .function: return "function"
+        case .variable: return "variable"
+        case .constant: return "constant"
+        case .string: return "string"
+        case .number: return "number"
+        case .boolean: return "boolean"
+        case .array: return "array"
+        case .object: return "object"
+        case .key: return "key"
+        case .null: return "null"
+        case .enumMember: return "enummember"
+        case .struct: return "struct"
+        case .event: return "event"
+        case .operator: return "operator"
+        case .typeParameter: return "typeparameter"
         }
     }
 

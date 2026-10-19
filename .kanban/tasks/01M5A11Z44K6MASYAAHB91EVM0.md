@@ -46,6 +46,48 @@ comments:
     - evidence: f2bc7ab fix(index): tell a gone file from a non-UTF-8 file and from a read error ^b91evm0
     - next: review
   timestamp: 2026-10-19T13:13:14.108683+00:00
+- actor: claude-code
+  id: 01m5a4z2jp7mmck4waqp0tkep4
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~2..HEAD — 1 finding (1 confirmed, 2 refuted) — Sources/FoundationModelsCodeContext/Index/LSPIndexWorker.swift:697 `swift/error-handling`
+    - next: implement the open `## Review Findings (2026-10-19 08:13)` item, then test, commit, re-review
+  timestamp: 2026-10-19T13:17:41.334900+00:00
+- actor: claude-code
+  id: 01m5a4zdyzbmbjdmhzwvfkng3z
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 6 files (SourceText.swift new, TreeSitterWorker, LSPIndexWorker, LanguageServerDocument, 2 test files, +5 tests)
+    - test: green — swift test 1020 passed, IntegrationTests 22 passed, 0 skipped
+    - commit: f2bc7ab (+ a4dda79 kanban)
+    - review: findings — Sources/FoundationModelsCodeContext/Index/LSPIndexWorker.swift:697 (swift/error-handling missing explicit return)
+  timestamp: 2026-10-19T13:17:52.991816+00:00
+- actor: claude-code
+  id: 01m5a52wqy04nactkrbjn27pxp
+  text: |-
+    Finding `swift/error-handling` (LSPIndexWorker.swift skipUnreadFile) applied:
+    - `skipUnreadFile(relativePath:failure:store:)`: each of the three cases (`.missing`, `.notUTF8`, `.unreadable`) now says `return await skipFile(...)`. Before, the switch was the implicit return (Swift 5.9 switch expression), so it compiled, but the finding asks for the explicit return.
+    - The same cause elsewhere in the file: `kindString(for:)` was also an implicit-return switch expression (26 cases `case .file: "file"`). Each case now says `return "..."`, so every value-returning switch in LSPIndexWorker.swift returns explicitly and the same way.
+    - TreeSitterWorker.swift: no change needed. `outcome(of:relativePath:)` already returns explicitly in each case (`return .missing` / `return .skipped`), and `indexFile(relativePath:rootDirectory:store:)` returns `Void` (each case is a statement).
+    - TDD note: this is a syntax refactor that changes no behavior, so no new test could fail first. The existing tests `drainBatchMarksAnUnreadableFileIndexedWithoutTouchingTheConnection`, `drainBatchKeepsTheWarningWithTheErrorTypeForAFileThatCannotBeRead` and the not-UTF-8 LSP test cover the three branches, and the kindString mapping is covered through the symbol-persistence tests.
+    - `swift test --filter "LSPIndexWorkerTests|TreeSitterWorkerTests"`: 30 tests in 2 suites passed. Only warning is the SwiftPM line `missing creator for mutated node ... mlx-swift_Cmlx.bundle`, already recorded on this card.
+  timestamp: 2026-10-19T13:19:46.430961+00:00
+- actor: claude-code
+  id: 01m5a52z0qc8npp8a7605edzz1
+  text: |-
+    ### implement — changed
+    - evidence: 1 file — Sources/FoundationModelsCodeContext/Index/LSPIndexWorker.swift (`skipUnreadFile` 3 cases `return await skipFile(...)`; `kindString(for:)` 26 cases `return "..."`). TreeSitterWorker.swift already explicit, unchanged. `swift test --filter "LSPIndexWorkerTests|TreeSitterWorkerTests"`: 30 passed, 0 failed. Finding flipped to `- [x]`.
+    - next: test, commit, /review
+  timestamp: 2026-10-19T13:19:48.759958+00:00
+- actor: claude-code
+  id: 01m5a59vyn8vhesgcqrqj0jv7s
+  text: |-
+    ### test — green
+    - evidence: `swift test` — 1020 tests in 90 suites passed, 0 failures, 0 skipped, no compiler warnings. `swift test --package-path IntegrationTests` — final run 22 tests in 16 suites passed.
+    - The first integration run had 1 failure: LanguageServerGrandchildTests.forceRestartKillsTheGrandchildOfTheOldServer() recorded `.handshakeFailed("operation timed out after 30.0 seconds")` while LiveSourceKit and the scale tests ran in parallel. The suite alone passed (3 tests, 0.8 s) and the final full run passed. The code did not change between runs. The cause is not proven. Likely load on the `swift <script>` startup of the scripted server. Not fixed.
+    - Only warning: the pre-existing mlx-swift_Cmlx "missing creator for mutated node" SwiftPM warning. Reported, not chased.
+    - next: review
+  timestamp: 2026-10-19T13:23:34.997146+00:00
 position_column: doing
 position_ordinal: '80'
 title: 'Tree-sitter worker: a file deleted between the watch event and the read is not a warning'
@@ -70,3 +112,12 @@ The agent most likely deleted a scratch file between the watcher event and the r
 2. Test: a file with invalid UTF-8 → the not-UTF-8 message.
 3. Test: an unreadable file (chmod 000) → the warning stays.
 4. Implement; run the suite. #index #bug
+
+## Review Findings (2026-10-19 08:13)
+
+> Scope: `review sha HEAD~2..HEAD` — reviewed the diffs only — lines this change added or modified. 6 file(s) reviewed, 6 not reviewed.
+
+> 6 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 6 file(s)
+
+- [x] `Sources/FoundationModelsCodeContext/Index/LSPIndexWorker.swift:697` `swift/error-handling` — Function declares return type `Bool` but this switch case does not return a value. The `await skipFile(...)` call result must be returned. Add `return` before `await skipFile(...)`: `return await skipFile(...)`.
