@@ -554,9 +554,11 @@ back to the hint. Design decisions, matching the seams the code documents:
   the same in-flight `Task`, so the installer runs exactly once. The process
   spawn sits behind an `InstallRunner` protocol, mirroring how
   `ConnectionFactory` decouples `LSPDaemon` from real processes: production
-  uses `ProcessInstallRunner` (real `Process`, bounded by a timeout, killed on
-  timeout or caller cancellation); tests inject a scripted `FakeInstallRunner`
-  and never spawn anything.
+  uses `ProcessInstallRunner` (a real child in its own process group through
+  `ProcessGroupChild`, bounded by a timeout; on timeout or caller cancellation
+  the full group gets `SIGTERM`, then `SIGKILL` after a grace, so no process
+  that the installer started outlives the run); tests inject a scripted
+  `FakeInstallRunner` and never spawn anything.
 
 - **`.notFound → .installing → forceRestart → .running / .notFound`.** The
   supervisor gates on the daemon's initial spawn landing `.notFound`, the spec

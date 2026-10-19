@@ -3,13 +3,9 @@ import Foundation
 /// Guards a single `CheckedContinuation` so it is resumed at most once, even when multiple
 /// independent completion paths race to resolve it concurrently.
 ///
-/// This is the shared idempotent-resume primitive behind two call sites that each face the same
-/// race, just shaped differently:
-/// - `PendingRequestTable` wraps every registered continuation in one of these, keyed by JSON-RPC
-///   request id, because a request's real response (`resolveOrBuffer(id:response:)`) and its
-///   timeout (`timeOut(id:with:)`) can both fire for the same id.
-/// - `ProcessInstallRunner` (`ServerInstaller.swift`) uses one directly for a single continuation,
-///   racing a process's natural exit (`Process.terminationHandler`) against an install timeout.
+/// `PendingRequestTable` wraps every registered continuation in one of these, keyed by JSON-RPC
+/// request id, because a request's real response (`resolveOrBuffer(id:response:)`) and its
+/// timeout (`timeOut(id:with:)`) can both fire for the same id.
 ///
 /// `@unchecked Sendable` is safe because every access goes through `lock`.
 final class ResumeOnce<Value: Sendable>: @unchecked Sendable {

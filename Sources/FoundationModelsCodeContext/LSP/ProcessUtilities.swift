@@ -1,10 +1,10 @@
 import Darwin
 import Foundation
 
-/// Shared low-level POSIX process helpers. `ProcessInstallRunner` (`ServerInstaller.swift`) and
-/// `GitShell` (`DiagnosticsScope.swift`) make each child process with `makeChildProcess`.
-/// `ProcessLanguageServerConnection` starts each language server with
-/// `ProcessGroupChild.spawn`, which puts the server in its own process group and keeps the same
+/// Shared low-level POSIX process helpers. `GitShell` (`DiagnosticsScope.swift`) makes each
+/// child process with `makeChildProcess`. `ProcessLanguageServerConnection` starts each language
+/// server, and `ProcessInstallRunner` (`ServerInstaller.swift`) starts each installer, with
+/// `ProcessGroupChild.spawn`, which puts the child in its own process group and keeps the same
 /// standard-stream rule. The connection and the install runner read the pipe file descriptors
 /// of the child with the read helpers.
 enum ProcessUtilities {
@@ -71,7 +71,8 @@ enum ProcessUtilities {
     /// one read, without requesting an unboundedly large buffer from the OS.
     static let defaultChunkSize = 65536
 
-    /// Runs `body` on a new dedicated thread, and gives a task that completes when `body` returns.
+    /// Runs `body` on a new dedicated thread, and gives a task that completes with the value of
+    /// `body` when `body` returns.
     ///
     /// Use this, not `Task.detached`, for a loop that blocks in `read(2)` until a child process
     /// closes its pipe. A blocked `read(2)` holds its thread. A thread of the Swift cooperative
@@ -84,14 +85,16 @@ enum ProcessUtilities {
     /// - Parameters:
     ///   - name: The name of the thread, for a debugger or a crash report.
     ///   - body: The blocking work. It runs one time.
-    /// - Returns: A task that completes when `body` returns. Cancelling the task does not stop
-    ///   `body`; close the pipe or stop the child process to stop it.
-    internal static func runOnDedicatedThread(name: String, _ body: @escaping @Sendable () -> Void) -> Task<Void, Never> {
+    /// - Returns: A task that completes with the value of `body` when `body` returns. Cancelling
+    ///   the task does not stop `body`; close the pipe or stop the child process to stop it.
+    internal static func runOnDedicatedThread<Value: Sendable>(
+        name: String,
+        _ body: @escaping @Sendable () -> Value
+    ) -> Task<Value, Never> {
         Task {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            await withCheckedContinuation { (continuation: CheckedContinuation<Value, Never>) in
                 let thread = Thread {
-                    body()
-                    continuation.resume()
+                    continuation.resume(returning: body())
                 }
                 thread.name = name
                 thread.start()

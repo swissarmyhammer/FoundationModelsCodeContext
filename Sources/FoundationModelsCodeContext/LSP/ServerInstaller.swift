@@ -162,21 +162,52 @@ protocol InstallRunner: Sendable {
     func run(tool: String, arguments: [String], timeout: Duration) async throws -> InstallRunResult
 }
 
-/// The production `InstallRunner`: spawns `tool` as a real child process via Foundation
-/// `Process`.
+/// The production `InstallRunner`: spawns `tool` as the leader of a new process group with
+/// `ProcessGroupChild`.
 ///
 /// Spawns via `ProcessUtilities.envExecutablePath` (`/usr/bin/env <tool> <args>`), the same
 /// shared constant `ProcessLanguageServerConnection` spawns through for its own `$PATH`
-/// resolution. Terminates the child in both of its exit paths: a `timeout` that
-/// elapses before the process exits kills it and throws `CodeContextError.timeout`, and the
-/// *calling* task being cancelled (e.g. a production `shutdown()` racing a real `brew`/`npm` run)
-/// kills it via `withTaskCancellationHandler` — without this, a caller wanting to shut down
-/// promptly would otherwise have to wait out up to the full `timeout` before the child is reaped.
+/// resolution. The installer gets the null device as its standard input, and one pipe for its
+/// standard output and its standard error.
+///
+/// An installer such as `npm` starts processes of its own: `node` workers, `sh -c` lifecycle
+/// scripts, `git`. They are in the process group of the installer. Each end of a run stops the
+/// full group with `ProcessGroupChild.terminateGroup(grace:)`: `SIGTERM`, at most
+/// `terminationGrace` for the exit of the installer, then `SIGKILL`. Thus no process of the
+/// group outlives the run, holds the output pipe open, or holds a lock (the `npm` cache lock)
+/// for the next session. A run ends in one of three ways:
+/// - The installer exits. The run returns its exit code and its output.
+/// - `timeout` elapses first. The run stops the group and throws `CodeContextError.timeout`.
+/// - The calling task is cancelled, for example by a production `shutdown()` that races a real
+///   `npm` run. The run stops the group and returns the exit code of the installer: the number
+///   of the signal that ended it. A caller that shuts down does not wait out the `timeout`.
+///
+/// A process that leaves the process group (a new session or a new group) gets no signal of
+/// the stop, and it can hold the output pipe open. Thus the run waits at most `outputGrace` for
+/// the end of the output after the stop. A run never takes longer than `timeout`, plus
+/// `terminationGrace` and `outputGrace`, plus the reap of the killed installer.
 struct ProcessInstallRunner: InstallRunner {
+    /// The number of seconds in `terminationGrace`.
+    static let terminationGraceSeconds = 2
+
+    /// The time that a stopped installer gets to exit after `SIGTERM`, before `SIGKILL` goes to
+    /// its process group. In this time `npm` can release its cache lock.
+    static let terminationGrace: Duration = .seconds(terminationGraceSeconds)
+
+    /// The number of milliseconds in `outputGrace`.
+    static let outputGraceMilliseconds = 500
+
+    /// The longest time that a run waits for the end of the output after the stop of the process
+    /// group. Only a process outside the group can hold the output pipe open that long.
+    static let outputGrace: Duration = .milliseconds(outputGraceMilliseconds)
+
+    /// The count of the most recent output chunks that a run keeps for its result.
+    private static let outputTailChunkLimit = 40
+
     /// The clock the per-run timeout sleeps against. Defaults to `ContinuousClock()`; tests that
     /// need to control the timeout without waiting in real time inject a `ManualClock` — though
     /// the integration tests in `ServerInstallerTests.swift` mostly prefer real, short timeouts
-    /// against real short-lived executables instead, since exercising a real `Process` spawn/kill
+    /// against real short-lived executables instead, since exercising a real spawn and group stop
     /// end-to-end is the point of those cases.
     private let clock: any Clock<Duration>
 
@@ -188,156 +219,87 @@ struct ProcessInstallRunner: InstallRunner {
     }
 
     func run(tool: String, arguments: [String], timeout: Duration) async throws -> InstallRunResult {
-        // The installer gets the null device as its standard input, not the standard input of
-        // the host. An installer such as `npm` reads its standard input while it runs, and the
-        // host can use its standard input for a protocol (ACP, MCP over stdio).
         let outputPipe = Pipe()
-        let process = ProcessUtilities.makeChildProcess(
-            executableURL: URL(fileURLWithPath: ProcessUtilities.envExecutablePath),
-            arguments: [tool] + arguments,
-            standardInput: .nullDevice,
-            standardOutput: outputPipe,
-            standardError: outputPipe
-        )
+        let child = try Self.spawn(tool: tool, arguments: arguments, output: outputPipe)
+        let tailBuffer = BoundedTailBuffer(maxChunks: Self.outputTailChunkLimit)
+        let outputEnd = Self.startDrain(of: outputPipe, into: tailBuffer)
 
+        // The wait for the exit ends at a cancel too, thus `exitedInTime` alone does not tell an
+        // exit from a cancel. Only a run that is not cancelled and did not see the exit in time
+        // timed out.
+        let exitedInTime = await clock.waitForCompletion(atMost: timeout) { await child.waitUntilExit() }
+        let isTimedOut = !exitedInTime && !Task.isCancelled
+        let exitCode = await Self.stop(child, outputEnd: outputEnd)
+
+        guard !isTimedOut else { throw CodeContextError.timeout(timeout) }
+        return InstallRunResult(exitCode: exitCode, output: tailBuffer.snapshot())
+    }
+
+    /// Starts `tool` as the leader of a new process group.
+    ///
+    /// The installer gets the null device as its standard input, not the standard input of the
+    /// host. An installer such as `npm` reads its standard input while it runs, and the host can
+    /// use its standard input for a protocol (ACP, MCP over stdio).
+    /// - Parameters:
+    ///   - tool: The installer executable, looked up on `$PATH` by `env(1)`.
+    ///   - arguments: The full argv tail passed to `tool`.
+    ///   - output: The pipe that gets both the standard output and the standard error of `tool`.
+    /// - Returns: The started installer.
+    /// - Throws: `CodeContextError.spawnFailed` if `env(1)` could not be launched.
+    private static func spawn(tool: String, arguments: [String], output: Pipe) throws -> ProcessGroupChild {
         do {
-            try process.run()
+            return try ProcessGroupChild.spawn(
+                executableURL: URL(fileURLWithPath: ProcessUtilities.envExecutablePath),
+                arguments: [tool] + arguments,
+                standardInput: .nullDevice,
+                standardOutput: output,
+                standardError: output
+            )
         } catch {
             throw CodeContextError.spawnFailed("\(tool): \(error.localizedDescription)")
         }
+    }
 
-        let pid = process.processIdentifier
-
-        let tailBuffer = BoundedTailBuffer(maxChunks: 40)
+    /// Starts the thread that reads `outputPipe` to its end and appends each chunk to
+    /// `tailBuffer`.
+    ///
+    /// The read blocks in `read(2)` until each process that holds the write end of the pipe
+    /// exits, thus it runs on a dedicated thread, not on a pool thread (see
+    /// `ProcessUtilities.runOnDedicatedThread(name:_:)`). The thread keeps `outputPipe`, thus the
+    /// read end stays open until the read ends, also when the run returns first.
+    /// - Parameters:
+    ///   - outputPipe: The pipe that gets the output of the installer.
+    ///   - tailBuffer: The bounded tail buffer to append every read chunk to.
+    /// - Returns: The end of the output: `true` after the read reached the end of the pipe.
+    private static func startDrain(of outputPipe: Pipe, into tailBuffer: BoundedTailBuffer) -> CancellableWaiters<Bool> {
+        let outputEnd = CancellableWaiters(false) { isEnded in isEnded }
         let outputFileDescriptor = outputPipe.fileHandleForReading.fileDescriptor
-        // A dedicated thread, not a pool thread: the drain blocks in `read(2)` until the
-        // installer exits. See `ProcessUtilities.runOnDedicatedThread(name:_:)`.
-        let drainTask = ProcessUtilities.runOnDedicatedThread(name: "install-output-drain") {
-            Self.drainOutput(fileDescriptor: outputFileDescriptor, into: tailBuffer)
+        _ = ProcessUtilities.runOnDedicatedThread(name: "install-output-drain") {
+            withExtendedLifetime(outputPipe) {
+                drainOutput(fileDescriptor: outputFileDescriptor, into: tailBuffer)
+            }
+            outputEnd.update { isEnded in isEnded = true }
         }
-
-        return try await Self.awaitCompletion(
-            process: process, pid: pid, timeout: timeout, clock: clock, drainTask: drainTask, tailBuffer: tailBuffer
-        )
+        return outputEnd
     }
 
-    /// Races a spawned installer process's natural exit against `timeout` and against the calling
-    /// task's own cancellation, resolving to exactly one `InstallRunResult` (or throwing).
+    /// Stops the process group of `child`, waits at most `outputGrace` for the end of the
+    /// output, and gives the termination status of `child`.
     ///
-    /// Extracted out of `run(tool:arguments:timeout:)` so that method reads as a linear
-    /// spawn-then-await sequence: this is the one place the three independent completion paths —
-    /// `process.terminationHandler` firing on natural exit, `timeoutTask` firing first, and
-    /// `withTaskCancellationHandler`'s `onCancel` firing on cancellation — are coordinated, all
-    /// synchronized through a single `ResumeOnce` so whichever path resolves first wins and the
-    /// other two become no-ops. The continuation body itself only wires the two competing
-    /// completion sources together — `scheduleTimeout` and `installTerminationHandler` below own
-    /// the actual setup, so this function's own nesting stays at `withTaskCancellationHandler` →
-    /// continuation, rather than also nesting the timeout task and the termination handler inline.
-    ///
-    /// Captures `pid` as a raw `Int32` rather than closing over `process` itself: `Process` is not
-    /// `Sendable`, so every closure below that can run concurrently with this function's own
-    /// execution (the timeout task, the cancellation handler) only ever touches `pid`, mirroring
-    /// how `ProcessLanguageServerConnection`'s background loops capture a raw file descriptor
-    /// rather than the `FileHandle`/`Process` itself. This does leave an accepted, narrow residual
-    /// risk: `timeoutTask` and `onCancel` below both call `kill(pid, SIGKILL)` unconditionally, so
-    /// if the process has already exited and the OS has recycled `pid` for an unrelated process in
-    /// the brief window before either call runs, that unrelated process could be signaled instead.
-    /// This call site judges the window (a handful of scheduler ticks between exit and the next
-    /// `kill` call) an acceptable tradeoff against the complexity of a synchronized "already
-    /// exited" flag. A language server connection does not have this risk: its
-    /// `ProcessGroupChild` reaps the server, and it signals a process group.
+    /// The stop runs in its own task, which this function awaits. A cancel of the calling task
+    /// does not reach that task: a cancelled run still gives the installer `terminationGrace`
+    /// after `SIGTERM`, still waits for the output, and still reaps the installer. Each wait in
+    /// the task has a limit, and `SIGKILL` goes to the group before the reap, thus the task ends.
     /// - Parameters:
-    ///   - process: The already-spawned installer process, needed only to install
-    ///     `terminationHandler`.
-    ///   - pid: `process`'s id, captured separately since `Process` is not `Sendable`.
-    ///   - timeout: How long to wait before killing `pid` and throwing `CodeContextError.timeout`.
-    ///   - clock: The clock the timeout sleeps against.
-    ///   - drainTask: The dedicated-thread task draining `process`'s combined stdout+stderr into
-    ///     `tailBuffer`; awaited before resolving so the returned result's `output` is complete.
-    ///   - tailBuffer: The bounded tail buffer `drainTask` appends to.
-    /// - Returns: The completed run's exit code and output tail.
-    /// - Throws: `CodeContextError.timeout` if `timeout` elapses before the process exits.
-    private static func awaitCompletion(
-        process: Process,
-        pid: Int32,
-        timeout: Duration,
-        clock: any Clock<Duration>,
-        drainTask: Task<Void, Never>,
-        tailBuffer: BoundedTailBuffer
-    ) async throws -> InstallRunResult {
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<InstallRunResult, Error>) in
-                let resumeGuard = ResumeOnce(continuation: continuation)
-                let timeoutTask = Self.scheduleTimeout(pid: pid, timeout: timeout, clock: clock, resumeGuard: resumeGuard)
-                Self.installTerminationHandler(
-                    on: process, timeoutTask: timeoutTask, drainTask: drainTask, tailBuffer: tailBuffer, resumeGuard: resumeGuard
-                )
-            }
-        } onCancel: {
-            // Kills promptly on cancellation independent of the continuation/timeout race above:
-            // `pid` is already known by this point (the process is spawned before this handler is
-            // installed), so this never has to coordinate with `resumeGuard` — the process dying
-            // here still resolves the continuation normally, through `terminationHandler` above.
-            kill(pid, SIGKILL)
-        }
-    }
-
-    /// Schedules `awaitCompletion`'s timeout side of the race: after `timeout` elapses, kills
-    /// `pid` and resumes `resumeGuard` with `CodeContextError.timeout`.
-    ///
-    /// A no-op in the common case where the installer exits before `timeout`:
-    /// `installTerminationHandler` cancels the returned task as soon as the process exits
-    /// naturally, which this task observes as its own `clock.sleep(for:)` throwing and simply
-    /// returns from, without touching `pid` or `resumeGuard`.
-    /// - Parameters:
-    ///   - pid: The installer process id to kill if this task fires.
-    ///   - timeout: How long to wait before firing.
-    ///   - clock: The clock to sleep against.
-    ///   - resumeGuard: Resumed with `CodeContextError.timeout(timeout)` if this task fires first.
-    /// - Returns: The scheduled timeout task, so `installTerminationHandler` can cancel it once
-    ///   the process exits naturally.
-    private static func scheduleTimeout(
-        pid: Int32,
-        timeout: Duration,
-        clock: any Clock<Duration>,
-        resumeGuard: ResumeOnce<InstallRunResult>
-    ) -> Task<Void, Never> {
-        Task {
-            do {
-                try await clock.sleep(for: timeout)
-            } catch {
-                // Cancelled below once the process exits on its own first.
-                return
-            }
-            kill(pid, SIGKILL)
-            resumeGuard.resume(throwing: CodeContextError.timeout(timeout))
-        }
-    }
-
-    /// Installs `process.terminationHandler`, `awaitCompletion`'s natural-exit side of the race:
-    /// cancels `timeoutTask` (the process beat the clock), awaits `drainTask` so the returned
-    /// result's `output` is complete, and resumes `resumeGuard` with the exit code.
-    /// - Parameters:
-    ///   - process: The process to attach the handler to.
-    ///   - timeoutTask: Cancelled as soon as the handler fires, since the race is already decided.
-    ///   - drainTask: Awaited before resolving so `tailBuffer`'s snapshot is complete.
-    ///   - tailBuffer: Snapshotted into the resolved `InstallRunResult.output`.
-    ///   - resumeGuard: Resumed with the completed `InstallRunResult` once `drainTask` finishes.
-    private static func installTerminationHandler(
-        on process: Process,
-        timeoutTask: Task<Void, Never>,
-        drainTask: Task<Void, Never>,
-        tailBuffer: BoundedTailBuffer,
-        resumeGuard: ResumeOnce<InstallRunResult>
-    ) {
-        process.terminationHandler = { finished in
-            timeoutTask.cancel()
-            let exitCode = finished.terminationStatus
-            Task {
-                await drainTask.value
-                resumeGuard.resume(returning: InstallRunResult(exitCode: exitCode, output: tailBuffer.snapshot()))
-            }
-        }
+    ///   - child: The installer.
+    ///   - outputEnd: The end of the output, from `startDrain(of:into:)`.
+    /// - Returns: The exit status of the installer, or the number of the signal that ended it.
+    private static func stop(_ child: ProcessGroupChild, outputEnd: CancellableWaiters<Bool>) async -> Int32 {
+        await Task {
+            await child.terminateGroup(grace: terminationGrace)
+            await ContinuousClock().waitForCompletion(atMost: outputGrace) { await outputEnd.wait() }
+            return await child.terminationStatus
+        }.value
     }
 
     /// Reads `fileDescriptor` until EOF, appending every chunk read to `tailBuffer`.

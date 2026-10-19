@@ -19,8 +19,20 @@ import Foundation
 /// child to the defaults.
 ///
 /// A dedicated thread waits for the exit of the child with `waitpid(2)`. Thus the child is
-/// reaped, and it does not stay as a zombie. `isRunning` is `false` from the time of the reap.
+/// reaped, and it does not stay as a zombie. `isRunning` is `false` from the time of the reap,
+/// and `terminationStatus` then gives the status that the reap read.
 final class ProcessGroupChild: Sendable {
+    /// The bits of a `waitpid(2)` status that hold the number of the signal that ended the child,
+    /// as `WTERMSIG` of `<sys/wait.h>` reads them. They are zero when the child exited by itself.
+    private static let terminationSignalMask: Int32 = 0x7f
+
+    /// The shift that moves the exit status of a `waitpid(2)` status to the low byte, as
+    /// `WEXITSTATUS` of `<sys/wait.h>` does.
+    private static let exitStatusShift: Int32 = 8
+
+    /// The bits of the exit status after `exitStatusShift`.
+    private static let exitStatusMask: Int32 = 0xff
+
     /// The pid of the child. The child leads its process group, thus this is also the id of the
     /// group.
     let pid: pid_t
@@ -28,13 +40,18 @@ final class ProcessGroupChild: Sendable {
     /// Whether the reaper thread reaped the child, and the waits for the reap.
     private let reap: CancellableWaiters<Bool>
 
-    /// Keeps the pid and the reap state of a child that `spawn` started.
+    /// The reaper thread. Its value is the termination status of the child.
+    private let reaper: Task<Int32, Never>
+
+    /// Keeps the pid, the reap state and the reaper of a child that `spawn` started.
     /// - Parameters:
     ///   - pid: The pid of the child.
     ///   - reap: The reap state that the reaper thread sets.
-    private init(pid: pid_t, reap: CancellableWaiters<Bool>) {
+    ///   - reaper: The reaper thread, whose value is the termination status of the child.
+    private init(pid: pid_t, reap: CancellableWaiters<Bool>, reaper: Task<Int32, Never>) {
         self.pid = pid
         self.reap = reap
+        self.reaper = reaper
     }
 
     /// Starts `executableURL` as the leader of a new process group, and starts the thread that
@@ -85,8 +102,8 @@ final class ProcessGroupChild: Sendable {
             attributes: &attributes
         )
         let reap = CancellableWaiters(false) { isReaped in isReaped }
-        startReaper(pid: pid, reap: reap)
-        return ProcessGroupChild(pid: pid, reap: reap)
+        let reaper = startReaper(pid: pid, reap: reap)
+        return ProcessGroupChild(pid: pid, reap: reap, reaper: reaper)
     }
 
     /// Whether the child did not exit yet. The value is `false` from the time that the reaper
@@ -108,6 +125,16 @@ final class ProcessGroupChild: Sendable {
     /// cancelled. Returns at once when the child already exited.
     func waitUntilExit() async {
         await reap.wait()
+    }
+
+    /// The termination status of the child, as `Process.terminationStatus` gives it: the exit
+    /// status when the child exited by itself, or the number of the signal that ended it.
+    ///
+    /// Suspends until the reaper thread reaps the child. A cancel of the task of the caller does
+    /// not end this wait, thus read it after the child exited or after `terminateGroup(grace:)`
+    /// sent `SIGKILL`, never as a race against a time limit.
+    var terminationStatus: Int32 {
+        get async { await reaper.value }
     }
 
     /// Stops each process of the process group, and waits for the reap of the child.
@@ -252,13 +279,28 @@ final class ProcessGroupChild: Sendable {
     /// - Parameters:
     ///   - pid: The pid of the child.
     ///   - reap: The reap state to set after the reap.
-    private static func startReaper(pid: pid_t, reap: CancellableWaiters<Bool>) {
-        _ = ProcessUtilities.runOnDedicatedThread(name: "process-group-reaper \(pid)") {
+    /// - Returns: The task of the thread. Its value is the termination status of the child.
+    private static func startReaper(pid: pid_t, reap: CancellableWaiters<Bool>) -> Task<Int32, Never> {
+        ProcessUtilities.runOnDedicatedThread(name: "process-group-reaper \(pid)") {
             var status: Int32 = .zero
             while waitpid(pid, &status, .zero) < .zero, errno == EINTR {
                 continue
             }
             reap.update { isReaped in isReaped = true }
+            return terminationStatus(ofWaitStatus: status)
         }
+    }
+
+    /// Reads a `waitpid(2)` status as `Process.terminationStatus` does.
+    ///
+    /// The reap waits with no options, thus the status tells one of two things: the child exited
+    /// by itself, or a signal ended it.
+    /// - Parameter status: The status that `waitpid(2)` wrote.
+    /// - Returns: The number of the signal that ended the child, or the exit status of the child
+    ///   when no signal ended it.
+    private static func terminationStatus(ofWaitStatus status: Int32) -> Int32 {
+        let terminationSignal = status & terminationSignalMask
+        guard terminationSignal == .zero else { return terminationSignal }
+        return (status >> exitStatusShift) & exitStatusMask
     }
 }

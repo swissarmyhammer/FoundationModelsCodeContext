@@ -24,8 +24,24 @@ comments:
     - evidence: `swift test` — 1022 tests in 90 suites passed, 0 failed, 0 skipped; `swift test --package-path IntegrationTests` — 22 tests in 16 suites passed, 0 failed, 0 skipped. Only warning: pre-existing mlx-swift_Cmlx "missing creator for mutated node" (not chased). LanguageServerGrandchildTests flake (^t71wvkm) did not appear.
     - next: review/commit
   timestamp: 2026-10-19T13:33:53.452494+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5a60nzjxc4g7m95g8t819sf
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (43cb267): 0 findings, 0 confirmed, 0 refuted; 3 files reviewed, 4 .kanban/ files excluded by .reviewignore
+    - next: none — task moved to done
+  timestamp: 2026-10-19T13:36:02.546039+00:00
+- actor: claude-code
+  id: 01m5a60yb0frgjs08zdtqtqh8z
+  text: |-
+    ### finish iteration 1 — clean
+    - implement: changed — SourceText.swift, Watcher.swift, WatcherTests.swift (+2 tests)
+    - test: green — swift test 1022 passed, IntegrationTests 22 passed, 0 skipped
+    - commit: 43cb267
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-10-19T13:36:11.104665+00:00
+position_column: done
+position_ordinal: fb80
 title: 'Watcher: a file removed before the debounced flush is not a warning'
 ---
 ## What

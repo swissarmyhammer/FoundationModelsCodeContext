@@ -16,9 +16,8 @@ import Tracing
 /// Every registered continuation is wrapped in a `ResumeOnce` (see its doc comment) rather than
 /// stored raw: the table's own dictionary removal already hands each continuation to exactly one
 /// of `timeOut(id:with:)` / `resolveOrBuffer(id:response:)` / `failAll(with:)`, but routing every
-/// resume through the same primitive `ProcessInstallRunner` uses keeps the "resume at most once"
-/// guarantee in one place instead of each call site re-deriving it from dictionary-removal
-/// semantics on its own.
+/// resume through one primitive keeps the "resume at most once" guarantee in one place instead
+/// of each call site re-deriving it from dictionary-removal semantics on its own.
 ///
 /// Not `private`: unit-tested directly (`PendingRequestTableTests`) since the
 /// register/resolve ordering it guarantees is only reliably exercisable this
@@ -953,10 +952,8 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// Both branches run outside actor isolation (they only touch the `Sendable`
     /// `pendingRequests` table and `clock`), so registering the continuation and racing the
     /// timeout never need to hop back onto this actor. Extracted into `awaitRegisteredResponse`
-    /// and `failAfterTimeout` — mirroring how `ProcessInstallRunner.awaitCompletion` extracts
-    /// `scheduleTimeout`/`installTerminationHandler` out of its own race — so each `group.addTask`
-    /// closure here is a single call rather than an inline `withCheckedThrowingContinuation` or
-    /// sleep-then-resolve body.
+    /// and `failAfterTimeout`, so each `group.addTask` closure here is a single call rather than
+    /// an inline `withCheckedThrowingContinuation` or sleep-then-resolve body.
     /// - Parameter id: The JSON-RPC id to wait for.
     /// - Returns: The raw response message bytes.
     /// - Throws: `CodeContextError.timeout` if `requestTimeout` elapses first.

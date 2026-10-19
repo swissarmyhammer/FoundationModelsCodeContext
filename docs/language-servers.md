@@ -56,6 +56,18 @@ The default `LspAutoInstall()` is on and has a 300-second time limit for
 each installation. Callers that do not give the argument get auto-install
 with no code change.
 
+An installation runs in the background: `start()` does not wait for it, and
+`stop()` stops it. A host that runs for a short time, for example an agent
+that works on one task, can give a lower `timeout`, or turn auto-install
+off and install its language servers before it starts.
+
+When the time limit elapses, or when the session stops, the installer is
+stopped with all the processes that it started (for example the `node` and
+`git` processes of `npm`): they get `SIGTERM`, and after 2 seconds `SIGKILL`.
+No process of the installer stays after the stop, and none keeps a lock
+for the next session. Thus a stop never takes much longer than the time
+limit.
+
 ## Server capabilities
 
 Not all servers have all methods. `CodeContext` reads the capabilities that

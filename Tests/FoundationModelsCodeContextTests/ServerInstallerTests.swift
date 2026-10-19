@@ -280,6 +280,36 @@ struct ProcessInstallRunnerTests {
     /// pid in the file is the pid of the `sleep`.
     private static let writePIDThenSleepScript = #"echo $$ > "$1"; exec sleep "$2""#
 
+    /// The run timeout of the tests whose installer starts a descendant. It is far above the
+    /// time that `sh` takes to start the descendant and write its pid, and far below
+    /// `childSleepSeconds`.
+    private static let descendantRunTimeout: Duration = .seconds(2)
+
+    /// The longest real time that a test waits for a killed descendant to go away. It is far
+    /// above the delay of the scheduler under load, and far below `childSleepSeconds`.
+    private static let descendantExitBudget: Duration = .seconds(30)
+
+    /// The exit status of the installer of the exit status test. It is neither `0` nor `1`, thus
+    /// only a decode of the real status gives it.
+    private static let distinctExitStatus: Int32 = 3
+
+    /// The shell script of an installer that starts a descendant in its own process group, as
+    /// `npm` starts `node` workers and lifecycle scripts. The descendant `sleep $2` writes to the
+    /// null device, thus it does not hold the output pipe. The script writes the pid of the
+    /// descendant and a newline to the file `$1`, and then replaces the shell with `sleep $2`.
+    /// Thus a stop of the installer pid alone closes the output pipe, and the run returns while
+    /// the descendant still runs.
+    private static let descendantInGroupScript = #"sleep "$2" >/dev/null 2>&1 & echo $! > "$1"; exec sleep "$2""#
+
+    /// The shell script of an installer whose descendant leaves the process group of the
+    /// installer and holds the output pipe open. `set -m` puts the background `sleep $2` in a new
+    /// process group, and that `sleep` keeps the standard output and the standard error of the
+    /// installer. `set +m` keeps the last `sleep $2` in the group of the installer, and `exec`
+    /// gives it the pid of the shell. The script writes the pid of the descendant and a newline
+    /// to the file `$1`.
+    private static let descendantOutsideGroupScript =
+        #"set -m; sleep "$2" & set +m; echo $! > "$1"; exec sleep "$2""#
+
     /// Reads the pid that the child of the cancellation test wrote.
     /// - Parameter file: The file that the child writes its pid to.
     /// - Returns: The pid, or `nil` when the file does not exist yet or does not hold a complete
@@ -334,8 +364,8 @@ struct ProcessInstallRunnerTests {
         }
     }
 
-    /// The cancellation of the calling task kills the child with `SIGKILL`, the run reaps the
-    /// child, and the run does not wait for the `sleep` of the child to end.
+    /// The cancellation of the calling task stops the process group of the child with `SIGTERM`,
+    /// the run reaps the child, and the run does not wait for the `sleep` of the child to end.
     ///
     /// The test does not measure the speed of the scheduler. The exit code and the pid check
     /// prove the kill. The limit `cancelledRunLimit` is far from both the scheduler delay and
@@ -365,8 +395,145 @@ struct ProcessInstallRunnerTests {
         let result = try await task.value
         let elapsed = ContinuousClock.now - start
 
-        #expect(result.exitCode == SIGKILL, "the child must end by SIGKILL, not by itself")
+        #expect(result.exitCode == SIGTERM, "the child must end by the SIGTERM of the group stop, not by itself")
         #expect(!processExists(pid), "the run must reap the killed child")
         #expect(elapsed < Self.cancelledRunLimit, "the run waited \(elapsed) after the cancellation")
+    }
+
+    @Test
+    func exitCodeIsTheExitStatusOfTheInstaller() async throws {
+        let runner = ProcessInstallRunner()
+
+        let result = try await runner.run(
+            tool: "sh", arguments: ["-c", "exit \(Self.distinctExitStatus)"], timeout: Self.selfEndingRunTimeout
+        )
+
+        #expect(result.exitCode == Self.distinctExitStatus)
+    }
+
+    /// A timeout stops the full process group of the installer, thus a process that the
+    /// installer started also stops.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func timeoutKillsADescendantOfTheInstaller() async throws {
+        try await withTemporaryWorkspace { directory in
+            let run = try await Self.startRun(of: Self.descendantInGroupScript, in: directory, timeout: Self.descendantRunTimeout)
+            defer { Self.stop(run) }
+
+            let outcome = await run.task.result
+
+            #expect(Self.isTimeout(outcome), "expected CodeContextError.timeout, got \(outcome)")
+            #expect(try await Self.waitUntilGone(run.descendantPID), "the descendant is alive after the timeout")
+        }
+    }
+
+    /// A cancellation stops the full process group of the installer, thus a process that the
+    /// installer started also stops.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func cancellationKillsADescendantOfTheInstaller() async throws {
+        try await withTemporaryWorkspace { directory in
+            let run = try await Self.startRun(of: Self.descendantInGroupScript, in: directory, timeout: Self.cancelledRunTimeout)
+            defer { Self.stop(run) }
+
+            run.task.cancel()
+            _ = try await run.task.value
+
+            #expect(try await Self.waitUntilGone(run.descendantPID), "the descendant is alive after the cancellation")
+        }
+    }
+
+    /// A descendant that left the process group of the installer survives the group stop and
+    /// holds the output pipe open. The timed-out run still returns, and does not wait for the
+    /// descendant to close the pipe.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func timeoutReturnsWhileADescendantOutsideTheGroupHoldsTheOutputPipe() async throws {
+        try await withTemporaryWorkspace { directory in
+            let start = ContinuousClock.now
+            let run = try await Self.startRun(of: Self.descendantOutsideGroupScript, in: directory, timeout: Self.descendantRunTimeout)
+            defer { Self.stop(run) }
+
+            let outcome = await run.task.result
+            let elapsed = ContinuousClock.now - start
+
+            #expect(Self.isTimeout(outcome), "expected CodeContextError.timeout, got \(outcome)")
+            #expect(elapsed < Self.descendantRunTimeout + Self.cancelledRunLimit, "the run took \(elapsed)")
+        }
+    }
+
+    /// A descendant that left the process group of the installer survives the group stop and
+    /// holds the output pipe open. The cancelled run still returns, and does not wait for the
+    /// descendant to close the pipe.
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func cancellationReturnsWhileADescendantOutsideTheGroupHoldsTheOutputPipe() async throws {
+        try await withTemporaryWorkspace { directory in
+            let run = try await Self.startRun(of: Self.descendantOutsideGroupScript, in: directory, timeout: Self.cancelledRunTimeout)
+            defer { Self.stop(run) }
+
+            let start = ContinuousClock.now
+            run.task.cancel()
+            _ = try await run.task.value
+            let elapsed = ContinuousClock.now - start
+
+            #expect(elapsed < Self.cancelledRunLimit, "the run waited \(elapsed) after the cancellation")
+        }
+    }
+
+    /// A run of an installer script that started a descendant, and the pid of that descendant.
+    private struct DescendantRun {
+        /// The task of the run.
+        let task: Task<InstallRunResult, any Error>
+
+        /// The pid of the descendant that the installer script started.
+        let descendantPID: pid_t
+    }
+
+    /// Starts a run of `script` as the installer, and waits until the script wrote the pid of
+    /// its descendant.
+    /// - Parameters:
+    ///   - script: The shell script of the installer. It writes the pid of its descendant to the
+    ///     file `$1`, and its `sleep` commands run for `$2` seconds.
+    ///   - directory: The directory of the pid file.
+    ///   - timeout: The run timeout.
+    /// - Returns: The task of the run and the pid of the descendant.
+    /// - Throws: `CancellationError` when the test is cancelled, or an expectation failure when
+    ///   the pid file holds no pid.
+    private static func startRun(of script: String, in directory: URL, timeout: Duration) async throws -> DescendantRun {
+        let pidFile = directory.appendingPathComponent("descendant.pid")
+        let runner = ProcessInstallRunner()
+        let task = Task {
+            try await runner.run(
+                tool: "sh",
+                arguments: ["-c", script, "sh", pidFile.path, String(childSleepSeconds)],
+                timeout: timeout
+            )
+        }
+        try await waitUntil { childPID(in: pidFile) != nil }
+        return DescendantRun(task: task, descendantPID: try #require(childPID(in: pidFile)))
+    }
+
+    /// Cancels the task of `run`, and kills the descendant of `run` when a failed test left it
+    /// alive. A test that passes leaves no process in the group of the installer, and the
+    /// descendant outside the group is killed here.
+    /// - Parameter run: The run to stop.
+    private static func stop(_ run: DescendantRun) {
+        run.task.cancel()
+        _ = kill(run.descendantPID, SIGKILL)
+    }
+
+    /// Polls until no process has the id `pid`, for at most `descendantExitBudget`.
+    /// - Parameter pid: The process id to check.
+    /// - Returns: `true` when the process goes away in the budget.
+    /// - Throws: `CancellationError` when the test is cancelled.
+    private static func waitUntilGone(_ pid: pid_t) async throws -> Bool {
+        try await waitUntil(timeout: descendantExitBudget) { !processExists(pid) }
+    }
+
+    /// Tells if `outcome` is the failure `CodeContextError.timeout`.
+    /// - Parameter outcome: The outcome of a run.
+    /// - Returns: `true` for a `CodeContextError.timeout` failure.
+    private static func isTimeout(_ outcome: Result<InstallRunResult, any Error>) -> Bool {
+        if case .failure(CodeContextError.timeout) = outcome {
+            return true
+        }
+        return false
     }
 }
