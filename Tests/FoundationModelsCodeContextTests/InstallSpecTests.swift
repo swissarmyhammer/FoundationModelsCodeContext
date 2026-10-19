@@ -29,11 +29,19 @@ struct InstallSpecTests {
     }
 
     @Test
-    func typeScriptFamilyInstallerUsesNpmInstallGlobal() {
+    func typeScriptFamilyInstallerUsesNpmInstallGlobalWithTypeScriptPinnedToMajorSix() {
         let installer = SharedServerSpecs.typeScriptFamily.installer
         #expect(installer?.tool == "npm")
-        #expect(installer?.arguments == ["install", "-g", "typescript-language-server", "typescript"])
+        #expect(installer?.arguments == ["install", "-g", "typescript-language-server", "typescript@6"])
         #expect(installer?.extraSearchDirectories.isEmpty == true)
+    }
+
+    @Test
+    func typeScriptFamilyInstallHintNamesTheSameCommandAsTheInstaller() throws {
+        let spec = SharedServerSpecs.typeScriptFamily
+        let installer = try #require(spec.installer)
+        let command = ([installer.tool] + installer.arguments).joined(separator: " ")
+        #expect(spec.installHint.hasSuffix(command))
     }
 
     @Test

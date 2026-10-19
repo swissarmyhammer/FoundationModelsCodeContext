@@ -694,7 +694,8 @@ actor LspSession<Connection: LanguageServerConnection> {
     /// and one record for each symbol hides the other log records. Thus only
     /// the first failure of each request is logged. The record has a fixed
     /// message. Its metadata holds the name of the server, the request, the
-    /// file path, the type name of `error` and, for a server error, the
+    /// file path, and the names and codes of `Log.errorDetail(of:)` for
+    /// `error`: its type name, its case name and, for a server error, the
     /// JSON-RPC error code. It never holds the error message of the server or
     /// the description of `error`, because they can hold content.
     /// - Parameters:
@@ -706,15 +707,12 @@ actor LspSession<Connection: LanguageServerConnection> {
         guard loggedFailures.insert(request).inserted else {
             return
         }
-        var metadata: Logger.Metadata = [
+        let requestMetadata: Logger.Metadata = [
             CodeContextTracing.MetadataKey.lspServer: .string(serverName),
             CodeContextTracing.MetadataKey.lspRequest: .string(request.rawValue),
-            CodeContextTracing.MetadataKey.errorType: Log.errorType(of: error),
             CodeContextTracing.MetadataKey.filePath: .string(filePath),
         ]
-        if case WireError.serverError(let code, _) = error {
-            metadata[CodeContextTracing.MetadataKey.lspErrorCode] = .string("\(code)")
-        }
+        let metadata = requestMetadata.merging(Log.errorDetail(of: error)) { request, _ in request }
         logger.warning(
             "a language server request failed; the log does not show the next failures of this request for this server",
             metadata: metadata

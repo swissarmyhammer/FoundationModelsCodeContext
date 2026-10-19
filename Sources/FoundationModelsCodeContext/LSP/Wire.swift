@@ -78,6 +78,18 @@ extension WireError: LocalizedError {
     }
 }
 
+extension WireError {
+    /// The name of the case, for example `serverError`. It holds no
+    /// associated value, thus a log record can hold it.
+    var caseName: String {
+        switch self {
+        case .idMismatch: "idMismatch"
+        case .serverError: "serverError"
+        case .missingResult: "missingResult"
+        }
+    }
+}
+
 // MARK: - JSON-RPC envelopes
 
 /// A JSON-RPC 2.0 request sent to the server: expects a matching response.

@@ -138,6 +138,11 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// The default minimum healthy uptime. See `LSPDaemonLimits.defaultMinimumHealthyUptime`.
     static var defaultMinimumHealthyUptime: Duration { LSPDaemonLimits.defaultMinimumHealthyUptime }
 
+    /// The request that a handshake failure record names under
+    /// `CodeContextTracing.MetadataKey.lspRequest`: the handshake fails in `initialize`, or in
+    /// the `initialized` notification right after it.
+    private static var handshakeRequest: String { "initialize" }
+
     /// The server specification this daemon spawns and monitors.
     private let spec: ServerSpec
 
@@ -368,7 +373,7 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
         } catch {
             await spawnedHandle.terminate()
             let reason = await Self.handshakeFailureReason(error: error, handle: spawnedHandle)
-            recordFailure(reason: reason, error: error)
+            recordFailure(reason: reason, error: error, request: Self.handshakeRequest)
             throw CodeContextError.handshakeFailed(reason)
         }
 
@@ -597,18 +602,24 @@ actor LSPDaemon<Connection: LanguageServerConnection> {
     /// Increments the consecutive-failure counter and transitions to `.failed`.
     ///
     /// The full `reason` goes only into `.failed(reason:attempts:)`, for the caller. It can hold
-    /// the standard error tail of the server, which is content, so the log record holds only the
-    /// server name, the attempt number and the type of `error`.
+    /// the standard error tail and the error message of the server, which are content, so the log
+    /// record holds only the server name, the attempt number, the request that failed and the
+    /// names and codes of `Log.errorDetail(of:)` for `error`.
     /// - Parameters:
     ///   - reason: A human-readable description of what failed.
     ///   - error: The error that caused the failure, or `nil` when no error caused it (for
     ///     example an unexpected exit).
-    private func recordFailure(reason: String, error: (any Error)?) {
+    ///   - request: The LSP request that failed, for example `initialize`, or `nil` when no
+    ///     request failed (for example a spawn failure).
+    private func recordFailure(reason: String, error: (any Error)?, request: String? = nil) {
         consecutiveFailures += 1
         var metadata = serverMetadata
         metadata[CodeContextTracing.MetadataKey.lspAttempt] = .stringConvertible(consecutiveFailures)
+        if let request {
+            metadata[CodeContextTracing.MetadataKey.lspRequest] = .string(request)
+        }
         if let error {
-            metadata[CodeContextTracing.MetadataKey.errorType] = Log.errorType(of: error)
+            metadata.merge(Log.errorDetail(of: error)) { daemon, _ in daemon }
         }
         Log.lsp.error("the language server daemon failed", metadata: metadata)
         currentState = .failed(reason: reason, attempts: consecutiveFailures)

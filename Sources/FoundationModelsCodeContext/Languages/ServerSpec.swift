@@ -54,7 +54,7 @@ public struct ServerSpec: Sendable, Equatable {
         public let tool: String
 
         /// The full argv tail passed to `tool` (e.g.
-        /// `["install", "-g", "typescript-language-server", "typescript"]`).
+        /// `["install", "-g", "typescript-language-server", "typescript@6"]`).
         public let arguments: [String]
 
         /// Well-known bin directories the install lands in that may not be

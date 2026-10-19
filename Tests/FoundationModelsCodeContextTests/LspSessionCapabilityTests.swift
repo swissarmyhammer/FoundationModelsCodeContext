@@ -11,7 +11,7 @@ import Testing
 /// (`pylsp` has no call hierarchy, no workspace symbols and no
 /// implementations). A server that advertises a gated method gets the
 /// request. A request failure is logged one time for each (server, request)
-/// pair, with the type of the error and the code of the server error. The
+/// pair, with the type and the case of the error and the code of the server error. The
 /// record holds no message of the server, because that message is content.
 struct LspSessionCapabilityTests {
     /// Capabilities of a server that advertises call hierarchy and no other gated method.
@@ -174,7 +174,7 @@ struct LspSessionCapabilityTests {
     // MARK: - Failure log
 
     @Test
-    func aFailureLogRecordNamesTheServerTheRequestTheErrorTypeTheCodeAndTheFile() async throws {
+    func aFailureLogRecordNamesTheServerTheRequestTheErrorTypeTheCaseTheCodeAndTheFile() async throws {
         let logHandler = InMemoryLogHandler()
         let session = LspSession.makePylsp(over: FakeLanguageServerConnection(), logHandler: logHandler)
 
@@ -188,6 +188,7 @@ struct LspSessionCapabilityTests {
                 CodeContextTracing.MetadataKey.lspServer: "pylsp",
                 CodeContextTracing.MetadataKey.lspRequest: "prepareCallHierarchy",
                 CodeContextTracing.MetadataKey.errorType: .string(String(reflecting: WireError.self)),
+                CodeContextTracing.MetadataKey.errorCase: "serverError",
                 CodeContextTracing.MetadataKey.lspErrorCode: "-32601",
                 CodeContextTracing.MetadataKey.filePath: "django/utils/tree.py",
             ])

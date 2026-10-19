@@ -20,7 +20,7 @@ again; see below.
 | Rust | `rust-analyzer` | `rustup component add rust-analyzer` | `rustup` |
 | Go | `gopls` | `go install golang.org/x/tools/gopls@latest` | `go` |
 | Python | `pylsp` | `pipx install python-lsp-server` | `pipx` |
-| TypeScript / JavaScript / TSX | `typescript-language-server` | `npm install -g typescript-language-server typescript` | `npm` |
+| TypeScript / JavaScript / TSX | `typescript-language-server` | `npm install -g typescript-language-server typescript@6` | `npm` |
 | PHP | `intelephense` | `npm install -g intelephense` | `npm` |
 | Java | `jdtls` | `brew install jdtls` | `brew` |
 | Swift | `sourcekit-lsp` | hint only — install Xcode or a Swift toolchain | — |
@@ -31,6 +31,14 @@ The last three are **hint-only**: no automatic installer is available for
 them, because they need a full toolchain or their installations are not
 reliable. A missing binary stays `.notFound` and shows its install hint.
 This is the same behavior these servers had before auto-install existed.
+
+The TypeScript install pins TypeScript to major 6. TypeScript 7, the npm
+`latest` tag, is the native rewrite, and its package has no
+`lib/tsserver.js`. `typescript-language-server` needs that file, so with
+TypeScript 7 it fails `initialize` with "Could not find a valid TypeScript
+installation". A machine that already has TypeScript 7 as its global
+`typescript` keeps it, because `typescript-language-server` is on `$PATH` and
+no install runs. Run `npm install -g typescript@6` one time on that machine.
 
 ## How to control auto-install
 
@@ -127,9 +135,13 @@ function or method around each reference to the referenced symbol, and
 A reference is not always a call (a function passed as a value is a
 reference too), so these callers are a close approximation.
 
-When a request fails, the log shows the server, the request, and the code
-and the message of the server error. The log has one line for each
-(server, request) pair, not one line for each symbol.
+When a request fails, the log shows the server, the request, the error case
+(`error.case`, for example `serverError`) and the JSON-RPC code of the server
+error (`lsp.error_code`, for example `-32603`). It never shows the message of
+the server, because a message can hold content. The log has one line for each
+(server, request) pair, not one line for each symbol. When the handshake
+fails, the record "the language server daemon failed" shows the same error
+case and code, with `lsp.request` = `initialize`.
 
 ## What an empty result means
 

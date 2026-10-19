@@ -70,19 +70,47 @@ public enum Log {
     /// `CodeContextTracing.MetadataKey.errorType`. For a `CodeContextError` it
     /// also holds the case name under `CodeContextTracing.MetadataKey.errorCase`,
     /// and for a SQLite failure the SQLite extended result code under
-    /// `CodeContextTracing.MetadataKey.databaseStatusCode`.
+    /// `CodeContextTracing.MetadataKey.databaseStatusCode`. For a `WireError` it
+    /// also holds the case name under `CodeContextTracing.MetadataKey.errorCase`,
+    /// and for a server error the JSON-RPC error code under
+    /// `CodeContextTracing.MetadataKey.lspErrorCode`. It never holds the error
+    /// message of the server, because a message can hold content.
     ///
     /// - Parameter error: The error to name.
-    /// - Returns: The type name, and the case name and the SQLite result code
-    ///   when the error has them.
+    /// - Returns: The type name, and the case name, the SQLite result code and
+    ///   the JSON-RPC error code when the error has them.
     internal static func errorDetail(of error: any Error) -> Logger.Metadata {
-        var metadata: Logger.Metadata = [CodeContextTracing.MetadataKey.errorType: errorType(of: error)]
-        guard let error = error as? CodeContextError else {
+        let metadata: Logger.Metadata = [CodeContextTracing.MetadataKey.errorType: errorType(of: error)]
+        switch error {
+        case let error as CodeContextError:
+            return metadata.merging(caseDetail(of: error)) { type, _ in type }
+        case let error as WireError:
+            return metadata.merging(caseDetail(of: error)) { type, _ in type }
+        default:
             return metadata
         }
-        metadata[CodeContextTracing.MetadataKey.errorCase] = .string(error.caseName)
+    }
+
+    /// Gives the case name of a `CodeContextError`, and the SQLite extended
+    /// result code of a SQLite failure.
+    /// - Parameter error: The error to name.
+    /// - Returns: The case name, and the SQLite result code when the error has one.
+    private static func caseDetail(of error: CodeContextError) -> Logger.Metadata {
+        var metadata: Logger.Metadata = [CodeContextTracing.MetadataKey.errorCase: .string(error.caseName)]
         if case .storage(_, let sqliteResultCode?) = error {
             metadata[CodeContextTracing.MetadataKey.databaseStatusCode] = .stringConvertible(sqliteResultCode)
+        }
+        return metadata
+    }
+
+    /// Gives the case name of a `WireError`, and the JSON-RPC error code of a
+    /// server error. It never gives the error message of the server.
+    /// - Parameter error: The error to name.
+    /// - Returns: The case name, and the JSON-RPC error code when the error has one.
+    private static func caseDetail(of error: WireError) -> Logger.Metadata {
+        var metadata: Logger.Metadata = [CodeContextTracing.MetadataKey.errorCase: .string(error.caseName)]
+        if case .serverError(let code, _) = error {
+            metadata[CodeContextTracing.MetadataKey.lspErrorCode] = .string("\(code)")
         }
         return metadata
     }
@@ -99,12 +127,11 @@ public enum Log {
     ///
     /// - Parameters:
     ///   - server: The command name of the language server.
-    ///   - error: The error of the failure. The metadata holds only its type name.
-    /// - Returns: The server name under `CodeContextTracing.MetadataKey.lspServer` and the error
-    ///   type name under `CodeContextTracing.MetadataKey.errorType`.
+    ///   - error: The error of the failure. The metadata holds only the names and the codes of
+    ///     ``errorDetail(of:)``, never its description.
+    /// - Returns: The server name under `CodeContextTracing.MetadataKey.lspServer`, and the
+    ///   metadata of ``errorDetail(of:)``.
     internal static func serverFailureMetadata(server: String, error: any Error) -> Logger.Metadata {
-        var metadata = serverMetadata(server: server)
-        metadata[CodeContextTracing.MetadataKey.errorType] = errorType(of: error)
-        return metadata
+        serverMetadata(server: server).merging(errorDetail(of: error)) { server, _ in server }
     }
 }

@@ -88,7 +88,7 @@ private struct MarkedError: Error, LocalizedError, CustomStringConvertible {
 /// `IntegrationTests` package
 /// (`IntegrationTests/Tests/FoundationModelsCodeContextIntegrationTests/LoggingContentTests.swift`).
 struct LoggingContentTests {
-    /// A workspace root for the daemon test. The daemon only puts it in the
+    /// A workspace root for the daemon tests. The daemon only puts it in the
     /// `initialize` request, so no directory must exist.
     private static let workspaceRoot = URL(fileURLWithPath: "/tmp/logging-content-tests")
 
@@ -98,15 +98,21 @@ struct LoggingContentTests {
         "cck-log-marker-\(UUID().uuidString)"
     }
 
-    @Test
-    func aHandshakeFailureWritesNoStandardErrorTextAndNoErrorDescriptionToTheLog() async throws {
-        _ = CapturedLogRecords.handler
-        let marker = Self.makeMarker()
+    /// Makes a daemon whose `initialize` fails with `initializeError`, and
+    /// whose server writes `stderrText` to its standard error.
+    /// - Parameters:
+    ///   - initializeError: The error that the `initialize` request throws.
+    ///   - stderrText: The standard error tail of the fake server.
+    /// - Returns: A daemon that is not started.
+    private static func makeDaemonWithFailingHandshake(
+        initializeError: any Error,
+        stderrText: String
+    ) async -> LSPDaemon<FakeLanguageServerConnection> {
         let connection = FakeLanguageServerConnection()
-        await connection.setInitializeResult(to: .failure(MarkedError(marker: marker)))
-        let daemon = LSPDaemon<FakeLanguageServerConnection>(
+        await connection.setInitializeResult(to: .failure(initializeError))
+        return LSPDaemon<FakeLanguageServerConnection>(
             spec: ServerSpec(command: "true", languageIDs: ["fake"], installHint: "none"),
-            workspaceRoot: Self.workspaceRoot,
+            workspaceRoot: workspaceRoot,
             clock: ManualClock(),
             connectionFactory: { _, _ in
                 ConnectionHandle(
@@ -115,10 +121,17 @@ struct LoggingContentTests {
                     isAlive: { false },
                     waitForExit: {},
                     terminate: {},
-                    stderrTail: { marker }
+                    stderrTail: { stderrText }
                 )
             }
         )
+    }
+
+    @Test
+    func aHandshakeFailureWritesNoStandardErrorTextAndNoErrorDescriptionToTheLog() async throws {
+        _ = CapturedLogRecords.handler
+        let marker = Self.makeMarker()
+        let daemon = await Self.makeDaemonWithFailingHandshake(initializeError: MarkedError(marker: marker), stderrText: marker)
 
         await #expect(throws: CodeContextError.self) {
             try await daemon.start()
@@ -133,6 +146,34 @@ struct LoggingContentTests {
             CodeContextTracing.MetadataKey.lspAttempt: "1",
         ])
         #expect(!failureRecords.isEmpty)
+    }
+
+    /// The JSON-RPC code that typescript-language-server sends when its
+    /// `initialize` fails: "Internal error".
+    private static let internalErrorCode = -32603
+
+    @Test
+    func aHandshakeServerErrorWritesItsCaseCodeAndRequestButNotItsMessageToTheLog() async throws {
+        _ = CapturedLogRecords.handler
+        let marker = Self.makeMarker()
+        let daemon = await Self.makeDaemonWithFailingHandshake(
+            initializeError: WireError.serverError(code: Self.internalErrorCode, message: marker),
+            stderrText: marker
+        )
+
+        await #expect(throws: CodeContextError.self) {
+            try await daemon.start()
+        }
+
+        #expect(CapturedLogRecords.entries(holding: marker).isEmpty)
+        let failureRecords = CapturedLogRecords.entries(matching: [
+            CodeContextTracing.MetadataKey.errorType: String(reflecting: WireError.self),
+            CodeContextTracing.MetadataKey.errorCase: "serverError",
+            CodeContextTracing.MetadataKey.lspErrorCode: "\(Self.internalErrorCode)",
+            CodeContextTracing.MetadataKey.lspRequest: "initialize",
+            CodeContextTracing.MetadataKey.lspAttempt: "1",
+        ])
+        #expect(failureRecords.contains { $0.message.description == "the language server daemon failed" })
     }
 
     @Test

@@ -17,14 +17,20 @@ enum SharedServerSpecs {
     /// `languageIDs` list matches the yaml's `language_ids` exactly
     /// (`typescript`, `javascript`) — the LSP spec has no distinct `tsx`
     /// language identifier, and TSX documents are submitted as `typescript`.
+    ///
+    /// The installer pins TypeScript to major 6. TypeScript 7, the npm
+    /// `latest` tag, is the native rewrite: its package ships no
+    /// `lib/tsserver.js`. typescript-language-server 6.x needs that file, so
+    /// with TypeScript 7 beside it the server fails `initialize` with "Could
+    /// not find a valid TypeScript installation".
     static let typeScriptFamily = ServerSpec(
         command: "typescript-language-server",
         arguments: ["--stdio"],
         languageIDs: ["typescript", "javascript"],
-        installHint: "Install typescript-language-server: npm install -g typescript-language-server typescript",
+        installHint: "Install typescript-language-server: npm install -g typescript-language-server typescript@6",
         installer: ServerSpec.InstallSpec(
             tool: "npm",
-            arguments: ["install", "-g", "typescript-language-server", "typescript"]
+            arguments: ["install", "-g", "typescript-language-server", "typescript@6"]
         )
     )
 
