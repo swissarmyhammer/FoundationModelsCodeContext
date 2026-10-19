@@ -380,9 +380,10 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     /// reads the filter one time for each file, and gives the same filter to
     /// the references fallback, which opens the files that hold a reference.
     ///
-    /// A file that can't be read (missing, non-UTF-8) is marked indexed with
-    /// nothing written — mirroring `TreeSitterWorker`'s handling of an
-    /// unreadable file, there is nothing meaningful to retry. A `syncOpen`
+    /// A file that can't be read as text (gone, not UTF-8, or unreadable) is
+    /// marked indexed with nothing written, because there is nothing
+    /// meaningful to retry (see `skipUnreadFile(relativePath:failure:store:)` for the log
+    /// level of each case). A `syncOpen`
     /// or `documentSymbol` failure, by contrast, leaves the file dirty and
     /// writes nothing for it — see this type's doc comment for why this
     /// differs from the Rust reference. A `prepareCallHierarchy`/
@@ -432,13 +433,11 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             )
         }
 
-        guard let contents = document.readText() else {
-            return await skipFile(
-                relativePath: relativePath,
-                store: store,
-                level: .warning,
-                message: "the LSP index worker cannot read a file and marks the file indexed"
-            )
+        let contents: String
+        do {
+            contents = try document.read()
+        } catch {
+            return await skipUnreadFile(relativePath: relativePath, failure: error, store: store)
         }
 
         let uri = document.uri
@@ -640,16 +639,69 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
     ///   - level: The log level of the record. A path that the path filter
     ///     does not accept is not an error, thus it has the debug level.
     ///   - message: Why the worker skips the file.
+    ///   - metadata: More metadata of the record, beside the file path. The
+    ///     default is none.
     /// - Returns: `true` unconditionally, matching this path's "nothing to
     ///   retry" contract even when the mark write itself fails.
-    static func skipFile(relativePath: String, store: Store, level: Logger.Level, message: Logger.Message) async -> Bool {
-        Log.lsp.log(level: level, message, metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)])
+    static func skipFile(
+        relativePath: String,
+        store: Store,
+        level: Logger.Level,
+        message: Logger.Message,
+        metadata: Logger.Metadata = [:]
+    ) async -> Bool {
+        var recordMetadata = metadata
+        recordMetadata[CodeContextTracing.MetadataKey.filePath] = .string(relativePath)
+        Log.lsp.log(level: level, message, metadata: recordMetadata)
         do {
             try await store.markIndexed(filePath: relativePath, layer: .lsp)
         } catch {
             logStoreFailure("a file that the LSP index worker skips could not be marked indexed", filePath: relativePath, error: error)
         }
         return true
+    }
+
+    /// Skips a file whose read gave no text (see `skipFile`), with the log
+    /// level of the reason.
+    ///
+    /// A file that is gone is not an error, thus its record has the debug
+    /// level. The path filter already does not accept a path with no file,
+    /// thus this case is only a file that is removed between that check and
+    /// the read. The worker marks it indexed like the path filter case; the
+    /// tree-sitter pass, the watcher and the reconcile remove its row. A file
+    /// that is not UTF-8 text is a fact of the workspace, thus its record has
+    /// the info level. Each other read failure is a warning, with the type
+    /// name of the error.
+    /// - Parameters:
+    ///   - relativePath: The file's workspace-relative path.
+    ///   - failure: Why the read gave no text.
+    ///   - store: The workspace's index store to write into.
+    /// - Returns: `true` unconditionally (see `skipFile`).
+    private static func skipUnreadFile(relativePath: String, failure: SourceText.ReadFailure, store: Store) async -> Bool {
+        switch failure {
+        case .missing:
+            await skipFile(
+                relativePath: relativePath,
+                store: store,
+                level: .debug,
+                message: "the LSP index worker finds no file at a dirty path and marks the file indexed"
+            )
+        case .notUTF8:
+            await skipFile(
+                relativePath: relativePath,
+                store: store,
+                level: .info,
+                message: "the LSP index worker skips a file that is not UTF-8 text and marks the file indexed"
+            )
+        case .unreadable(let errorType):
+            await skipFile(
+                relativePath: relativePath,
+                store: store,
+                level: .warning,
+                message: "the LSP index worker cannot read a file and marks the file indexed",
+                metadata: [CodeContextTracing.MetadataKey.errorType: errorType]
+            )
+        }
     }
 
     // MARK: - Flattening

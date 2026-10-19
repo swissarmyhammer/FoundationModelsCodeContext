@@ -44,6 +44,15 @@ struct LanguageServerDocument: Sendable {
         Self.readText(relativePath: relativePath, rootDirectory: rootDirectory)
     }
 
+    /// Reads the disk text of the document now, and tells why the read gives
+    /// no text. The path filter accepted the path of the document, thus the
+    /// path is safe (see `PathFilter.acceptsDocument(relativePath:)`).
+    /// - Returns: The text of the document.
+    /// - Throws: `SourceText.ReadFailure` when the read gives no text.
+    func read() throws(SourceText.ReadFailure) -> String {
+        try SourceText.read(at: rootDirectory.appendingPathComponent(relativePath))
+    }
+
     /// Builds the document URI of `relativePath` below `rootDirectory`. The
     /// build does not read the disk.
     /// - Parameters:
@@ -68,11 +77,7 @@ struct LanguageServerDocument: Sendable {
         guard RelativePath.isSafeRelativePath(relativePath) else {
             return nil
         }
-        let fileURL = rootDirectory.appendingPathComponent(relativePath)
-        guard let data = try? Data(contentsOf: fileURL) else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
+        return try? SourceText.read(at: rootDirectory.appendingPathComponent(relativePath))
     }
 }
 

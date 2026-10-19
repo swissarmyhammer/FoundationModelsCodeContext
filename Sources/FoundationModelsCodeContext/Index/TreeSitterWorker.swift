@@ -1,6 +1,7 @@
 import Foundation
 import FoundationModelsExtras
 import GRDB
+import Logging
 import Tracing
 
 /// Drains `ts_indexed = 0` files from a `Store`, parses and chunks each via
@@ -54,7 +55,9 @@ public enum TreeSitterWorker {
     ///
     /// For each dirty file: reads its content from disk (relative to
     /// `rootDirectory`), looks up its `LanguageModule` by extension, chunks
-    /// it, replaces its `ts_chunks` rows, and marks it indexed. A file is
+    /// it, replaces its `ts_chunks` rows, and marks it indexed. A file that
+    /// is no longer on disk (it was removed after the event that made it
+    /// dirty) is removed from the index with all its rows. Each other file is
     /// always marked indexed, so it isn't retried forever, but the two ways
     /// chunking can come up empty are handled differently: a file whose
     /// language module can't be resolved or can't be read as UTF-8 text
@@ -148,14 +151,7 @@ public enum TreeSitterWorker {
 
         for relativePath in dirtyPaths {
             try Task.checkCancellation()
-            if let parsed = readAndChunk(relativePath: relativePath, rootDirectory: rootDirectory) {
-                // writeChunks marks the file tree-sitter-indexed itself, in
-                // the same transaction as the chunk rows and call-graph
-                // edges it writes.
-                try await writeChunks(file: parsed.file, module: parsed.module, chunks: parsed.chunks, store: store)
-            } else {
-                try await store.markIndexed(filePath: relativePath, layer: .treeSitter)
-            }
+            try await indexFile(relativePath: relativePath, rootDirectory: rootDirectory, store: store)
         }
 
         if let measuredEmbedder {
@@ -189,10 +185,52 @@ public enum TreeSitterWorker {
         let chunks: [SemanticChunk]
     }
 
+    /// What `readAndChunk(relativePath:rootDirectory:)` gives for one dirty
+    /// file, and thus what `indexFile(relativePath:rootDirectory:store:)`
+    /// writes for it.
+    private enum ReadOutcome {
+        /// The file was read and chunked.
+        case parsed(ParsedFile)
+
+        /// No file is at the path: it was removed after the event that made
+        /// it dirty. The worker removes the rows of the file.
+        case missing
+
+        /// The worker does not chunk the file, and marks it indexed with
+        /// nothing written.
+        case skipped
+    }
+
+    /// Indexes one dirty file, outside of the transaction of any other file.
+    ///
+    /// A file that was read and chunked gets its rows replaced (see
+    /// `writeChunks(file:module:chunks:store:)`, which marks the file indexed
+    /// itself, in the same transaction as the rows it writes). A file that is
+    /// gone gets its `indexed_files` row deleted with
+    /// `Store.deleteFile(filePath:)`, which cascades to its chunks (with
+    /// their embeddings), symbols and call edges. This is the same delete as
+    /// the delete of the watcher for a removed file and of the reconcile for
+    /// a file that is no longer on disk, thus the three paths agree. Each
+    /// other file is marked indexed with nothing written, so it is not tried
+    /// again in each pass.
+    /// - Parameters:
+    ///   - relativePath: The workspace-relative path of the dirty file.
+    ///   - rootDirectory: The workspace root that `relativePath` is relative to.
+    ///   - store: The workspace's index store to write into.
+    /// - Throws: Rethrows `Store`'s storage errors.
+    private static func indexFile(relativePath: String, rootDirectory: URL, store: Store) async throws {
+        switch readAndChunk(relativePath: relativePath, rootDirectory: rootDirectory) {
+        case .parsed(let parsed):
+            try await writeChunks(file: parsed.file, module: parsed.module, chunks: parsed.chunks, store: store)
+        case .missing:
+            try await store.deleteFile(filePath: relativePath)
+        case .skipped:
+            try await store.markIndexed(filePath: relativePath, layer: .treeSitter)
+        }
+    }
+
     /// Reads `relativePath`'s content from disk and chunks it with its
-    /// registered `LanguageModule`, or `nil` if `relativePath` is unsafe to
-    /// resolve, the language module can't be resolved, or the file can't be
-    /// read as UTF-8 text.
+    /// registered `LanguageModule`.
     ///
     /// `relativePath` is checked with `RelativePath.isSafeRelativePath(_:)`
     /// before it is ever resolved against disk: a `..` component, or a
@@ -206,13 +244,20 @@ public enum TreeSitterWorker {
     /// back out of the store any more than `LSPIndexWorker` trusts it.
     ///
     /// Runs entirely outside any database transaction.
-    private static func readAndChunk(relativePath: String, rootDirectory: URL) -> ParsedFile? {
+    /// - Parameters:
+    ///   - relativePath: The workspace-relative path of the dirty file.
+    ///   - rootDirectory: The workspace root that `relativePath` is relative to.
+    /// - Returns: `.parsed` with the chunks of the file, `.missing` when no
+    ///   file is at the path, or `.skipped` when the path is not safe, no
+    ///   language module parses the file, or the file cannot be read as
+    ///   UTF-8 text.
+    private static func readAndChunk(relativePath: String, rootDirectory: URL) -> ReadOutcome {
         guard RelativePath.isSafeRelativePath(relativePath) else {
             Log.index.warning(
                 "the tree-sitter index worker rejects a relative path that is not safe and marks the file indexed",
                 metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
             )
-            return nil
+            return .skipped
         }
 
         let fileExtension = Languages.normalizedFileExtension(ofPath: relativePath)
@@ -221,21 +266,52 @@ public enum TreeSitterWorker {
                 "no language module parses the file",
                 metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
             )
-            return nil
+            return .skipped
         }
 
-        let fileURL = rootDirectory.appendingPathComponent(relativePath)
-        guard let data = try? Data(contentsOf: fileURL), let contents = String(data: data, encoding: .utf8) else {
-            Log.index.warning(
-                "the tree-sitter index worker cannot read the file",
-                metadata: [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
-            )
-            return nil
+        let contents: String
+        do {
+            contents = try SourceText.read(at: rootDirectory.appendingPathComponent(relativePath))
+        } catch {
+            return outcome(of: error, relativePath: relativePath)
         }
 
         let file = SourceFile(relativePath: relativePath, contents: contents)
         let chunks = Chunker.chunk(file: file, module: module)
-        return ParsedFile(file: file, module: module, chunks: chunks)
+        return .parsed(ParsedFile(file: file, module: module, chunks: chunks))
+    }
+
+    /// Logs why the read of `relativePath` gave no text, and gives what the
+    /// worker writes for the file.
+    ///
+    /// A file that is gone is not an error, thus its record has the debug
+    /// level. A file that is not UTF-8 text is a fact of the workspace, thus
+    /// its record has the info level. Each other read failure is a warning,
+    /// with the type name of the error.
+    /// - Parameters:
+    ///   - failure: Why the read gave no text.
+    ///   - relativePath: The workspace-relative path of the file.
+    /// - Returns: `.missing` for a file that is gone, else `.skipped`.
+    private static func outcome(of failure: SourceText.ReadFailure, relativePath: String) -> ReadOutcome {
+        var metadata: Logger.Metadata = [CodeContextTracing.MetadataKey.filePath: .string(relativePath)]
+        switch failure {
+        case .missing:
+            Log.index.debug(
+                "the tree-sitter index worker finds no file at a dirty path and removes the file from the index",
+                metadata: metadata
+            )
+            return .missing
+        case .notUTF8:
+            Log.index.info(
+                "the tree-sitter index worker skips a file that is not UTF-8 text and marks the file indexed",
+                metadata: metadata
+            )
+            return .skipped
+        case .unreadable(let errorType):
+            metadata[CodeContextTracing.MetadataKey.errorType] = errorType
+            Log.index.warning("the tree-sitter index worker cannot read the file", metadata: metadata)
+            return .skipped
+        }
     }
 
     /// Compares the embed-text version that `store` records with

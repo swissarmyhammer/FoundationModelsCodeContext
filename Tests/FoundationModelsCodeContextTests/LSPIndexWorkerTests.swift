@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import InMemoryLogging
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -473,6 +474,59 @@ struct LSPIndexWorkerTests {
             #expect(try await store.drainLspDirty().isEmpty)
             let calls = await connection.calls
             #expect(calls.isEmpty, "an unreadable file must never reach the connection")
+        }
+    }
+
+    /// Drains one LSP batch over the dirty file `filePath` with a fake
+    /// connection, and gives the log records of the file.
+    /// - Parameters:
+    ///   - filePath: The workspace-relative path of the dirty file.
+    ///   - root: The workspace root.
+    ///   - store: The index store of the workspace.
+    /// - Returns: The captured log records whose file path metadata is `filePath`.
+    private static func drainBatchLogRecords(ofFilePath filePath: String, root: URL, store: Store) async throws -> [InMemoryLogHandler.Entry] {
+        _ = CapturedLogRecords.handler
+        let connection = FakeLanguageServerConnection()
+        let session = LspSession(connection: connection, languageID: "swift")
+        let indexedCount = try await LSPIndexWorker<FakeLanguageServerConnection>.drainBatch(
+            store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["swift"], session: session
+        )
+        #expect(indexedCount == 1)
+        #expect(try await store.drainLspDirty().isEmpty)
+        #expect(await connection.calls.isEmpty, "a file that the worker cannot read as text must never reach the connection")
+        return CapturedLogRecords.entries(matching: [CodeContextTracing.MetadataKey.filePath: filePath])
+    }
+
+    @Test
+    func drainBatchWritesTheNotUTF8MessageForAFileThatIsNotUTF8Text() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let filePath = "NotUTF8-\(UUID().uuidString).swift"
+            try Data([0xFF, 0xFE, 0xFD]).write(to: root.appendingPathComponent(filePath))
+            try await Self.seedDirty(store: store, filePath: filePath)
+
+            let records = try await Self.drainBatchLogRecords(ofFilePath: filePath, root: root, store: store)
+
+            #expect(records.map(\.message.description) == ["the LSP index worker skips a file that is not UTF-8 text and marks the file indexed"])
+            #expect(records.allSatisfy { $0.level == .info })
+        }
+    }
+
+    @Test
+    func drainBatchKeepsTheWarningWithTheErrorTypeForAFileThatCannotBeRead() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let filePath = "Unreadable-\(UUID().uuidString).swift"
+            try write("func unreadable() {}\n", to: filePath, in: root)
+            try await Self.seedDirty(store: store, filePath: filePath)
+
+            let records = try await withPermissions(noAccessPermissions, at: root.appendingPathComponent(filePath), restoringTo: restoredFilePermissions) {
+                try await Self.drainBatchLogRecords(ofFilePath: filePath, root: root, store: store)
+            }
+
+            #expect(records.map(\.message.description) == ["the LSP index worker cannot read a file and marks the file indexed"])
+            #expect(records.allSatisfy { $0.level == .warning })
+            #expect(records.allSatisfy { $0.metadata[CodeContextTracing.MetadataKey.errorType] != nil })
         }
     }
 

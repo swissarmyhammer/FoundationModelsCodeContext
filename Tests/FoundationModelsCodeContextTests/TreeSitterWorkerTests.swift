@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import InMemoryLogging
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -155,6 +156,110 @@ struct TreeSitterWorkerTests {
                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ts_chunks") ?? 0
             }
             #expect(chunkCount == 0)
+        }
+    }
+
+    // MARK: - Files that the read does not give as text
+
+    /// The text of a file whose functions call each other, thus the pass
+    /// writes chunks, symbols and call edges for it.
+    private static let callingSource = "func caller() { callee() }\nfunc callee() {}\n"
+
+    /// Bytes that are not UTF-8 text.
+    private static let notUTF8 = Data([0xFF, 0xFE, 0xFD])
+
+    /// The tables that hold the rows of one indexed file.
+    private static let fileTables = [
+        Schema.IndexedFiles.table, Schema.TsChunks.table, Schema.LspSymbols.table, Schema.LspCallEdges.table,
+    ]
+
+    /// Counts the rows of `filePath` in each table of `fileTables`.
+    /// - Parameters:
+    ///   - filePath: The workspace-relative path of the file.
+    ///   - store: The index store to read.
+    /// - Returns: The row count of each table, keyed by the table name.
+    private static func rowCounts(ofFilePath filePath: String, store: Store) async throws -> [String: Int] {
+        try await store.read { db in
+            try Dictionary(
+                uniqueKeysWithValues: fileTables.map { table in
+                    (table, try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table) WHERE file_path = ?", arguments: [filePath]) ?? 0)
+                }
+            )
+        }
+    }
+
+    /// Gives the captured log records of `filePath`.
+    /// - Parameter filePath: The workspace-relative path of the file.
+    /// - Returns: The records whose file path metadata is `filePath`.
+    private static func logRecords(ofFilePath filePath: String) -> [InMemoryLogHandler.Entry] {
+        CapturedLogRecords.entries(matching: [CodeContextTracing.MetadataKey.filePath: filePath])
+    }
+
+    @Test
+    func runRemovesTheRowsOfAFileDeletedBeforeTheReadAndWritesNoWarning() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let filePath = "Deleted-\(UUID().uuidString).swift"
+            try write(Self.callingSource, to: filePath, in: root)
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+            try await TreeSitterWorker.run(store: store, rootDirectory: root)
+            let indexedCounts = try await Self.rowCounts(ofFilePath: filePath, store: store)
+            try #require(indexedCounts.values.allSatisfy { $0 > 0 }, "the test needs a file with rows in each table: \(indexedCounts)")
+
+            try await store.markDirty(filePath: filePath, contentHash: Data(filePath.utf8), fileSize: 1)
+            try FileManager.default.removeItem(at: root.appendingPathComponent(filePath))
+            let processed = try await TreeSitterWorker.run(store: store, rootDirectory: root)
+
+            #expect(processed == 1)
+            let remainingCounts = try await Self.rowCounts(ofFilePath: filePath, store: store)
+            #expect(remainingCounts.values.allSatisfy { $0 == 0 }, "\(remainingCounts)")
+            let records = Self.logRecords(ofFilePath: filePath)
+            #expect(!records.isEmpty, "the pass writes a record for the deleted file")
+            #expect(records.allSatisfy { $0.level == .debug })
+        }
+    }
+
+    @Test
+    func runWritesTheNotUTF8MessageForAFileThatIsNotUTF8Text() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let filePath = "NotUTF8-\(UUID().uuidString).swift"
+            try Self.notUTF8.write(to: root.appendingPathComponent(filePath))
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            try await TreeSitterWorker.run(store: store, rootDirectory: root)
+
+            #expect(try await store.drainTsDirty().isEmpty)
+            let records = Self.logRecords(ofFilePath: filePath)
+            #expect(
+                records.map(\.message.description)
+                    == ["the tree-sitter index worker skips a file that is not UTF-8 text and marks the file indexed"]
+            )
+            #expect(records.allSatisfy { $0.level == .info })
+        }
+    }
+
+    @Test
+    func runKeepsTheWarningWithTheErrorTypeForAFileThatCannotBeRead() async throws {
+        _ = CapturedLogRecords.handler
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let filePath = "Unreadable-\(UUID().uuidString).swift"
+            try write(Self.callingSource, to: filePath, in: root)
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+
+            _ = try await withPermissions(noAccessPermissions, at: root.appendingPathComponent(filePath), restoringTo: restoredFilePermissions) {
+                try await TreeSitterWorker.run(store: store, rootDirectory: root)
+            }
+
+            #expect(try await store.drainTsDirty().isEmpty)
+            #expect(try await Self.rowCounts(ofFilePath: filePath, store: store)[Schema.IndexedFiles.table] == 1)
+            let records = Self.logRecords(ofFilePath: filePath)
+            #expect(records.map(\.message.description) == ["the tree-sitter index worker cannot read the file"])
+            #expect(records.allSatisfy { $0.level == .warning })
+            #expect(records.allSatisfy { $0.metadata[CodeContextTracing.MetadataKey.errorType] != nil })
         }
     }
 }

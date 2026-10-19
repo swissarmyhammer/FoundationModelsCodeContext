@@ -101,8 +101,31 @@ comments:
     - evidence: swift test — 1015 tests in 90 suites passed, 0 failed, 0 skipped; swift test --package-path IntegrationTests — 22 tests in 16 suites passed. Only build warning: pre-existing mlx-swift_Cmlx "missing creator for mutated node" (reported, not chased). The runtime log lines "warning ... language server is not on the PATH" come from a test that deliberately starts a nonexistent binary.
     - next: review/commit
   timestamp: 2026-10-19T12:58:08.472861+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m5a3vqhh5ca3sev9c5md7tet
+  text: |-
+    ### commit — changed
+    - evidence: cc0b9a1 refactor(test): free spawn arguments with a for-in loop ^sgdcvtq
+    - next: none
+  timestamp: 2026-10-19T12:58:23.153142+00:00
+- actor: claude-code
+  id: 01m5a3zcpewy5tca182khrnemv
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (cc0b9a1) — 0 findings (0 confirmed, 0 refuted, 7 attempted, 0 failed); 1 file reviewed, 2 .kanban files excluded by .reviewignore. Prior finding scripted-lsp-server.swift:348 ReplaceForEachWithForLoop verified fixed: the defer now frees with a for-in loop and no `forEach` remains in the file.
+    - next: task moved to done.
+  timestamp: 2026-10-19T13:00:23.118573+00:00
+- actor: claude-code
+  id: 01m5a3zqc01wc0t8bk76m0fmx9
+  text: |-
+    ### finish iteration 2 — clean
+    - implement: changed — scripted-lsp-server.swift forEach → for-in
+    - test: green — swift test 1015 passed, IntegrationTests 22 passed, 0 skipped
+    - commit: cc0b9a1
+    - review: clean — 0 findings; task in done
+  timestamp: 2026-10-19T13:00:34.048891+00:00
+position_column: done
+position_ordinal: f980
 title: 'pylsp Jedi subprocess children: prove a pylsp stop reaps them and the count does not grow in one session'
 ---
 ## What
