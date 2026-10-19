@@ -37,6 +37,46 @@ comments:
     - evidence: swift test: 1048 tests in 92 suites passed, 0 failures, 0 skipped. swift test --package-path IntegrationTests: 22 tests in 16 suites passed. Only warning is the pre-existing mlx-swift_Cmlx "missing creator for mutated node" (reported, not chased). LanguageServerGrandchildTests flake (^t71wvkm) did not appear. ~/Library/Caches/FoundationModelsCodeContext absent before and after both runs (no install-failure record written).
     - next: review/commit
   timestamp: 2026-10-19T14:20:03.731005+00:00
+- actor: claude-code
+  id: 01m5a8nqw17evkdwyt85hagq0p
+  text: |-
+    ### review — findings
+    - evidence: review sha HEAD~1..HEAD (071cf12) — 3 findings — Sources/FoundationModelsCodeContext/LSP/ServerInstaller.swift:123, Sources/FoundationModelsCodeContext/LSP/ServerInstaller.swift:169, Sources/FoundationModelsCodeContext/LSP/ServerInstaller.swift:554
+    - next: implement the 3 open items in the 2026-10-19 09:20 Review Findings section; task stays in review
+  timestamp: 2026-10-19T14:22:29.761811+00:00
+- actor: claude-code
+  id: 01m5a8p41chya2kdcx71m47njs
+  text: |-
+    ### finish iteration 1 — findings
+    - implement: changed — 16 files (InstallFailureRecord.swift new, ServerInstaller, CodeContextTracing, tests +14, README, docs)
+    - test: green — swift test 1048 passed, IntegrationTests 22 passed, 0 skipped; real caches dir untouched
+    - commit: 071cf12
+    - review: findings — ServerInstaller.swift:123 (magic-numbers), ServerInstaller.swift:169 (magic-numbers), ServerInstaller.swift:554 (idioms UseLetInEveryBoundCaseVariable)
+  timestamp: 2026-10-19T14:22:42.220150+00:00
+- actor: claude-code
+  id: 01m5a8w3ajcsqvs7r4f9mvxpq7
+  text: |-
+    Review findings (2026-10-19 09:20) addressed, task pulled back to doing:
+    - magic-numbers-swift :123: `24 * 60 * 60` replaced by `defaultFailureBackoffHours * secondsPerHour` (two new private static lets: `secondsPerHour = 3_600`, `defaultFailureBackoffHours = 24`). Under swiftlint `no_magic_numbers`, the operands of an arithmetic expression count as magic numbers even in a `static let`. A plain literal `static let` does not.
+    - magic-numbers-swift :169: the default parameter `.seconds(300)` was flagged because the literal is a call argument. New public `LspAutoInstall.defaultTimeoutSeconds: Int64 = 300` and `LspAutoInstall.defaultTimeout: Duration`, following the same pattern as `defaultFailureBackoff`. `init(timeout:)` now defaults to `defaultTimeout`. Doc comments now name it.
+    - idioms-swift :554: `case let .failed(exitCode, reason)` changed to `case .failed(let exitCode, let reason)`. That was the only `case let` in ServerInstaller.swift and InstallFailureRecord.swift (checked with rg).
+    - Swept the whole file and InstallFailureRecord.swift. swiftlint 0.65 with the validator's config (`only_rules: [no_magic_numbers]`, `allowed_numbers: [0, 1, -1, 100]`) reports 4 violations on the HEAD version of ServerInstaller.swift (123 x3, 169) and 0 on either file now. InstallFailureRecord's `attosecondsPerSecond = 1e18` is a plain `static let`, which the rule accepts.
+    - TDD: new test `InstallFailureRecordTests.theDefaultTimeoutIsFiveMinutes`. RED: compile error "type 'LspAutoInstall' has no member 'defaultTimeout'". GREEN after the change.
+  timestamp: 2026-10-19T14:25:58.098190+00:00
+- actor: claude-code
+  id: 01m5a8w6rc17c3vf2kpc7b1h1j
+  text: |-
+    ### implement — changed
+    - evidence: 2 files — Sources/FoundationModelsCodeContext/LSP/ServerInstaller.swift (LspAutoInstall constants secondsPerHour, defaultFailureBackoffHours, defaultTimeoutSeconds, defaultTimeout; init default `timeout: Duration = defaultTimeout`; `case .failed(let exitCode, let reason)` in performAttempt), Tests/FoundationModelsCodeContextTests/InstallFailureRecordTests.swift (defaultTimeoutSeconds + theDefaultTimeoutIsFiveMinutes). `swift test --filter 'ServerInstallerTests|InstallFailureRecordTests|ProcessInstallRunnerTests|InstallFailureReasonTests'`: 47 tests in 5 suites passed, 0 failed. The only warning is the mlx-swift_Cmlx "missing creator for mutated node" warning, already recorded on this card by earlier runs. swiftlint no_magic_numbers: 0 on both source files. All 3 findings flipped to [x].
+    - next: /review
+  timestamp: 2026-10-19T14:26:01.612847+00:00
+- actor: claude-code
+  id: 01m5a9106rht5v8dgzzgvrqa3j
+  text: |-
+    ### test — green
+    - evidence: `swift test` — 1049 tests in 92 suites passed, 0 failed, 0 skipped; `swift test --package-path IntegrationTests` — 22 tests in 16 suites passed, 0 failed, 0 skipped. No compiler warnings. Only warning: pre-existing mlx-swift_Cmlx "missing creator for mutated node" (reported, not chased). LanguageServerGrandchildTests did not flake (^t71wvkm). ~/Library/Caches/FoundationModelsCodeContext absent before and after both runs.
+    - next: review/commit
+  timestamp: 2026-10-19T14:28:38.744852+00:00
 depends_on:
 - 01M5A10VFHNREW31047TBJGYZZ
 position_column: doing
@@ -68,3 +108,18 @@ SWE-bench run of 2026-10-18: each of the 16 sessions ran `npm install -g typescr
 ## Acceptance
 - A failed install is tried at most once per backoff window per machine, across sessions and workspaces.
 - Docs (README auto-install section) mention the record and how to clear it. #lsp #performance
+
+## Review Findings (2026-10-19 09:20)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 13 file(s) reviewed, 6 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 2 file(s) not reviewed — no validator matched:
+> - `README.md` — no validator matches this file
+> - `docs/language-servers.md` — no validator matches this file
+
+- [x] `Sources/FoundationModelsCodeContext/LSP/ServerInstaller.swift:123` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Sources/FoundationModelsCodeContext/LSP/ServerInstaller.swift:169` `code-hygiene/magic-numbers-swift` — Magic numbers should be replaced by named constants.
+- [x] `Sources/FoundationModelsCodeContext/LSP/ServerInstaller.swift:554` `code-hygiene/idioms-swift` — UseLetInEveryBoundCaseVariable: move this 'let' keyword inside the 'case' pattern, before each of the bound variables.

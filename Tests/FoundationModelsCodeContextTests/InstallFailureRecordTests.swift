@@ -20,6 +20,9 @@ struct InstallFailureRecordTests {
     /// The number of seconds in the default backoff window: 24 hours.
     private static let defaultBackoffSeconds: Int64 = 24 * 60 * 60
 
+    /// The number of seconds in the default timeout of one install command: 5 minutes.
+    private static let defaultTimeoutSeconds: Int64 = 300
+
     /// The number of seconds in the short backoff window of the backoff tests.
     private static let shortBackoffSeconds: Int64 = 60
 
@@ -302,6 +305,12 @@ struct InstallFailureRecordTests {
     @Test
     func theDefaultBackoffWindowIsOneDay() {
         #expect(LspAutoInstall().failureBackoff == .seconds(Self.defaultBackoffSeconds))
+    }
+
+    @Test
+    func theDefaultTimeoutIsFiveMinutes() {
+        #expect(LspAutoInstall.defaultTimeout == .seconds(Self.defaultTimeoutSeconds))
+        #expect(LspAutoInstall().timeout == LspAutoInstall.defaultTimeout)
     }
 
     @Test

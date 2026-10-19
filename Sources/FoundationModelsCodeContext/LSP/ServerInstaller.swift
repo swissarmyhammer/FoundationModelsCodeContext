@@ -119,8 +119,20 @@ enum BinaryLookup {
 /// `failureRecordDirectory` holds each failed installer command, and no session on the machine
 /// runs that command again until `failureBackoff` has elapsed. A success clears the entry.
 public struct LspAutoInstall: Sendable, Equatable {
+    /// The number of seconds in one hour.
+    private static let secondsPerHour: Int64 = 3_600
+
+    /// The number of hours in `defaultFailureBackoff`: one day.
+    private static let defaultFailureBackoffHours: Int64 = 24
+
+    /// The number of seconds in `defaultTimeout`: 5 minutes.
+    public static let defaultTimeoutSeconds: Int64 = 300
+
+    /// The default of `timeout`: 5 minutes.
+    public static let defaultTimeout: Duration = .seconds(defaultTimeoutSeconds)
+
     /// The number of seconds in `defaultFailureBackoff`: 24 hours.
-    public static let defaultFailureBackoffSeconds: Int64 = 24 * 60 * 60
+    public static let defaultFailureBackoffSeconds: Int64 = defaultFailureBackoffHours * secondsPerHour
 
     /// The default of `failureBackoff`: 24 hours.
     public static let defaultFailureBackoff: Duration = .seconds(defaultFailureBackoffSeconds)
@@ -140,8 +152,8 @@ public struct LspAutoInstall: Sendable, Equatable {
     public var isEnabled: Bool
 
     /// How long one install command may run before it is treated as failed and force-terminated.
-    /// Defaults to 300 seconds — generous enough for a cold `npm install -g` or `go install` on a
-    /// slow connection, but still bounded.
+    /// Defaults to `defaultTimeout` (300 seconds) — generous enough for a cold `npm install -g` or
+    /// `go install` on a slow connection, but still bounded.
     public var timeout: Duration
 
     /// How long after a failed install the same installer command is not run again, by any
@@ -159,14 +171,14 @@ public struct LspAutoInstall: Sendable, Equatable {
     /// - Parameters:
     ///   - isEnabled: Whether auto-install is permitted. Defaults to `true`.
     ///   - timeout: How long one install command may run before it is force-terminated as failed.
-    ///     Defaults to 300 seconds.
+    ///     Defaults to `defaultTimeout` (300 seconds).
     ///   - failureBackoff: How long after a failed install the same installer command is not
     ///     run again. Defaults to `defaultFailureBackoff` (24 hours).
     ///   - failureRecordDirectory: The directory of the record of failed installs, or `nil` to
     ///     keep no record. Defaults to `defaultFailureRecordDirectory`.
     public init(
         isEnabled: Bool = true,
-        timeout: Duration = .seconds(300),
+        timeout: Duration = defaultTimeout,
         failureBackoff: Duration = defaultFailureBackoff,
         failureRecordDirectory: URL? = defaultFailureRecordDirectory
     ) {
@@ -551,7 +563,7 @@ actor ServerInstaller {
         case .succeeded:
             failureBackoff?.noteSuccess(of: key)
             return true
-        case let .failed(exitCode, reason):
+        case .failed(let exitCode, let reason):
             failureBackoff?.noteFailure(of: key, exitCode: exitCode, reason: reason)
             return false
         }
