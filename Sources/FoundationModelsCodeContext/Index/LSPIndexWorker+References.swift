@@ -70,6 +70,7 @@ extension LSPIndexWorker {
         var edges: [PendingCallEdge] = []
 
         for callee in callables {
+            guard !Task.isCancelled else { break }
             guard let locations = await referenceLocations(of: callee, uri: uri, lines: lines, session: session) else {
                 continue
             }
@@ -143,6 +144,7 @@ extension LSPIndexWorker {
     ) async -> [PendingCallEdge] {
         var callSites: [(caller: FlatSymbol, range: LSPRange)] = []
         for location in locations {
+            guard !Task.isCancelled else { break }
             guard let callerFile = pathFilter.root.relativePath(ofURI: location.uri) else {
                 continue
             }
@@ -302,6 +304,7 @@ extension LSPIndexWorker {
         let callables = flatSymbols.filter { callableKinds.contains($0.kind) }
         var targets: Set<CallSiteTarget> = []
         for call in calls(in: filePath, contents: contents, callables: callables) {
+            guard !Task.isCancelled else { break }
             let locations = await definitionLocations(at: call.position, uri: uri, filePath: filePath, session: session)
             targets.formUnion(
                 locations.compactMap { location in

@@ -64,6 +64,10 @@ final class PendingRequestTable: @unchecked Sendable {
     /// holds at most `timedOutIDLimit` ids.
     private var timedOutIDs: Set<Int> = []
 
+    /// The ids of the sent requests that `cancel(id:)` cancelled before their continuation was
+    /// registered. The registration that always follows takes the id out and fails at once.
+    private var cancelledIDs: Set<Int> = []
+
     /// The error of the first `failAll(with:)` call, or `nil` before it. After that call no
     /// response comes, thus a registration with no buffered response gets this error at once.
     private var failure: (any Error)?
@@ -101,6 +105,9 @@ final class PendingRequestTable: @unchecked Sendable {
         let outcome: Result<Data, any Error>? = lock.withLock {
             if let buffered = earlyResponses.removeValue(forKey: id) {
                 return .success(buffered)
+            }
+            if cancelledIDs.remove(id) != nil {
+                return .failure(CancellationError())
             }
             if let failure {
                 return .failure(failure)
@@ -142,6 +149,32 @@ final class PendingRequestTable: @unchecked Sendable {
             return false
         }
         return resumer.resume(with: .failure(error))
+    }
+
+    /// Fails the pending request `id` with `CancellationError`, because the task that waits for
+    /// it is cancelled, and records `id` like a timed-out id: the table then drops a late response
+    /// for `id` (see `resolveOrBuffer(id:response:)`).
+    ///
+    /// Unlike `timeOut(id:with:)`, the cancel can come before the continuation of `id` is
+    /// registered: `withTaskCancellationHandler` runs its handler at once in a task that is
+    /// already cancelled. The table then records `id` in `cancelledIDs`, and the registration
+    /// that follows fails at once. A request that a response already resolved, or whose response
+    /// is buffered, is not changed.
+    /// - Parameter id: The JSON-RPC id of the cancelled request.
+    func cancel(id: Int) {
+        let resumer: ResumeOnce<Data>? = lock.withLock {
+            if let resumer = continuations.removeValue(forKey: id) {
+                awaitedIDs.remove(id)
+                recordTimedOut(id: id)
+                return resumer
+            }
+            if awaitedIDs.remove(id) != nil {
+                recordTimedOut(id: id)
+                cancelledIDs.insert(id)
+            }
+            return nil
+        }
+        resumer?.resume(throwing: CancellationError())
     }
 
     /// Adds `id` to `timedOutIDs`, and removes the oldest id when the set holds more than
@@ -880,8 +913,11 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     /// - Throws: `CodeContextError.notRunning` if the connection can't write to the process;
     ///   `CodeContextError.timeout` if no response arrived in time. A timeout also writes one
     ///   `.warning` record (see `logTimeout(id:method:)`) and sends `$/cancelRequest` for `id` to
-    ///   the server (see `cancelOnServer(id:)`).
+    ///   the server (see `cancelOnServer(id:)`). `CancellationError` if the calling task is
+    ///   cancelled: before the write, the request is not written; after it, the request ends at
+    ///   once, with no wait for the response, and `$/cancelRequest` goes to the server.
     private func sendRequest<Params: Encodable>(id: Int, method: String, params: Params, span: any Span) async throws -> Data {
+        try Task.checkCancellation()
         let envelope = JSONRPCRequestEnvelope(id: id, method: method, params: params)
         let payload = try JSONEncoder().encode(envelope)
         span.attributes[CodeContextTracing.AttributeKey.lspRequestBytes] = payload.count
@@ -893,6 +929,9 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
             logTimeout(id: id, method: method)
             await cancelOnServer(id: id)
             throw CodeContextError.timeout(timeout)
+        } catch is CancellationError where Task.isCancelled {
+            await cancelOnServer(id: id)
+            throw CancellationError()
         }
     }
 
@@ -1054,10 +1093,17 @@ public actor ProcessLanguageServerConnection: LanguageServerConnection {
     ///   - pendingRequests: The table to register the continuation with.
     /// - Returns: The raw response message bytes once resolved.
     /// - Throws: Whatever error `pendingRequests` resolves `id` with (e.g. the timeout race's
-    ///   `CodeContextError.timeout`, or `CodeContextError.notRunning` if the connection closes).
+    ///   `CodeContextError.timeout`, or `CodeContextError.notRunning` if the connection closes);
+    ///   `CancellationError` at once when the task is cancelled (see `PendingRequestTable.cancel(id:)`).
+    ///   A server that is busy can answer a request many seconds late; a cancelled caller (for
+    ///   example the LSP index task in `CodeContext.stop()`) must not wait for that answer.
     private static func awaitRegisteredResponse(id: Int, pendingRequests: PendingRequestTable) async throws -> Data {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-            pendingRequests.register(id: id, continuation: continuation)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+                pendingRequests.register(id: id, continuation: continuation)
+            }
+        } onCancel: {
+            pendingRequests.cancel(id: id)
         }
     }
 

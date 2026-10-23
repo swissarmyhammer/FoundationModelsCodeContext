@@ -401,6 +401,52 @@ struct ConnectionTests {
         }
     }
 
+    /// The longest real time that a cancelled request may take to end. The server never answers
+    /// it, and the timeout of the request never fires on a `ManualClock`, thus only the cancel
+    /// can end it.
+    private static let cancelledRequestEndTimeout: Duration = .seconds(10)
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func aCancelledRequestEndsAtOnceAndSendsCancelRequestWithItsID() async throws {
+        // The script reads the request and then the `$/cancelRequest` notification with its id.
+        // A missing or wrong notification stops the script, and then the next request fails. The
+        // late reply to the cancelled request then must not answer the next request.
+        let cancelledURI = "file:///cancelled.swift"
+        let nextURI = "file:///next.swift"
+        let steps: [[String: Any]] = [
+            ["action": "read", "expectID": Self.firstClientRequestID, "expectURI": cancelledURI],
+            ["action": "read", "expectMethod": "$/cancelRequest", "expectParams": ["id": Self.firstClientRequestID]],
+            ["action": "respond", "uri": cancelledURI, "result": [Self.documentSymbolJSON(name: "late")]],
+            ["action": "read", "expectURI": nextURI],
+            ["action": "respond", "uri": nextURI, "result": [Self.documentSymbolJSON(name: "next")]],
+            ["action": "hang"],
+        ]
+        let clock = ManualClock()
+        try await Self.withConnection(steps: steps, clock: clock) { connection in
+            let endFlag = TaskEndFlag()
+            let pendingCall = Task {
+                defer { endFlag.markEnded() }
+                return try await connection.documentSymbols(in: DocumentURI(cancelledURI))
+            }
+            // The timeout race of the request is registered, thus the request is written.
+            await clock.waitForWaiter()
+            pendingCall.cancel()
+
+            let hasEnded = try await waitUntil(timeout: Self.cancelledRequestEndTimeout) {
+                endFlag.hasEnded
+            }
+            // `#require` throws, thus `withConnection` closes the connection, which ends a stuck
+            // request; an `#expect` would leave the test awaiting it for ever.
+            try #require(hasEnded, "a cancelled request must not wait for the reply of the server")
+            await #expect(throws: CancellationError.self) {
+                try await pendingCall.value
+            }
+
+            let symbols = try await connection.documentSymbols(in: DocumentURI(nextURI))
+            #expect(symbols.map(\.name) == ["next"])
+        }
+    }
+
     @Test
     func aRequestTimeoutLogsTheStateOfTheServerAndOfTheReaderLoopButNoStandardErrorText() async throws {
         _ = CapturedLogRecords.handler

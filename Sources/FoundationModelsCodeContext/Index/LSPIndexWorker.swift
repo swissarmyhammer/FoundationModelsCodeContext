@@ -139,7 +139,11 @@ private enum LSPIndexSQLiteLimits {
 ///   throws `CancellationError` (the store wraps it in
 ///   `CodeContextError.storage`). The worker writes one debug record for
 ///   it, no warning and no error, and the file stays dirty for the next
-///   pass (see `LSPIndexWorker+FailureLog.swift`).
+///   pass (see `LSPIndexWorker+FailureLog.swift`). Each loop over the symbols
+///   or the call sites of a file stops at the stop, thus the worker sends no
+///   more requests, writes nothing for the file and does not count it as a
+///   failure. `stop()` then waits only for the one request in flight, which
+///   the connection ends at once (^tzhzvqf).
 ///
 /// Every symbol/edge write and the `lsp_indexed` flag flip for one file
 /// happen inside a single `Store.write` transaction (see
@@ -308,7 +312,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             guard !Task.isCancelled else { break }
             if await processFile(relativePath: relativePath, rootDirectory: rootDirectory, pathFilter: pathFilter, session: session, store: store) {
                 outcome.indexedPaths.append(relativePath)
-            } else {
+            } else if !Task.isCancelled {
                 outcome.failedPaths.append(relativePath)
             }
         }
@@ -542,6 +546,10 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
             session: session,
             store: store
         )
+        // A stop during the requests leaves the edges incomplete: write nothing, keep the file dirty.
+        guard !Task.isCancelled else {
+            return nil
+        }
         return CollectedFile(flatSymbols: flatSymbols, pendingEdges: pendingEdges, callSiteTargets: callSiteTargets)
     }
 
@@ -919,6 +927,7 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
         var edges: [PendingCallEdge] = []
 
         for symbol in flatSymbols where callableKinds.contains(symbol.kind) {
+            guard !Task.isCancelled else { break }
             edges.append(
                 contentsOf: await collectEdges(
                     forSymbol: symbol,

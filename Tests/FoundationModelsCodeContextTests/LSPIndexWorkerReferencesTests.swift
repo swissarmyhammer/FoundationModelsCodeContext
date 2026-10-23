@@ -549,6 +549,73 @@ struct LSPIndexWorkerReferencesTests {
         }
     }
 
+    /// The count of the functions of the file of
+    /// `stoppingTheIndexTaskDuringAReferencesRequestSendsNoMoreRequests`. Each
+    /// one gets its own `references` request when the task is not stopped.
+    private static let manyFunctionsCount = 10
+
+    /// A Python file of `manyFunctionsCount` functions, three lines each,
+    /// where each function calls the one before it.
+    private static var manyFunctionsSource: String {
+        (0..<manyFunctionsCount).map { index in
+            "def f\(index)():\n    return f\(max(index - 1, 0))()\n\n"
+        }.joined()
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    func stoppingTheIndexTaskDuringAReferencesRequestSendsNoMoreRequests() async throws {
+        // The bench repro (^tzhzvqf): `CodeContext.stop()` cancelled the
+        // index task during the references fallback of a large file, and the
+        // worker still sent one request for each symbol and each call site of
+        // that file before the task ended. Shutdown waited for all of them.
+        try await withTemporaryWorkspace { root in
+            let relativePath = "many.py"
+            let store = try Store(rootDirectory: root)
+            try write(Self.manyFunctionsSource, to: relativePath, in: root)
+            try await store.markDirty(filePath: relativePath, contentHash: Data(relativePath.utf8), fileSize: 1)
+
+            let connection = FakeLanguageServerConnection()
+            await connection.setDocumentSymbolsResult(
+                .success((0..<Self.manyFunctionsCount).map { index in
+                    Self.flatSymbol(name: "f\(index)", kind: .function, startLine: index * 3, endLine: index * 3 + 2)
+                }),
+                for: Self.uri(for: relativePath, in: root)
+            )
+            let (requestStarted, requestStartedContinuation) = AsyncStream.makeStream(of: Void.self)
+            let requestWait = Self.unansweredRequestWait
+            await connection.setReferencesCallHook {
+                requestStartedContinuation.yield()
+                try await Task.sleep(for: requestWait)
+            }
+            let session = LspSession.makePylsp(over: connection)
+
+            let endFlag = TaskEndFlag()
+            let indexTask = Task {
+                defer { endFlag.markEnded() }
+                try await LSPIndexWorker<FakeLanguageServerConnection>.run(
+                    store: store, rootDirectory: root, pathFilter: SharedPathFilter(rootDirectory: root), extensions: ["py"], sessionProvider: { session }
+                )
+            }
+            var requests = requestStarted.makeAsyncIterator()
+            _ = await requests.next()
+            indexTask.cancel()
+
+            let hasEnded = try await waitUntil(timeout: .seconds(10)) { endFlag.hasEnded }
+            #expect(hasEnded, "the index task ends promptly after the cancel")
+            let requestCalls = await connection.calls.filter { call in
+                switch call {
+                case .documentSymbols, .references, .definition, .prepareCallHierarchy, .outgoingCalls: true
+                default: false
+                }
+            }
+            #expect(
+                requestCalls.count == 2,
+                "after the cancel the worker sends no request: one documentSymbol and the one references request in flight, got \(requestCalls)"
+            )
+            #expect(try await store.drainLspDirty() == [relativePath], "the stopped file stays dirty")
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func stoppingTheIndexTaskDuringAReferencesRequestLogsNoRequestFailure() async throws {
         try await withTemporaryWorkspace { root in

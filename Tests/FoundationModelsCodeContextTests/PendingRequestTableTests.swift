@@ -192,6 +192,35 @@ struct PendingRequestTableTests {
         #expect(error?.caseName == "notRunning")
     }
 
+    /// A cancel can come before the registration: `withTaskCancellationHandler` runs its handler
+    /// at once in a task that is already cancelled. The registration then fails at once, and the
+    /// late response of the server is dropped (^tzhzvqf).
+    @Test
+    func aCancelBeforeTheRegistrationFailsTheRegistrationAndDropsTheLateResponse() async {
+        let table = PendingRequestTable()
+        table.expectResponse(id: Self.requestID)
+
+        table.cancel(id: Self.requestID)
+
+        await #expect(throws: CancellationError.self) {
+            try await Self.registerAndTimeOut(in: table, id: Self.requestID)
+        }
+        #expect(table.resolveOrBuffer(id: Self.requestID, response: Self.response(id: Self.requestID, result: #""late""#)) == .droppedLate)
+    }
+
+    @Test
+    func aCancelAfterTheRegistrationFailsTheWaitingContinuation() async {
+        let table = PendingRequestTable()
+        table.expectResponse(id: Self.requestID)
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+                table.register(id: Self.requestID, continuation: continuation)
+                table.cancel(id: Self.requestID)
+            }
+        }
+    }
+
     @Test
     func aLateResponseAfterATimeoutIsDroppedAndIsNotBuffered() async throws {
         let table = PendingRequestTable()
