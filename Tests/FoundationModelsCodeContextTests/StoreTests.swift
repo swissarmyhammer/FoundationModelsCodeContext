@@ -26,6 +26,23 @@ struct StoreTests {
     }
 
     @Test
+    func givenIndexDirectoryHoldsTheDatabaseAndTheRootGetsNothing() async throws {
+        try await withTemporaryWorkspace { root in
+            try await withTemporaryWorkspace { home in
+                let indexDirectory = home.appendingPathComponent("projects/abc/code-context", isDirectory: true)
+                let store = try Store(rootDirectory: root, indexDirectory: indexDirectory)
+
+                let dbPath = indexDirectory.appendingPathComponent("kit.db").path
+                #expect(FileManager.default.fileExists(atPath: dbPath))
+                #expect(store.indexDirectory == indexDirectory)
+                #expect(store.databaseURL.path == dbPath)
+                #expect(store.rootDirectory == root)
+                #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".code-context").path))
+            }
+        }
+    }
+
+    @Test
     func freshOpenUsesWALJournalMode() async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)

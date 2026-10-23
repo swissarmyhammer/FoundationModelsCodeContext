@@ -18,15 +18,20 @@ struct CodeContextManagerTests {
     /// Builds a `CodeContextManager<FakeLanguageServerConnection>` wired to a fake filesystem-event
     /// source and a fake LSP connection factory (never actually invoked in these tests, since no
     /// fixture here has a detected project/server spec).
-    /// - Parameter embedder: The embedder that the manager gives to each context. `nil` turns the
-    ///   embedding layer off. The default is a `FakeEmbedder`.
+    /// - Parameters:
+    ///   - embedder: The embedder that the manager gives to each context. `nil` turns the
+    ///     embedding layer off. The default is a `FakeEmbedder`.
+    ///   - indexDirectory: Gives the index directory of each root, or `nil` for the default
+    ///     `<root>/.code-context`.
     /// - Returns: A manager wired to fake filesystem-event and connection sources for testing.
     private static func makeManager(
-        embedder: PooledEmbedding? = FakeEmbedder(vectorLength: embeddingDimension)
+        embedder: PooledEmbedding? = FakeEmbedder(vectorLength: embeddingDimension),
+        indexDirectory: (@Sendable (URL) -> URL)? = nil
     ) async -> CodeContextManager<FakeLanguageServerConnection> {
         await CodeContextManager<FakeLanguageServerConnection>(
             embedder: embedder,
             eventSource: FakeFileEventSource(),
+            indexDirectory: indexDirectory,
             connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
         )
     }
@@ -410,6 +415,127 @@ struct CodeContextManagerTests {
 
                 #expect(await manager.state.roots.isEmpty)
             }
+        }
+    }
+
+    // MARK: - Index directory
+
+    @Test
+    func indexDirectoryClosurePutsTheIndexOutsideTheRoot() async throws {
+        try await withTemporaryWorkspace { root in
+            try await withTemporaryWorkspace { home in
+                try Self.writeFixture(in: root)
+                let indexDirectory = home.appendingPathComponent("code-context", isDirectory: true)
+                let manager = await Self.makeManager(indexDirectory: { _ in indexDirectory })
+
+                let context = try await manager.context(for: root)
+                await context.waitForFirstIndexPass()
+
+                #expect(FileManager.default.fileExists(atPath: indexDirectory.appendingPathComponent("kit.db").path))
+                #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".code-context").path))
+                #expect(await context.indexStatus().filesWalked > 0)
+
+                await manager.shutdown()
+            }
+        }
+    }
+
+    // MARK: - `acquire` / `release`
+
+    @Test
+    func acquireTwiceSharesOneContextAndOnlyTheLastReleaseStopsIt() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixture(in: root)
+            let manager = await Self.makeManager()
+
+            let first = try await manager.acquire(root: root)
+            let second = try await manager.acquire(root: root)
+            #expect(first === second)
+
+            await manager.release(root: root)
+            #expect(await manager.openContexts.count == 1)
+            #expect(await manager.state.roots.count == 1)
+
+            await manager.release(root: root)
+            #expect(await manager.openContexts.isEmpty)
+            #expect(await manager.state.roots.isEmpty)
+
+            let reacquired = try await manager.acquire(root: root)
+            #expect(reacquired !== first)
+            await manager.shutdown()
+        }
+    }
+
+    @Test
+    func releaseWithoutALeaseIsANoOpAndDoesNotStopAContextOpenedWithContextFor() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixture(in: root)
+            let manager = await Self.makeManager()
+            _ = try await manager.context(for: root)
+
+            await manager.release(root: root)
+
+            #expect(await manager.openContexts.count == 1)
+            await manager.shutdown()
+        }
+    }
+
+    @Test
+    func aSymlinkToTheRootSharesTheContextOfTheRoot() async throws {
+        try await withTemporaryWorkspace { parent in
+            let root = parent.appendingPathComponent("real", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try Self.writeFixture(in: root)
+            let link = parent.appendingPathComponent("link", isDirectory: true)
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: root)
+            let manager = await Self.makeManager()
+
+            let viaRoot = try await manager.acquire(root: root)
+            let viaLink = try await manager.acquire(root: link)
+            #expect(viaRoot === viaLink)
+            #expect(CodeContextManager<FakeLanguageServerConnection>.rootKey(for: link) == viaRoot.rootDirectory)
+
+            await manager.release(root: link)
+            #expect(await manager.openContexts.count == 1)
+            await manager.release(root: root)
+            #expect(await manager.openContexts.isEmpty)
+        }
+    }
+
+    @Test
+    func concurrentAcquiresMakeOneContextAndCountTwoLeases() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixture(in: root)
+            let manager = await Self.makeManager()
+
+            async let first = manager.acquire(root: root)
+            async let second = manager.acquire(root: root)
+            let (contextA, contextB) = try await (first, second)
+            #expect(contextA === contextB)
+
+            await manager.release(root: root)
+            #expect(await manager.openContexts.count == 1)
+            await manager.release(root: root)
+            #expect(await manager.openContexts.isEmpty)
+        }
+    }
+
+    @Test
+    func acquireOfADescendantLeasesTheOpenAncestor() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixture(in: root)
+            let child = root.appendingPathComponent("Sub", isDirectory: true)
+            try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+            let manager = await Self.makeManager()
+
+            let ancestor = try await manager.acquire(root: root)
+            let viaChild = try await manager.acquire(root: child)
+            #expect(ancestor === viaChild)
+
+            await manager.release(root: root)
+            #expect(await manager.openContexts.count == 1)
+            await manager.release(root: child)
+            #expect(await manager.openContexts.isEmpty)
         }
     }
 

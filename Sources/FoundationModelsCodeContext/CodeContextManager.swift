@@ -19,9 +19,28 @@ import FoundationModelsExtras
 /// `start()` does not wait for the first index pass. Thus a context that `context(for:)` returns
 /// can have a partial index. A caller that needs the complete index calls
 /// `waitForFirstIndexPass()` on the returned context.
+///
+/// ## Sharing one context among several users
+///
+/// Several users of one process that work in the same root — for example several agent sessions
+/// with the same working directory — share one `CodeContext`, thus one watcher, one index loop,
+/// one LSP fleet and one database pool. Each user calls `acquire(root:)` once and
+/// `release(root:)` once. The last release stops the context. `close(root:)` stops it at once,
+/// whatever the count of leases.
+///
+/// Every root is keyed by `rootKey(for:)`: the standardized URL with its symlinks resolved. Thus
+/// a symlink to a root and the root itself share one context.
+///
+/// One manager has one embedder, one auto-install policy and one index-directory rule, which
+/// every context of the manager gets. An acquire cannot bring another embedder. A host that needs
+/// a context with another embedder makes another manager.
 public actor CodeContextManager<Connection: LanguageServerConnection> {
-    /// One entry per open root's context, keyed by that root's standardized URL.
+    /// One entry per open root's context, keyed by `rootKey(for:)` of that root.
     private var contexts: [URL: CodeContext<Connection>] = [:]
+
+    /// The count of the leases of each open root that `acquire(root:)` gave, keyed like
+    /// `contexts`. A root opened only with `context(for:)` or `context(containing:)` has no entry.
+    private var leases: [URL: Int] = [:]
 
     /// The in-flight create+start `Task` for a root currently being opened, keyed by that root's
     /// standardized URL, so concurrent `context(for:)` calls for the *same* root dedupe onto one
@@ -64,6 +83,10 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// never spawns (or has any real side effect from) a real installer command.
     private let installRunner: any InstallRunner
 
+    /// Gives the index directory of each root that this manager opens, from its `rootKey(for:)`.
+    /// `nil` gives each context the default `<root>/.code-context`.
+    private let indexDirectory: (@Sendable (URL) -> URL)?
+
     /// Spawns a fresh LSP connection for every daemon any `CodeContext` this manager creates ends
     /// up needing.
     private let connectionFactory: ConnectionFactory<Connection>
@@ -98,6 +121,8 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     ///     creates, which its supervisor's `ServerInstaller` drives. Defaults to
     ///     `ProcessInstallRunner()`; tests inject a scripted `FakeInstallRunner` so an auto-install
     ///     integration test driven through this manager never spawns a real installer command.
+    ///   - indexDirectory: Gives the index directory of each root, from its `rootKey(for:)`.
+    ///     Defaults to `nil`, which gives each context `<root>/.code-context`.
     ///   - connectionFactory: Spawns a fresh connection for every LSP daemon any created
     ///     `CodeContext`'s supervisor ends up needing.
     init(
@@ -106,6 +131,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
         eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
         installRunner: any InstallRunner = ProcessInstallRunner(),
+        indexDirectory: (@Sendable (URL) -> URL)? = nil,
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) async {
         self.embedder = embedder
@@ -113,8 +139,22 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
         self.eventSource = eventSource
         self.autoInstall = autoInstall
         self.installRunner = installRunner
+        self.indexDirectory = indexDirectory
         self.connectionFactory = connectionFactory
         state = await ManagerState()
+    }
+
+    // MARK: - Root key
+
+    /// The key of `url` in this manager: the standardized URL with its symlinks resolved.
+    ///
+    /// Every method of this manager keys its roots with this function, thus a symlink to a root
+    /// and the root itself are one root. A host that keys its own data per root, for example an
+    /// index directory, uses this function to get the same key.
+    /// - Parameter url: A root or a path.
+    /// - Returns: `url.standardizedFileURL.resolvingSymlinksInPath()`.
+    public static func rootKey(for url: URL) -> URL {
+        url.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     // MARK: - Open / route
@@ -122,7 +162,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// Returns the `CodeContext` for `root`, opening (and starting) one if none is already open
     /// for it — applying the overlap rule against every currently open root first.
     ///
-    /// `root` is standardized before any comparison, then:
+    /// `root` is keyed with `rootKey(for:)` before any comparison, then:
     /// - **Exact match** against an already-open root: returns that root's existing context.
     /// - **`root` is a descendant** of an already-open root: returns that ancestor's context —
     ///   its walker already covers the subtree, so no separate context is ever created for a
@@ -166,7 +206,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     ///   `start()`'s errors (including a still-opening ancestor's own failure, when `root` is a
     ///   descendant of one).
     public func context(for root: URL) async throws -> CodeContext<Connection> {
-        let standardizedRoot = root.standardizedFileURL
+        let standardizedRoot = Self.rootKey(for: root)
 
         if let existing = contexts[standardizedRoot] {
             return existing
@@ -216,7 +256,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// - Returns: The covering `CodeContext`, or `nil` per the resolution order above.
     /// - Throws: Rethrows `context(for:)`'s errors when `openIfNeeded` triggers a fresh open.
     public func context(containing path: URL, openIfNeeded: Bool = true) async throws -> CodeContext<Connection>? {
-        let standardizedPath = path.standardizedFileURL
+        let standardizedPath = Self.rootKey(for: path)
 
         if let covering = openContext(coveringOrAncestorOf: standardizedPath) {
             return covering
@@ -228,15 +268,54 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
         return try await context(for: gitRoot)
     }
 
+    // MARK: - Acquire / release
+
+    /// Returns the shared `CodeContext` for `root` and adds one lease to it.
+    ///
+    /// Opens `root` like `context(for:)` does, with the same overlap rule, thus a `root` inside an
+    /// open root gets the context of that open root and leases it. Each call needs one
+    /// `release(root:)` call later. The last release stops the context.
+    /// - Parameter root: The workspace root to open or share.
+    /// - Returns: The started context of `root`, or of the open root that covers `root`.
+    /// - Throws: Rethrows the errors of `context(for:)`. A failed acquire adds no lease.
+    public func acquire(root: URL) async throws -> CodeContext<Connection> {
+        let context = try await self.context(for: root)
+        leases[context.rootDirectory, default: 0] += 1
+        return context
+    }
+
+    /// Removes one lease that `acquire(root:)` gave, and stops the context when that was its last
+    /// lease.
+    ///
+    /// `root` can be any path that the open root covers, for example the same path that the
+    /// acquire got. A no-op for a path that no open root covers, or for an open root that has no
+    /// lease, thus it never stops a context that only `context(for:)` opened.
+    /// - Parameter root: The root that was acquired.
+    public func release(root: URL) async {
+        guard let context = openContext(coveringOrAncestorOf: Self.rootKey(for: root)) else {
+            return
+        }
+        let key = context.rootDirectory
+        guard let count = leases[key] else {
+            return
+        }
+        if count > 1 {
+            leases[key] = count - 1
+            return
+        }
+        await close(root: key)
+    }
+
     // MARK: - Close / shutdown
 
-    /// Stops and removes `root`'s context, if one is open.
+    /// Stops and removes `root`'s context, if one is open, and drops its leases.
     ///
     /// A no-op — neither throwing nor doing anything — for a root that isn't currently open.
-    /// - Parameter root: The workspace root to close. Standardized before use, matching every
-    ///   other root comparison in this actor.
+    /// - Parameter root: The workspace root to close. Keyed with `rootKey(for:)` before use,
+    ///   matching every other root comparison in this actor.
     public func close(root: URL) async {
-        let standardizedRoot = root.standardizedFileURL
+        let standardizedRoot = Self.rootKey(for: root)
+        leases[standardizedRoot] = nil
         guard let context = contexts.removeValue(forKey: standardizedRoot) else {
             return
         }
@@ -358,6 +437,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     private func createStartAndRegister(root: URL) async throws -> CodeContext<Connection> {
         let context = try await CodeContext<Connection>(
             rootDirectory: root,
+            indexDirectory: indexDirectory?(root),
             embedder: embedder,
             clock: clock,
             eventSource: eventSource,
@@ -389,15 +469,21 @@ extension CodeContextManager where Connection == ProcessLanguageServerConnection
     ///   - eventSource: The raw filesystem-change event source of the watcher of each
     ///     `CodeContext` that this manager creates. Defaults to `FSEventsFileEventSource()`. Give
     ///     `nil` to turn the watchers off: then no FSEvents stream starts.
+    ///   - indexDirectory: Gives the index directory (`kit.db`) of each root, from its
+    ///     `rootKey(for:)`. Defaults to `nil`, which gives each context `<root>/.code-context`.
+    ///     Give a directory outside the root to keep the index out of it, for example when the
+    ///     root is in a synced folder.
     public init(
         embedder: PooledEmbedding?,
         autoInstall: LspAutoInstall = LspAutoInstall(),
-        eventSource: (any FileEventSource)? = FSEventsFileEventSource()
+        eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
+        indexDirectory: (@Sendable (URL) -> URL)? = nil
     ) async {
         await self.init(
             embedder: embedder,
             eventSource: eventSource,
             autoInstall: autoInstall,
+            indexDirectory: indexDirectory,
             connectionFactory: LSPDaemon<ProcessLanguageServerConnection>.processConnectionFactory()
         )
     }

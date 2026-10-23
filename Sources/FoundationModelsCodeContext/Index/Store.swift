@@ -86,10 +86,10 @@ public final class Store: Sendable {
     /// Workspace root this store was opened for.
     public let rootDirectory: URL
 
-    /// `<rootDirectory>/.code-context`.
+    /// The directory of `kit.db`: the one given to `init`, else `<rootDirectory>/.code-context`.
     public let indexDirectory: URL
 
-    /// `<rootDirectory>/.code-context/kit.db`.
+    /// `<indexDirectory>/kit.db`.
     public let databaseURL: URL
 
     private let dbPool: DatabasePool
@@ -98,26 +98,32 @@ public final class Store: Sendable {
 
     /// Opens (creating if necessary) the store for `rootDirectory`.
     ///
-    /// Bootstraps `.code-context/` with a self-`.gitignore` (`*`, so the
+    /// Bootstraps the index directory with a self-`.gitignore` (`*`, so the
     /// index directory never needs an entry in the workspace's own
     /// `.gitignore`), opens a GRDB `DatabasePool` at `kit.db` — WAL mode,
     /// which `DatabasePool` configures automatically — and runs all
     /// migrations synchronously, so the store is fully ready to use as
     /// soon as `init` returns.
     ///
-    /// - Parameter rootDirectory: The workspace root to open or create the
-    ///   store for.
+    /// - Parameters:
+    ///   - rootDirectory: The workspace root to open or create the store for.
+    ///   - indexDirectory: The directory of `kit.db`, created if missing. `nil`
+    ///     gives `<rootDirectory>/.code-context`. A host gives another directory
+    ///     to keep the index out of the workspace, for example when the
+    ///     workspace is in a synced folder. A directory inside the workspace
+    ///     with another name than `.code-context` gets walked like any other.
     /// - Throws: `CodeContextError.storage` if the directory can't be
     ///   created, the database can't be opened, or migrations fail.
-    public init(rootDirectory: URL) throws {
+    public init(rootDirectory: URL, indexDirectory: URL? = nil) throws {
         self.rootDirectory = rootDirectory
-        indexDirectory = rootDirectory.appendingPathComponent(".code-context", isDirectory: true)
-        databaseURL = indexDirectory.appendingPathComponent("kit.db", isDirectory: false)
+        let directory = indexDirectory ?? rootDirectory.appendingPathComponent(".code-context", isDirectory: true)
+        self.indexDirectory = directory
+        databaseURL = directory.appendingPathComponent("kit.db", isDirectory: false)
 
         do {
-            try Self.bootstrapIndexDirectory(at: indexDirectory)
+            try Self.bootstrapIndexDirectory(at: directory)
         } catch {
-            throw CodeContextError.storage("failed to bootstrap \(indexDirectory.path): \(error.localizedDescription)")
+            throw CodeContextError.storage("failed to bootstrap \(directory.path): \(error.localizedDescription)")
         }
 
         let pool: DatabasePool

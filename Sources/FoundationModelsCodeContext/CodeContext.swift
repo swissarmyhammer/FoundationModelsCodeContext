@@ -207,6 +207,8 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///
     /// - Parameters:
     ///   - rootDirectory: The workspace root to open. Enters exactly once, here.
+    ///   - indexDirectory: The directory of the index (`kit.db`), or `nil` for
+    ///     `<rootDirectory>/.code-context`. See `Store.init(rootDirectory:indexDirectory:)`.
     ///   - embedder: The embedder used for the tree-sitter worker's embedding step and for
     ///     `searchCode(...)`, or `nil` to turn the embedding layer off.
     ///   - clock: The clock the index loop and watcher debounce timer sleep against. Defaults to
@@ -236,6 +238,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// - Throws: `CodeContextError.storage` if the index store can't be opened or migrated.
     init(
         rootDirectory: URL,
+        indexDirectory: URL? = nil,
         embedder: PooledEmbedding?,
         clock: any Clock<Duration> = ContinuousClock(),
         eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
@@ -254,7 +257,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         self.tracer = tracer
         self.serverSpecs = serverSpecs
 
-        let store = try Store(rootDirectory: rootDirectory)
+        let store = try Store(rootDirectory: rootDirectory, indexDirectory: indexDirectory)
         self.store = store
         pathFilter = SharedPathFilter(rootDirectory: rootDirectory)
         corpus = SearchCorpus(store: store)
@@ -1256,15 +1259,20 @@ extension CodeContext where Connection == ProcessLanguageServerConnection {
     ///     your own events. Give `nil` to turn the watcher off: then no FSEvents stream starts, and
     ///     a filesystem change gets into the index only at a later `rebuildIndex(layer:)` or a
     ///     later `start()`.
+    ///   - indexDirectory: The directory of the index (`kit.db`). Defaults to `nil`, which gives
+    ///     `<rootDirectory>/.code-context`. Give a directory outside the workspace to keep the
+    ///     index out of it, for example when the workspace is in a synced folder.
     /// - Throws: `CodeContextError.storage` if the index store can't be opened or migrated.
     public init(
         rootDirectory: URL,
         embedder: PooledEmbedding?,
         autoInstall: LspAutoInstall = LspAutoInstall(),
-        eventSource: (any FileEventSource)? = FSEventsFileEventSource()
+        eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
+        indexDirectory: URL? = nil
     ) async throws {
         try await self.init(
             rootDirectory: rootDirectory,
+            indexDirectory: indexDirectory,
             embedder: embedder,
             eventSource: eventSource,
             autoInstall: autoInstall,
