@@ -61,7 +61,21 @@ enum Schema {
         static let endLine = "end_line"
         static let endColumn = "end_column"
         static let detail = "detail"
+        /// `'lsp'` or `'treesitter'` — which layer wrote this row: the LSP
+        /// index worker, or `TSCallGraph`'s synthetic row for the end of a
+        /// tree-sitter call edge. A re-chunk of a file moves or deletes only
+        /// its `'treesitter'` rows (see
+        /// `TSCallGraph.realignSyntheticSymbols(db:filePath:)`).
+        static let source = "source"
     }
+
+    /// The `lsp_symbols.source` value of a row that the LSP index worker
+    /// wrote.
+    static let lspSymbolSourceLSP = "lsp"
+
+    /// The `lsp_symbols.source` value of a synthetic row that `TSCallGraph`
+    /// wrote.
+    static let lspSymbolSourceTreeSitter = "treesitter"
 
     /// Call edges between symbols, from either the LSP call-hierarchy
     /// worker or the tree-sitter heuristic. `file_path` denotes the file
@@ -172,6 +186,24 @@ enum Migrations {
             try db.alter(table: Schema.TsChunks.table) { t in
                 t.add(column: Schema.TsChunks.embeddingText, .text)
             }
+        }
+
+        // Before this column, a synthetic row was known only by its shape:
+        // start and end column 0 and no detail, the only shape `TSCallGraph`
+        // wrote. The backfill gives the rows of that shape the tree-sitter
+        // source.
+        migrator.registerMigration("v4_lspSymbolSource") { db in
+            try db.alter(table: Schema.LspSymbols.table) { t in
+                t.add(column: Schema.LspSymbols.source, .text).notNull().defaults(to: Schema.lspSymbolSourceLSP)
+            }
+            try db.execute(
+                sql: """
+                    UPDATE \(Schema.LspSymbols.table) SET \(Schema.LspSymbols.source) = ? \
+                    WHERE \(Schema.LspSymbols.startColumn) = 0 AND \(Schema.LspSymbols.endColumn) = 0 \
+                    AND \(Schema.LspSymbols.detail) IS NULL
+                    """,
+                arguments: [Schema.lspSymbolSourceTreeSitter]
+            )
         }
 
         return migrator

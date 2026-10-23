@@ -355,7 +355,10 @@ public enum TreeSitterWorker {
     /// heuristic edges, in one write transaction: deletes the file's
     /// existing `ts_chunks` rows (so a re-chunked, changed file doesn't
     /// accumulate stale rows alongside the new ones), inserts each chunk
-    /// with a `NULL` embedding, extracts and replaces call-graph edges via
+    /// with a `NULL` embedding, moves the synthetic `lsp_symbols` rows of the
+    /// file to the new lines of their chunks via
+    /// `TSCallGraph.realignSyntheticSymbols(db:filePath:)`, extracts and
+    /// replaces call-graph edges via
     /// `TSCallGraph.writeCallEdges(db:file:module:)`, marks the file
     /// tree-sitter-indexed, and resets its `embedded` flag to 0.
     ///
@@ -403,6 +406,7 @@ public enum TreeSitterWorker {
                 )
             }
 
+            try TSCallGraph.realignSyntheticSymbols(db: db, filePath: file.relativePath)
             try TSCallGraph.writeCallEdges(db: db, file: file, module: module)
 
             try db.execute(

@@ -307,6 +307,29 @@ public struct SymbolLocation: Codable, Sendable, Equatable {
     }
 }
 
+/// The result of a `SymbolOps.listSymbols(store:file:)` call.
+///
+/// It has the shape of `GetSymbolResult` — the asked value and a `symbols`
+/// array — so a caller that reads `result.symbols` on one reads it on the
+/// other too.
+public struct ListSymbolsResult: Codable, Sendable, Equatable {
+    /// The file whose symbols these are, as asked.
+    public let file: String
+
+    /// Each symbol of `file`, in source order.
+    public let symbols: [SymbolLocation]
+
+    /// Creates a `listSymbols` result.
+    ///
+    /// - Parameters:
+    ///   - file: The file whose symbols these are.
+    ///   - symbols: Each symbol of `file`, in source order.
+    public init(file: String, symbols: [SymbolLocation]) {
+        self.file = file
+        self.symbols = symbols
+    }
+}
+
 /// Symbol lookup, fuzzy search, and per-file listing over a workspace's
 /// index.
 ///
@@ -754,12 +777,12 @@ public enum SymbolOps {
     ///   - store: The workspace's index store to search.
     ///   - file: The file's path, relative to the workspace root, exactly
     ///     as stored in `indexed_files.file_path`.
-    /// - Returns: `file`'s symbols in source order, or an empty array if the
+    /// - Returns: `file` and its symbols in source order; no symbols if the
     ///   file has none (or doesn't exist in the index).
     /// - Throws: Rethrows `Store`'s storage errors.
-    public static func listSymbols(store: Store, file: String) async throws -> [SymbolLocation] {
+    public static func listSymbols(store: Store, file: String) async throws -> ListSymbolsResult {
         let candidates = try await loadCandidateRows(store: store, filePath: file)
-        return
+        let symbols =
             candidates
             .sorted { $0.startLine < $1.startLine }
             .map { candidate in
@@ -776,6 +799,7 @@ public enum SymbolOps {
                     source: candidate.source
                 )
             }
+        return ListSymbolsResult(file: file, symbols: symbols)
     }
 
     // MARK: - Fuzzy subsequence scoring

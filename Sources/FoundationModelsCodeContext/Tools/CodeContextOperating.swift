@@ -40,7 +40,7 @@ internal protocol CodeContextOperating: Sendable {
     func searchSymbol(query: String, kind: SymbolMetaType?, maxResults: Int) async throws -> [SearchSymbolMatch]
 
     /// See `CodeContext.listSymbols(file:)`.
-    func listSymbols(file: String) async throws -> [SymbolLocation]
+    func listSymbols(file: String) async throws -> ListSymbolsResult
 
     /// See `CodeContext.callGraph(of:direction:maxDepth:)`.
     func callGraph(of symbol: String, direction: CallGraphDirection, maxDepth: Int) async throws -> CallGraph

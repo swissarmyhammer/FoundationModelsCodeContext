@@ -395,7 +395,7 @@ struct SymbolOpsTests {
             let store = try Store(rootDirectory: root)
             try await seedSymbolFixtures(store: store, root: root)
 
-            let symbols = try await SymbolOps.listSymbols(store: store, file: "Sample.swift")
+            let symbols = try await SymbolOps.listSymbols(store: store, file: "Sample.swift").symbols
 
             let paths = symbols.map(\.qualifiedPath)
             #expect(
@@ -408,14 +408,61 @@ struct SymbolOpsTests {
     }
 
     @Test
+    func listSymbolsGivesTheFileAndItsSymbolsLikeGetSymbol() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedSymbolFixtures(store: store, root: root)
+
+            // The bench model wrote `syms.symbols.filter(...)` on a listSymbol
+            // result, as on a getSymbol result: the JSON must have that shape.
+            let result = try await SymbolOps.listSymbols(store: store, file: "Sample.swift")
+            let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(result))
+
+            let object = try #require(json as? [String: Any])
+            #expect(object["file"] as? String == "Sample.swift")
+            let symbols = try #require(object["symbols"] as? [[String: Any]])
+            #expect(symbols.count == 7)
+        }
+    }
+
+    @Test
+    func listSymbolsGivesOneRowPerSymbolAfterTheLinesOfItsFileMove() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let library = "def helper():\n    return 1\n\n\ndef user():\n    return helper()\n"
+            try write(library, to: "lib.py", in: root)
+            // views.py sorts after lib.py, thus the first pass chunks lib.py
+            // first and the call in views.py resolves to `helper`.
+            try write("from lib import helper\n\n\ndef caller():\n    return helper()\n", to: "views.py", in: root)
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+            try await TreeSitterWorker.run(store: store, rootDirectory: root)
+            let graphBefore = try await CallGraphOps.callGraph(store: store, of: "helper", direction: .inbound, maxDepth: 1)
+            #expect(Set(graphBefore.nodes.map(\.name)) == ["helper", "user", "caller"])
+
+            // Four new lines at the top move each symbol of lib.py 4 lines
+            // down, as the next commit of a clone moved base.py in the bench.
+            try write("# one\n# two\n# three\n# four\n" + library, to: "lib.py", in: root)
+            _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+            try await TreeSitterWorker.run(store: store, rootDirectory: root)
+
+            let symbols = try await SymbolOps.listSymbols(store: store, file: "lib.py").symbols
+            #expect(symbols.filter { $0.name == "helper" }.map(\.startLine) == [4])
+            #expect(symbols.filter { $0.name == "user" }.map(\.startLine) == [8])
+            let graph = try await CallGraphOps.callGraph(store: store, of: "helper", direction: .inbound, maxDepth: 1)
+            #expect(Set(graph.nodes.map(\.name)) == ["helper", "user", "caller"])
+        }
+    }
+
+    @Test
     func listSymbolsForUnknownFileReturnsEmpty() async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
             try await seedSymbolFixtures(store: store, root: root)
 
-            let symbols = try await SymbolOps.listSymbols(store: store, file: "DoesNotExist.swift")
+            let result = try await SymbolOps.listSymbols(store: store, file: "DoesNotExist.swift")
 
-            #expect(symbols.isEmpty)
+            #expect(result.file == "DoesNotExist.swift")
+            #expect(result.symbols.isEmpty)
         }
     }
 }

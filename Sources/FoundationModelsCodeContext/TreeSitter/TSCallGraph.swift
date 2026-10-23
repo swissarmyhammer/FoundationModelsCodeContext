@@ -168,6 +168,121 @@ enum TSCallGraph {
         }
     }
 
+    // MARK: - Synthetic symbols of a re-chunked file
+
+    /// Brings the synthetic `lsp_symbols` rows of `filePath` in line with
+    /// its `ts_chunks` rows, which were just written again.
+    ///
+    /// `ensureSymbolID(db:filePath:symbolPath:kind:startLine:endLine:)`
+    /// finds a row only by `(filePath, startLine)`. When the lines of a file
+    /// move (an edit, or the next commit of a clone that keeps its index),
+    /// the row of each moved symbol stays at its old line: `SymbolOps` then
+    /// gives the symbol two times, the old row as an LSP-only symbol, and an
+    /// edge from another file still points at the old row. Thus, before the
+    /// edges of the file are written again:
+    /// - a row at the line of a chunk with the same leaf name stays, with
+    ///   the end line and kind of that chunk;
+    /// - a row whose symbol moved goes to the line of the nearest chunk with
+    ///   the same leaf name that has no row yet, so the edges that point at
+    ///   it stay valid;
+    /// - a row with no such chunk is deleted, and its edges with it.
+    ///
+    /// Only the rows with the tree-sitter `source` move; a row that the LSP
+    /// index worker wrote stays where it is, and its own pass replaces it.
+    ///
+    /// - Parameters:
+    ///   - db: The write-transaction database connection, the one the new
+    ///     chunks of the file were written through.
+    ///   - filePath: The file whose chunks were just written.
+    /// - Throws: Rethrows any error `db`'s statements throw.
+    static func realignSyntheticSymbols(db: Database, filePath: String) throws {
+        let chunks = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT \(Schema.TsChunks.symbolPath), \(Schema.TsChunks.kind), \(Schema.TsChunks.startLine), \(Schema.TsChunks.endLine) \
+                FROM \(Schema.TsChunks.table) WHERE \(Schema.TsChunks.filePath) = ? ORDER BY \(Schema.TsChunks.startLine)
+                """,
+            arguments: [filePath]
+        ).map { row in
+            SyntheticTarget(
+                name: SymbolOps.leafName(ofQualifiedPath: row[Schema.TsChunks.symbolPath]),
+                kind: row[Schema.TsChunks.kind],
+                startLine: row[Schema.TsChunks.startLine],
+                endLine: row[Schema.TsChunks.endLine]
+            )
+        }
+        let rows = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT \(Schema.LspSymbols.id), \(Schema.LspSymbols.name), \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.source) \
+                FROM \(Schema.LspSymbols.table) WHERE \(Schema.LspSymbols.filePath) = ? ORDER BY \(Schema.LspSymbols.startLine)
+                """,
+            arguments: [filePath]
+        )
+
+        var occupiedLines: Set<Int> = []
+        var staleRows: [(id: Int64, name: String, startLine: Int)] = []
+        for row in rows {
+            let id: Int64 = row[Schema.LspSymbols.id]
+            let name: String = row[Schema.LspSymbols.name]
+            let startLine: Int = row[Schema.LspSymbols.startLine]
+            let rowSource: String = row[Schema.LspSymbols.source]
+            let isSynthetic = rowSource == Schema.lspSymbolSourceTreeSitter
+            if isSynthetic, let target = chunks.first(where: { $0.startLine == startLine && $0.name == name }) {
+                try moveSymbol(db: db, id: id, to: target)
+                occupiedLines.insert(startLine)
+            } else if isSynthetic {
+                staleRows.append((id, name, startLine))
+            } else {
+                occupiedLines.insert(startLine)
+            }
+        }
+
+        var deletedIDs: [Int64] = []
+        for stale in staleRows {
+            let target = chunks
+                .filter { $0.name == stale.name && !occupiedLines.contains($0.startLine) }
+                .min { abs($0.startLine - stale.startLine) < abs($1.startLine - stale.startLine) }
+            if let target {
+                try moveSymbol(db: db, id: stale.id, to: target)
+                occupiedLines.insert(target.startLine)
+            } else {
+                deletedIDs.append(stale.id)
+            }
+        }
+        for id in deletedIDs {
+            try db.execute(sql: "DELETE FROM \(Schema.LspSymbols.table) WHERE \(Schema.LspSymbols.id) = ?", arguments: [id])
+        }
+    }
+
+    /// The chunk a synthetic `lsp_symbols` row is moved to by
+    /// `realignSyntheticSymbols(db:filePath:)`.
+    private struct SyntheticTarget {
+        /// The leaf name of the chunk's `symbol_path`.
+        let name: String
+
+        /// The chunk's `ts_chunks.kind`.
+        let kind: String
+
+        /// The chunk's zero-based start line.
+        let startLine: Int
+
+        /// The chunk's zero-based end line.
+        let endLine: Int
+    }
+
+    /// Gives the synthetic row `id` the lines and kind of `target`.
+    private static func moveSymbol(db: Database, id: Int64, to target: SyntheticTarget) throws {
+        try db.execute(
+            sql: """
+                UPDATE \(Schema.LspSymbols.table) \
+                SET \(Schema.LspSymbols.startLine) = ?, \(Schema.LspSymbols.endLine) = ?, \(Schema.LspSymbols.kind) = ? \
+                WHERE \(Schema.LspSymbols.id) = ?
+                """,
+            arguments: [target.startLine, target.endLine, target.kind, id]
+        )
+    }
+
     // MARK: - Callee name positions
 
     /// Finds the position of the callee name of each call expression in
@@ -574,10 +689,10 @@ enum TSCallGraph {
                 INSERT INTO \(Schema.LspSymbols.table)
                     (\(Schema.LspSymbols.name), \(Schema.LspSymbols.kind), \(Schema.LspSymbols.filePath), \
                      \(Schema.LspSymbols.startLine), \(Schema.LspSymbols.startColumn), \
-                     \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn))
-                VALUES (?, ?, ?, ?, 0, ?, 0)
+                     \(Schema.LspSymbols.endLine), \(Schema.LspSymbols.endColumn), \(Schema.LspSymbols.source))
+                VALUES (?, ?, ?, ?, 0, ?, 0, ?)
                 """,
-            arguments: [name, kind, filePath, startLine, endLine]
+            arguments: [name, kind, filePath, startLine, endLine, Schema.lspSymbolSourceTreeSitter]
         )
         return db.lastInsertedRowID
     }

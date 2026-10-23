@@ -1398,10 +1398,11 @@ enum LSPIndexWorker<Connection: LanguageServerConnection> {
                     UPDATE \(Schema.LspSymbols.table) \
                     SET \(Schema.LspSymbols.name) = ?, \(Schema.LspSymbols.kind) = ?, \
                         \(Schema.LspSymbols.startColumn) = ?, \(Schema.LspSymbols.endLine) = ?, \
-                        \(Schema.LspSymbols.endColumn) = ?, \(Schema.LspSymbols.detail) = ? \
+                        \(Schema.LspSymbols.endColumn) = ?, \(Schema.LspSymbols.detail) = ?, \
+                        \(Schema.LspSymbols.source) = ? \
                     WHERE \(Schema.LspSymbols.id) = ?
                     """,
-                arguments: [name, kind, startColumn, endLine, endColumn, detail, existingID]
+                arguments: [name, kind, startColumn, endLine, endColumn, detail, Schema.lspSymbolSourceLSP, existingID]
             )
             return existingID
         }

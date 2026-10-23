@@ -8,7 +8,7 @@ import Operations
 @Operation(
     verb: "list",
     noun: "symbol",
-    description: "Give each symbol of one file, with its location, in the order of the file."
+    description: "Give each symbol of one file, with its location, in the order of the file, as `{ file, symbols }`."
 )
 internal struct ListSymbolOperation {
     /// The file whose symbols to give.
@@ -23,7 +23,7 @@ extension ListSymbolOperation {
     /// - Parameter context: The tool context.
     /// - Returns: The engine result, or a corrective message.
     /// - Throws: An error that the model cannot correct.
-    func execute(in context: CodeContextToolContext) async throws -> ToolOutcome<[SymbolLocation]> {
+    func execute(in context: CodeContextToolContext) async throws -> ToolOutcome<ListSymbolsResult> {
         try await ToolSupport.outcome {
             try await context.operating.listSymbols(file: file)
         }

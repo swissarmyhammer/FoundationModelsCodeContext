@@ -690,7 +690,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     }
 
     /// See `SymbolOps.listSymbols(store:file:)`.
-    public func listSymbols(file: String) async throws -> [SymbolLocation] {
+    public func listSymbols(file: String) async throws -> ListSymbolsResult {
         try await SymbolOps.listSymbols(store: store, file: file)
     }
 

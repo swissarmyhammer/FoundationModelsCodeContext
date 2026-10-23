@@ -127,7 +127,7 @@ struct CodeSearchToolTests {
 
             #expect(symbol.symbols.contains { $0.name == "greet" })
             #expect(matches.contains { $0.name == "helper" })
-            #expect(locations.contains { $0.name == "helper" })
+            #expect(locations.symbols.contains { $0.name == "helper" })
             #expect(graph.root.name == "helper")
             #expect(!radius.roots.isEmpty)
 
