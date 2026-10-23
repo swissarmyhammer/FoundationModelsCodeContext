@@ -25,13 +25,17 @@ internal struct GetRenameEditsOperation {
     @OperationParam(aliases: ["row"])
     var line: Int
 
-    /// The character offset of the position in its line.
-    @Guide(
-        description:
-            "The character offset of the position in its line, in UTF-16 units. The first character is character 0."
-    )
+    /// The character offset of the position in its line, or `nil` when the
+    /// model does not know it.
+    @Guide(description: PositionGuide.character)
     @OperationParam(aliases: ["column", "col"])
-    var character: Int
+    var character: Int?
+
+    /// The current name of the symbol at the position, or `nil`. `name` is
+    /// not an alias here: it is an alias of `newName`.
+    @Guide(description: PositionGuide.symbol)
+    @OperationParam(aliases: ["identifier", "oldName"])
+    var symbol: String?
 
     /// The new name of the symbol.
     @Guide(description: "The new name of the symbol at the position.")
@@ -48,12 +52,12 @@ extension GetRenameEditsOperation {
     /// - Parameter context: The tool context.
     /// - Returns: The engine result, or a corrective message.
     /// - Throws: An error that the model cannot correct.
-    func execute(in context: CodeContextToolContext) async throws -> ToolOutcome<RenameEditsResult> {
-        try await ToolSupport.outcome {
+    func execute(in context: CodeContextToolContext) async throws -> ToolOutcome<PositionedResult<RenameEditsResult>> {
+        try await ToolSupport.outcome(in: context, file: file, line: line, character: character, symbol: symbol) { position in
             try await context.operating.renameEdits(
                 filePath: file,
-                line: line,
-                character: character,
+                line: position.line,
+                character: position.character,
                 newName: newName
             )
         }

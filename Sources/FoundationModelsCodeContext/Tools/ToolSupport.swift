@@ -34,6 +34,49 @@ internal enum ToolOutcome<Success: Encodable & Sendable>: Encodable, Sendable {
     }
 }
 
+/// The result of a position operation, with the position that the operation
+/// used.
+///
+/// It encodes as the result. Only when the operation found the position
+/// itself does it add a `position` object with the line, the character and a
+/// note; a call with the exact position gives the engine result unchanged.
+internal struct PositionedResult<Result: Encodable & Sendable>: Encodable, Sendable {
+    /// The engine result.
+    let result: Result
+
+    /// The position that the operation used.
+    let position: ResolvedPosition
+
+    /// The key that this type adds to the result.
+    private enum CodingKeys: String, CodingKey {
+        case position
+    }
+
+    /// Encodes the result, and the position when it was inferred.
+    ///
+    /// - Parameter encoder: The encoder that receives the result.
+    /// - Throws: The error that `encoder` throws.
+    func encode(to encoder: any Encoder) throws {
+        try result.encode(to: encoder)
+        if position.isInferred {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(position, forKey: .position)
+        }
+    }
+}
+
+/// The model-facing descriptions of the `character` and `symbol` parameters,
+/// which each position operation of `code_navigation` has.
+internal enum PositionGuide {
+    /// The description of `character`.
+    static let character =
+        "The character offset of the position in its line, in UTF-16 units. The first character is character 0. Leave it out when you do not know it: the operation then finds `symbol` on the line, or uses the first name on the line."
+
+    /// The description of `symbol`.
+    static let symbol =
+        "The name of the symbol at the position, when you do not know the character. The operation finds the name on the line, or on a line near it."
+}
+
 /// The result of `ToolSupport.parseChoice(_:choices:parameter:)`.
 internal enum ChoiceParse<T> {
     /// The name matched a choice. The payload is the value of that choice.
@@ -196,6 +239,37 @@ internal enum ToolSupport {
     static func choiceTable<T: CaseIterable & RawRepresentable>(for type: T.Type) -> [(name: String, value: T)]
     where T.RawValue == String {
         type.allCases.map { (name: $0.rawValue, value: $0) }
+    }
+
+    /// Finds the position of a position operation, runs the `CodeContext`
+    /// call there, and gives its outcome.
+    ///
+    /// The model can leave out the column, or give the name of the symbol
+    /// instead: `CodeContext.resolvePosition(filePath:line:character:symbol:)`
+    /// then finds the position, and the result tells the model which one it
+    /// used.
+    ///
+    /// - Parameters:
+    ///   - context: The tool context.
+    ///   - file: The file of the position.
+    ///   - line: The line that the model gave.
+    ///   - character: The column that the model gave, or `nil`.
+    ///   - symbol: The symbol name that the model gave, or `nil`.
+    ///   - call: The `CodeContext` call at the resolved position.
+    /// - Returns: The outcome of `call`, as in `outcome(of:)`.
+    /// - Throws: The error that `call` threw, when the model cannot correct it.
+    static func outcome<Success: Encodable & Sendable>(
+        in context: CodeContextToolContext,
+        file: String,
+        line: Int,
+        character: Int?,
+        symbol: String?,
+        of call: (ResolvedPosition) async throws -> Success
+    ) async throws -> ToolOutcome<PositionedResult<Success>> {
+        let position = await context.operating.resolvePosition(
+            filePath: file, line: line, character: character, symbol: symbol
+        )
+        return try await outcome { PositionedResult(result: try await call(position), position: position) }
     }
 
     /// Runs one `CodeContext` call and gives its outcome.

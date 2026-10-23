@@ -24,13 +24,16 @@ internal struct GetDefinitionOperation {
     @OperationParam(aliases: ["row"])
     var line: Int
 
-    /// The character offset of the position in its line.
-    @Guide(
-        description:
-            "The character offset of the position in its line, in UTF-16 units. The first character is character 0."
-    )
+    /// The character offset of the position in its line, or `nil` when the
+    /// model does not know it.
+    @Guide(description: PositionGuide.character)
     @OperationParam(aliases: ["column", "col"])
-    var character: Int
+    var character: Int?
+
+    /// The name of the symbol at the position, or `nil`.
+    @Guide(description: PositionGuide.symbol)
+    @OperationParam(aliases: ["name", "identifier"])
+    var symbol: String?
 
     /// Whether each location also gives its source text, or `nil` for the
     /// default.
@@ -45,12 +48,12 @@ extension GetDefinitionOperation {
     /// - Parameter context: The tool context.
     /// - Returns: The engine result, or a corrective message.
     /// - Throws: An error that the model cannot correct.
-    func execute(in context: CodeContextToolContext) async throws -> ToolOutcome<DefinitionResult> {
-        try await ToolSupport.outcome {
+    func execute(in context: CodeContextToolContext) async throws -> ToolOutcome<PositionedResult<DefinitionResult>> {
+        try await ToolSupport.outcome(in: context, file: file, line: line, character: character, symbol: symbol) { position in
             try await context.operating.definition(
                 filePath: file,
-                line: line,
-                character: character,
+                line: position.line,
+                character: position.character,
                 includeSource: includeSource ?? CodeContextDefaults.includeSource
             )
         }

@@ -63,6 +63,9 @@ internal protocol CodeContextOperating: Sendable {
     /// See `CodeContext.queryAST(language:query:options:)`.
     func queryAST(language: String, query: String, options: QueryASTOptions) async throws -> QueryASTResult
 
+    /// See `CodeContext.resolvePosition(filePath:line:character:symbol:)`.
+    func resolvePosition(filePath: String, line: Int, character: Int?, symbol: String?) async -> ResolvedPosition
+
     /// See `CodeContext.definition(filePath:line:character:includeSource:)`.
     func definition(filePath: String, line: Int, character: Int, includeSource: Bool) async throws -> DefinitionResult
 

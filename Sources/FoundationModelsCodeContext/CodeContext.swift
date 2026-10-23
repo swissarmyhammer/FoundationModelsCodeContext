@@ -807,6 +807,26 @@ public actor CodeContext<Connection: LanguageServerConnection> {
 
     // MARK: - Live ops
 
+    /// Finds the position for a position operation when the caller does not
+    /// know the exact column: from a symbol name on or near the line, a
+    /// 1-based column, or the first name on the line.
+    ///
+    /// See `PositionInference.resolve(text:line:character:symbol:)`.
+    /// - Parameters:
+    ///   - filePath: The file, relative to the workspace root.
+    ///   - line: The zero-based line.
+    ///   - character: The zero-based UTF-16 column, or `nil` when unknown.
+    ///   - symbol: The name of the symbol at the position, or `nil`.
+    /// - Returns: The position, with a note when it is not the one given.
+    public func resolvePosition(filePath: String, line: Int, character: Int?, symbol: String?) -> ResolvedPosition {
+        PositionInference.resolve(
+            text: LanguageServerDocument.readText(relativePath: filePath, rootDirectory: rootDirectory),
+            line: line,
+            character: character,
+            symbol: symbol
+        )
+    }
+
     /// See `LiveOpsCore.definition(store:session:rootDirectory:filePath:line:character:includeSource:)`.
     public func definition(filePath: String, line: Int, character: Int, includeSource: Bool = CodeContextDefaults.includeSource) async throws -> DefinitionResult {
         let session = await session(forFilePath: filePath)
