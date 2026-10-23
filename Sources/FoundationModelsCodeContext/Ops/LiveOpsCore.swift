@@ -35,6 +35,27 @@ public struct DefinitionResult: Codable, Sendable, Equatable {
 
     /// Which data layer provided the result.
     let sourceLayer: SourceLayer
+
+    /// `"name"` when the index layer found the locations by the name at the
+    /// cursor, not by the position: the cursor is on a call or a reference,
+    /// and the locations are the definitions with that name. `nil` otherwise.
+    let resolvedBy: String?
+
+    /// How the index layer found the locations, or why it found none.
+    let note: String?
+
+    /// Makes a definition result.
+    /// - Parameters:
+    ///   - locations: The definition locations.
+    ///   - sourceLayer: The data layer that gave the locations.
+    ///   - resolvedBy: `"name"` for a match by name, else `nil`.
+    ///   - note: How the locations were found, or why there are none.
+    init(locations: [DefinitionLocation], sourceLayer: SourceLayer, resolvedBy: String? = nil, note: String? = nil) {
+        self.locations = locations
+        self.sourceLayer = sourceLayer
+        self.resolvedBy = resolvedBy
+        self.note = note
+    }
 }
 
 /// Result of `LiveOpsCore.hover`.
@@ -344,8 +365,12 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         return DefinitionResult(locations: locations, sourceLayer: .liveLSP)
     }
 
-    /// Shared indexed-layer implementation for `definition`/`typeDefinition`:
-    /// the LSP-index symbol at the cursor, else the tree-sitter chunk at the
+    /// Shared indexed-layer implementation for `definition`/`typeDefinition`.
+    ///
+    /// On a call or a reference, the definitions with the name at the cursor
+    /// (`DefinitionByName`), ranked, or none with a note: never the function
+    /// that encloses the call. On a defining name, or off any name, the
+    /// LSP-index symbol at the cursor, else the tree-sitter chunk at the
     /// cursor's line.
     private static func indexedDefinition(
         store: Store,
@@ -355,8 +380,24 @@ enum LiveOpsCore<Connection: LanguageServerConnection> {
         character: Int,
         includeSource: Bool
     ) async throws -> DefinitionResult? {
-        try await store.read { db in
-            try indexedLookup(
+        let text = LanguageServerDocument.readText(relativePath: filePath, rootDirectory: rootDirectory)
+        return try await store.read { db in
+            func location(of symbol: LayeredSymbolInfo) -> DefinitionLocation {
+                let sourceText = includeSource ? readSourceRange(rootDirectory: rootDirectory, filePath: symbol.filePath, range: symbol.range) : nil
+                return DefinitionLocation(filePath: symbol.filePath, range: symbol.range, sourceText: sourceText, symbol: symbol)
+            }
+            switch try DefinitionByName.lookup(db: db, text: text, filePath: filePath, line: line, character: character) {
+            case .byName(let candidates, let note):
+                return DefinitionResult(
+                    locations: candidates.map { location(of: $0.symbol) }, sourceLayer: candidates.first?.layer ?? .none,
+                    resolvedBy: DefinitionByName.resolvedBy, note: note
+                )
+            case .declaration(let candidate):
+                return DefinitionResult(locations: [location(of: candidate.symbol)], sourceLayer: candidate.layer)
+            case .byPosition:
+                break
+            }
+            return try indexedLookup(
                 db: db, filePath: filePath, line: line, character: character,
                 fromSymbol: { symbol in
                     let sourceText = includeSource ? readSourceRange(rootDirectory: rootDirectory, filePath: symbol.filePath, range: symbol.range) : nil

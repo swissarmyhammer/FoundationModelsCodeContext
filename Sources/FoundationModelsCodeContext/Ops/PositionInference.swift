@@ -156,7 +156,10 @@ enum PositionInference {
     /// Each identifier of `line`, with its UTF-16 column, in order. The text
     /// of a string literal and the text after a `#` or `//` comment start are
     /// not read.
-    private static func identifiers(in line: Substring) -> [(name: String, character: Int)] {
+    ///
+    /// Not `private`: `DefinitionByName` reads the name at the cursor and the
+    /// name before it with the same rule.
+    static func identifiers(in line: Substring) -> [(name: String, character: Int)] {
         var result: [(name: String, character: Int)] = []
         var current = ""
         var start = 0
