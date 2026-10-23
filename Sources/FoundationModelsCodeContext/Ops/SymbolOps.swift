@@ -21,7 +21,8 @@ public enum SymbolSource: String, Codable, Sendable, Equatable {
 /// `SymbolOps.getSymbol(store:query:maxResults:)` tries these in order and
 /// returns the results of the first tier that matches anything at all —
 /// tiers are never blended, so every symbol in one `GetSymbolResult` shares
-/// the same tier.
+/// the same tier. `near` is the one tier that is never in `symbols`: it marks
+/// the `candidates` of a query that no other tier matches.
 public enum SymbolMatchTier: String, Codable, Sendable, Equatable, CaseIterable {
     /// `symbol_path` equals the query exactly.
     case exact
@@ -29,12 +30,22 @@ public enum SymbolMatchTier: String, Codable, Sendable, Equatable, CaseIterable 
     /// `symbol_path` ends with `.<query>` (or equals it outright).
     case suffix
 
+    /// A `Class.member` query whose class does not define `member`: the match
+    /// is the `member` of the first base class that defines it, in the method
+    /// resolution order of the class. `SymbolMatch.inheritedFrom` names that
+    /// base class.
+    case inherited
+
     /// The lowercased `symbol_path` contains the lowercased query.
     case caseInsensitive
 
     /// `query`'s characters appear, in order, as a subsequence of
     /// `symbol_path`.
     case fuzzy
+
+    /// Not a match: a near candidate for a query that no other tier matches,
+    /// in `GetSymbolResult.candidates` only.
+    case near
 }
 
 /// One symbol match returned by `SymbolOps.getSymbol(store:query:maxResults:)`.
@@ -83,6 +94,10 @@ public struct SymbolMatch: Codable, Sendable, Equatable {
     /// Which index produced this match.
     public let source: SymbolSource
 
+    /// For a `SymbolMatchTier.inherited` match, the qualified path of the base
+    /// class that defines the symbol; `nil` for every other match.
+    public let inheritedFrom: String?
+
     /// Creates a symbol match.
     ///
     /// - Parameters:
@@ -99,6 +114,7 @@ public struct SymbolMatch: Codable, Sendable, Equatable {
     ///   - kind: The symbol's meta-type.
     ///   - detail: Extra detail about the symbol, if known from LSP.
     ///   - source: Which index produced this match.
+    ///   - inheritedFrom: The base class that defines an inherited match.
     public init(
         name: String,
         qualifiedPath: String,
@@ -112,8 +128,10 @@ public struct SymbolMatch: Codable, Sendable, Equatable {
         score: Int,
         kind: SymbolMetaType,
         detail: String?,
-        source: SymbolSource
+        source: SymbolSource,
+        inheritedFrom: String? = nil
     ) {
+        self.inheritedFrom = inheritedFrom
         self.name = name
         self.qualifiedPath = qualifiedPath
         self.filePath = filePath
@@ -139,14 +157,29 @@ public struct GetSymbolResult: Codable, Sendable, Equatable {
     /// descending score.
     public let symbols: [SymbolMatch]
 
+    /// When `symbols` is empty: the near candidates, all `SymbolMatchTier.near`
+    /// — the same member name in other classes, and members of the queried
+    /// class with a close name. `nil` when `symbols` has a match or nothing is
+    /// near. They are kept out of `symbols`, so a caller that takes
+    /// `symbols.first` never gets a symbol the query did not name.
+    public let candidates: [SymbolMatch]?
+
+    /// When `symbols` is empty: a short sentence that says no symbol matches
+    /// and what `candidates` holds. `nil` when `symbols` has a match.
+    public let note: String?
+
     /// Creates a `getSymbol` result.
     ///
     /// - Parameters:
     ///   - query: The original query string.
     ///   - symbols: Matched symbols, ordered by descending score.
-    public init(query: String, symbols: [SymbolMatch]) {
+    ///   - candidates: The near candidates when `symbols` is empty.
+    ///   - note: The sentence about an empty `symbols`.
+    public init(query: String, symbols: [SymbolMatch], candidates: [SymbolMatch]? = nil, note: String? = nil) {
         self.query = query
         self.symbols = symbols
+        self.candidates = candidates
+        self.note = note
     }
 }
 
@@ -312,6 +345,36 @@ public enum SymbolOps {
     /// qualified path's length from.
     private static let shorterPathBonusCeiling = 100
 
+    /// The score `SymbolMatchTier.inherited` matches start from, before one
+    /// point per step up the method resolution order is taken off.
+    private static let inheritedBaseScore = 850
+
+    /// The score a near candidate with a close name starts from, before
+    /// `nearDistancePenalty` per edit (and, for a member, one point per step
+    /// up the method resolution order) is taken off.
+    private static let nearClassMemberBaseScore = 700
+
+    /// The points one edit costs a near candidate with a close name.
+    private static let nearDistancePenalty = 10
+
+    /// The score a near candidate with the queried member name, in another
+    /// class, starts from, before `shorterPathBonus(qualifiedPath:)` is added.
+    /// It is below every close-name candidate of the queried class.
+    private static let nearSameNameBaseScore = 400
+
+    /// The most near candidates one result holds.
+    private static let nearCandidateLimit = 10
+
+    /// How many near candidate names the note of an empty result lists.
+    private static let noteCandidateNameCount = 3
+
+    /// The fewest edits `closeNameDistance(_:_:)` always accepts.
+    private static let nearMinimumEditLimit = 2
+
+    /// `closeNameDistance(_:_:)` accepts up to the query length divided by
+    /// this many edits.
+    private static let nearEditLimitDivisor = 3
+
     /// LSP kind-name strings (as stored in `lsp_symbols.kind`) known to map
     /// onto a `SymbolMetaType` other than `.other`.
     ///
@@ -342,10 +405,14 @@ public enum SymbolOps {
 
     // MARK: - getSymbol
 
-    /// Looks up symbols by name using four-tier matching: exact, suffix,
-    /// case-insensitive substring, then fuzzy subsequence — trying each in
-    /// order and returning the first tier's results, so a query is never
-    /// resolved by more than one tier at once.
+    /// Looks up symbols by name using five-tier matching: exact, suffix,
+    /// inherited, case-insensitive substring, then fuzzy subsequence — trying
+    /// each in order and returning the first tier's results, so a query is
+    /// never resolved by more than one tier at once.
+    ///
+    /// When no tier matches, `symbols` is empty and the result has a `note`,
+    /// plus the near `candidates` when there are any (see
+    /// `nearCandidates(candidates:query:hierarchy:)`).
     ///
     /// - Parameters:
     ///   - store: The workspace's index store to search.
@@ -353,7 +420,7 @@ public enum SymbolOps {
     ///   - maxResults: The maximum number of matches to return within
     ///     whichever tier resolves the query. Defaults to 50.
     /// - Returns: The first non-empty tier's matches, capped at
-    ///   `maxResults`, or an empty result if no tier matches.
+    ///   `maxResults`, or an empty result with a note if no tier matches.
     /// - Throws: Rethrows `Store`'s storage errors.
     public static func getSymbol(store: Store, query: String, maxResults: Int = CodeContextDefaults.maxQueryResults) async throws -> GetSymbolResult {
         let candidates = try await loadCandidateRows(store: store, filePath: nil)
@@ -364,13 +431,17 @@ public enum SymbolOps {
         if let result = matchSuffix(candidates: candidates, query: query, maxResults: maxResults) {
             return result
         }
+        let hierarchy = ClassHierarchy(candidates: candidates)
+        if let result = matchInherited(hierarchy: hierarchy, query: query, maxResults: maxResults) {
+            return result
+        }
         if let result = matchCaseInsensitive(candidates: candidates, query: query, maxResults: maxResults) {
             return result
         }
         if let result = matchFuzzy(candidates: candidates, query: query, maxResults: maxResults) {
             return result
         }
-        return GetSymbolResult(query: query, symbols: [])
+        return noMatchResult(candidates: candidates, query: query, hierarchy: hierarchy)
     }
 
     /// Tier 1: exact `qualifiedPath` match.
@@ -398,7 +469,41 @@ public enum SymbolOps {
         return makeResult(query: query, tier: .suffix, scoredRows: scoredRows, maxResults: maxResults)
     }
 
-    /// Tier 3: case-insensitive substring match.
+    /// Tier 3: a `Class.member` query whose class does not define `member`
+    /// resolves to the `member` of the first base class that defines it, in
+    /// the method resolution order of the class.
+    ///
+    /// Each class the query's class part names gives at most one match. The
+    /// score drops by one for each step up the method resolution order, so a
+    /// nearer base ranks first.
+    private static func matchInherited(hierarchy: ClassHierarchy, query: String, maxResults: Int) -> GetSymbolResult? {
+        guard let memberQuery = MemberQuery(query) else {
+            return nil
+        }
+        var resolved: [(scored: ScoredCandidateRow, definingClass: String)] = []
+        var seen: Set<SymbolLocationKey> = []
+        for subclass in hierarchy.classes(named: memberQuery.classPath) {
+            let order = hierarchy.methodResolutionOrder(of: subclass)
+            for (depth, base) in order.enumerated().dropFirst() {
+                guard let member = hierarchy.member(named: memberQuery.member, of: base) else {
+                    continue
+                }
+                if seen.insert(SymbolLocationKey(member)).inserted {
+                    resolved.append(((member, inheritedBaseScore - depth), base.qualifiedPath))
+                }
+                break
+            }
+        }
+        guard !resolved.isEmpty else {
+            return nil
+        }
+        let symbols = resolved.sorted { rankedBefore($0.scored, $1.scored) }.prefix(maxResults).map {
+            symbolMatch($0.scored, tier: .inherited, inheritedFrom: $0.definingClass)
+        }
+        return GetSymbolResult(query: query, symbols: Array(symbols))
+    }
+
+    /// Tier 4: case-insensitive substring match.
     private static func matchCaseInsensitive(candidates: [SymbolCandidateRow], query: String, maxResults: Int) -> GetSymbolResult? {
         let queryLowercased = query.lowercased()
         let scoredRows =
@@ -412,7 +517,7 @@ public enum SymbolOps {
         return makeResult(query: query, tier: .caseInsensitive, scoredRows: scoredRows, maxResults: maxResults)
     }
 
-    /// Tier 4: subsequence fuzzy match, ranked by fuzzy score.
+    /// Tier 5: subsequence fuzzy match, ranked by fuzzy score.
     private static func matchFuzzy(candidates: [SymbolCandidateRow], query: String, maxResults: Int) -> GetSymbolResult? {
         let scoredRows =
             candidates
@@ -430,33 +535,128 @@ public enum SymbolOps {
     }
 
     /// Maps pre-scored, pre-sorted candidate rows to a `GetSymbolResult`,
-    /// truncating to `maxResults`. Shared by all four tiers so scoring and
+    /// truncating to `maxResults`. Shared by the tiers so scoring and
     /// sorting are each tier's own concern, while assembling the public
-    /// result shape happens in exactly one place.
+    /// result shape happens in one place.
     private static func makeResult(
         query: String,
         tier: SymbolMatchTier,
         scoredRows: [ScoredCandidateRow],
         maxResults: Int
     ) -> GetSymbolResult {
-        let symbols = scoredRows.prefix(maxResults).map { candidate, score in
-            SymbolMatch(
-                name: candidate.name,
-                qualifiedPath: candidate.qualifiedPath,
-                filePath: candidate.filePath,
-                startLine: candidate.startLine,
-                endLine: candidate.endLine,
-                startColumn: candidate.startColumn,
-                endColumn: candidate.endColumn,
-                text: candidate.text,
-                matchTier: tier,
-                score: score,
-                kind: candidate.kind,
-                detail: candidate.detail,
-                source: candidate.source
-            )
-        }
+        let symbols = scoredRows.prefix(maxResults).map { symbolMatch($0, tier: tier) }
         return GetSymbolResult(query: query, symbols: Array(symbols))
+    }
+
+    /// Maps one scored candidate row to the public `SymbolMatch` shape.
+    private static func symbolMatch(_ scored: ScoredCandidateRow, tier: SymbolMatchTier, inheritedFrom: String? = nil) -> SymbolMatch {
+        let candidate = scored.candidate
+        return SymbolMatch(
+            name: candidate.name,
+            qualifiedPath: candidate.qualifiedPath,
+            filePath: candidate.filePath,
+            startLine: candidate.startLine,
+            endLine: candidate.endLine,
+            startColumn: candidate.startColumn,
+            endColumn: candidate.endColumn,
+            text: candidate.text,
+            matchTier: tier,
+            score: scored.score,
+            kind: candidate.kind,
+            detail: candidate.detail,
+            source: candidate.source,
+            inheritedFrom: inheritedFrom
+        )
+    }
+
+    // MARK: - No match: near candidates
+
+    /// The result of a query that no tier matches: empty `symbols`, the near
+    /// candidates, and a note that says what they are.
+    private static func noMatchResult(candidates: [SymbolCandidateRow], query: String, hierarchy: ClassHierarchy) -> GetSymbolResult {
+        let near = nearCandidates(candidates: candidates, query: query, hierarchy: hierarchy)
+        var note = "No symbol matches \"\(query)\"."
+        if let memberQuery = MemberQuery(query), hierarchy.classes(named: memberQuery.classPath).isEmpty {
+            note += " No class named \"\(memberQuery.classPath)\" is in the index."
+        }
+        if near.isEmpty {
+            return GetSymbolResult(query: query, symbols: [], note: note)
+        }
+        let names = near.prefix(noteCandidateNameCount).map(\.qualifiedPath).joined(separator: ", ")
+        note += " The candidates are near names, not matches: \(names)."
+        return GetSymbolResult(query: query, symbols: [], candidates: near, note: note)
+    }
+
+    /// The near candidates of a query that no tier matches, best first, at
+    /// most `nearCandidateLimit`.
+    ///
+    /// For a `Class.member` query: first the members of the class and of its
+    /// bases whose name is close to `member` (by edit distance), then the
+    /// symbols named `member` in other classes. For a plain name: the symbols
+    /// whose own name is close to it.
+    private static func nearCandidates(candidates: [SymbolCandidateRow], query: String, hierarchy: ClassHierarchy) -> [SymbolMatch] {
+        var scoredRows: [ScoredCandidateRow] = []
+        var seen: Set<SymbolLocationKey> = []
+        func add(_ candidate: SymbolCandidateRow, score: Int) {
+            if seen.insert(SymbolLocationKey(candidate)).inserted {
+                scoredRows.append((candidate, score))
+            }
+        }
+
+        if let memberQuery = MemberQuery(query) {
+            for subclass in hierarchy.classes(named: memberQuery.classPath) {
+                for (depth, base) in hierarchy.methodResolutionOrder(of: subclass).enumerated() {
+                    for member in hierarchy.members(of: base) {
+                        if let distance = closeNameDistance(memberQuery.member, member.name) {
+                            add(member, score: nearClassMemberBaseScore - distance * nearDistancePenalty - depth)
+                        }
+                    }
+                }
+            }
+            for candidate in candidates where candidate.name == memberQuery.member && candidate.qualifiedPath != candidate.name {
+                add(candidate, score: nearSameNameBaseScore + shorterPathBonus(qualifiedPath: candidate.qualifiedPath))
+            }
+        } else {
+            for candidate in candidates {
+                if let distance = closeNameDistance(query, candidate.name) {
+                    add(candidate, score: nearClassMemberBaseScore - distance * nearDistancePenalty)
+                }
+            }
+        }
+        return scoredRows.sorted(by: rankedBefore).prefix(nearCandidateLimit).map { symbolMatch($0, tier: .near) }
+    }
+
+    /// The edit distance between `query` and `name` when it is small enough
+    /// for `name` to be a near candidate, else `nil`. An equal name is not
+    /// near: a tier would have matched it.
+    ///
+    /// The limit is a third of the length of `query`, at least two edits, so
+    /// `_check_validity` reaches `_check_values` but a short name does not
+    /// reach every other short name.
+    private static func closeNameDistance(_ query: String, _ name: String) -> Int? {
+        let limit = max(nearMinimumEditLimit, query.count / nearEditLimitDivisor)
+        guard name != query, abs(name.count - query.count) <= limit else {
+            return nil
+        }
+        let distance = editDistance(Array(query.lowercased()), Array(name.lowercased()))
+        return distance <= limit ? distance : nil
+    }
+
+    /// The Levenshtein distance between two strings.
+    private static func editDistance(_ lhs: [Character], _ rhs: [Character]) -> Int {
+        guard !lhs.isEmpty else { return rhs.count }
+        guard !rhs.isEmpty else { return lhs.count }
+        var previous = Array(0...rhs.count)
+        var current = [Int](repeating: 0, count: rhs.count + 1)
+        for (lhsIndex, lhsCharacter) in lhs.enumerated() {
+            current[0] = lhsIndex + 1
+            for (rhsIndex, rhsCharacter) in rhs.enumerated() {
+                let substitution = previous[rhsIndex] + (lhsCharacter == rhsCharacter ? 0 : 1)
+                current[rhsIndex + 1] = min(substitution, previous[rhsIndex + 1] + 1, current[rhsIndex] + 1)
+            }
+            swap(&previous, &current)
+        }
+        return previous[rhs.count]
     }
 
     /// A small bonus that prefers a shorter (more specific) qualified path
@@ -673,6 +873,118 @@ public enum SymbolOps {
     private struct SymbolLocationKey: Hashable {
         let filePath: String
         let startLine: Int
+
+        init(filePath: String, startLine: Int) {
+            self.filePath = filePath
+            self.startLine = startLine
+        }
+
+        /// The location of `candidate`.
+        init(_ candidate: SymbolCandidateRow) {
+            self.init(filePath: candidate.filePath, startLine: candidate.startLine)
+        }
+    }
+
+    /// A query split at its last separator into a class part and a member
+    /// name: `ModelChoiceField.validate` is the class `ModelChoiceField` and
+    /// the member `validate`. A query with no separator is no member query.
+    private struct MemberQuery {
+        let classPath: String
+        let member: String
+
+        init?(_ query: String) {
+            guard let separator = query.range(of: Chunker.symbolPathSeparator, options: .backwards),
+                separator.lowerBound != query.startIndex, separator.upperBound != query.endIndex
+            else {
+                return nil
+            }
+            classPath = String(query[..<separator.lowerBound])
+            member = String(query[separator.upperBound...])
+        }
+    }
+
+    /// The classes of the index, their members and their base classes, for
+    /// the inherited tier and the near candidates.
+    ///
+    /// A class is a `.type` candidate. Its members are the candidates in the
+    /// same file whose qualified path is the class path plus one more
+    /// segment. Its bases come from its header text (see
+    /// `ClassInheritance.baseNames(ofClassText:filePath:)`), each resolved to
+    /// an indexed class with the same leaf name: the one in the same file
+    /// first, else the first by file path and line. A base the index does
+    /// not hold, such as `object`, is left out.
+    private struct ClassHierarchy {
+        /// Each class, by its location.
+        private let classes: [SymbolLocationKey: SymbolCandidateRow]
+
+        /// The classes with each leaf name, ordered by file path and line.
+        private let classesByLeafName: [String: [SymbolLocationKey]]
+
+        /// The members of each class, by file and class path.
+        private let membersByContainer: [ContainerKey: [SymbolCandidateRow]]
+
+        /// A class by its file and qualified path.
+        private struct ContainerKey: Hashable {
+            let filePath: String
+            let qualifiedPath: String
+        }
+
+        init(candidates: [SymbolCandidateRow]) {
+            var classes: [SymbolLocationKey: SymbolCandidateRow] = [:]
+            var classesByLeafName: [String: [SymbolLocationKey]] = [:]
+            var membersByContainer: [ContainerKey: [SymbolCandidateRow]] = [:]
+            for candidate in candidates {
+                if candidate.kind == .type {
+                    let key = SymbolLocationKey(candidate)
+                    classes[key] = candidate
+                    classesByLeafName[leafName(ofQualifiedPath: candidate.qualifiedPath), default: []].append(key)
+                }
+                if let separator = candidate.qualifiedPath.range(of: Chunker.symbolPathSeparator, options: .backwards) {
+                    let container = String(candidate.qualifiedPath[..<separator.lowerBound])
+                    membersByContainer[ContainerKey(filePath: candidate.filePath, qualifiedPath: container), default: []].append(candidate)
+                }
+            }
+            self.classes = classes
+            self.classesByLeafName = classesByLeafName.mapValues { keys in
+                keys.sorted { ($0.filePath, $0.startLine) < ($1.filePath, $1.startLine) }
+            }
+            self.membersByContainer = membersByContainer
+        }
+
+        /// The classes whose qualified path is `path` or ends with `.path`.
+        func classes(named path: String) -> [SymbolCandidateRow] {
+            (classesByLeafName[leafName(ofQualifiedPath: path)] ?? []).compactMap { classes[$0] }.filter {
+                $0.qualifiedPath == path || $0.qualifiedPath.hasSuffix(Chunker.symbolPathSeparator + path)
+            }
+        }
+
+        /// `start` and its indexed base classes, in Python lookup order.
+        func methodResolutionOrder(of start: SymbolCandidateRow) -> [SymbolCandidateRow] {
+            ClassInheritance.methodResolutionOrder(of: SymbolLocationKey(start)) { baseKeys(of: $0) }.compactMap { classes[$0] }
+        }
+
+        /// The members that `owner` defines itself.
+        func members(of owner: SymbolCandidateRow) -> [SymbolCandidateRow] {
+            membersByContainer[ContainerKey(filePath: owner.filePath, qualifiedPath: owner.qualifiedPath)] ?? []
+        }
+
+        /// The member named `name` that `owner` defines itself, if any. A
+        /// class can hold two rows of one member (a decorated method and its
+        /// inner definition); the first by line wins.
+        func member(named name: String, of owner: SymbolCandidateRow) -> SymbolCandidateRow? {
+            members(of: owner).filter { $0.name == name }.min { $0.startLine < $1.startLine }
+        }
+
+        /// The locations of the indexed direct bases of the class at `key`.
+        private func baseKeys(of key: SymbolLocationKey) -> [SymbolLocationKey] {
+            guard let owner = classes[key] else {
+                return []
+            }
+            return ClassInheritance.baseNames(ofClassText: owner.text, filePath: owner.filePath).compactMap { baseName in
+                let sameLeaf = (classesByLeafName[leafName(ofQualifiedPath: baseName)] ?? []).filter { $0 != key }
+                return sameLeaf.first { $0.filePath == owner.filePath } ?? sameLeaf.first
+            }
+        }
     }
 
     /// Loads and merges symbol candidates from `ts_chunks` and

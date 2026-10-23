@@ -9,7 +9,8 @@ import Operations
 @Operation(
     verb: "get",
     noun: "symbol",
-    description: "Find the symbols whose name matches the query, and give the location and the source text of each symbol."
+    description:
+        "Find the symbols whose name matches the query, and give the location and the source text of each symbol. A `Class.member` query also finds a member that the class inherits from a base class. With no match, `candidates` lists near names."
 )
 internal struct GetSymbolOperation {
     /// The text to search for.

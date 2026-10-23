@@ -30,8 +30,9 @@ private func seedSymbolFixtures(store: Store, root: URL) async throws {
     try await TreeSitterWorker.run(store: store, rootDirectory: root)
 }
 
-/// Tests for `SymbolOps.getSymbol`/`searchSymbol`/`listSymbols`: the four
-/// match tiers (exact > suffix > case-insensitive > fuzzy), the
+/// Tests for `SymbolOps.getSymbol`/`searchSymbol`/`listSymbols`: the five
+/// match tiers (exact > suffix > inherited > case-insensitive > fuzzy), the
+/// near candidates of a query no tier matches, the
 /// `lsp_symbols` merge/enrichment path, meta-type filtering, and file-scoped
 /// listing order — all against a store populated by the real `Chunker` (via
 /// `TreeSitterWorker`) on fixtures, per the task's `/tdd` workflow.
@@ -222,6 +223,87 @@ struct SymbolOpsTests {
     }
 
     @Test
+    func getSymbolResolvesAnInheritedMemberThroughTheBaseClass() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedInheritanceFixture(store: store, root: root)
+
+            let result = try await SymbolOps.getSymbol(store: store, query: "B.validate", maxResults: 1)
+
+            let match = try #require(result.symbols.first)
+            #expect(match.qualifiedPath == "A.validate")
+            #expect(match.matchTier == .inherited)
+            #expect(match.inheritedFrom == "A")
+            #expect(match.text.contains("def validate"))
+            #expect(result.candidates == nil)
+        }
+    }
+
+    @Test
+    func getSymbolResolvesAnInheritedMemberInPythonMethodResolutionOrder() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedInheritanceFixture(store: store, root: root)
+
+            // D(B, M) with B(A) and M(A): the order is D, B, M, A, so the
+            // `clean` of M wins over the `clean` of A.
+            let result = try await SymbolOps.getSymbol(store: store, query: "D.clean")
+
+            let match = try #require(result.symbols.first)
+            #expect(result.symbols.count == 1)
+            #expect(match.qualifiedPath == "M.clean")
+            #expect(match.matchTier == .inherited)
+            #expect(match.inheritedFrom == "M")
+        }
+    }
+
+    @Test
+    func getSymbolResolvesAnInheritedMemberThroughADottedBaseName() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedInheritanceFixture(store: store, root: root)
+
+            let result = try await SymbolOps.getSymbol(store: store, query: "E.validate")
+
+            let match = try #require(result.symbols.first)
+            #expect(match.qualifiedPath == "A.validate")
+            #expect(match.inheritedFrom == "A")
+        }
+    }
+
+    @Test
+    func getSymbolGivesNearCandidatesAndANoteWhenNoTierMatches() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedInheritanceFixture(store: store, root: root)
+
+            let result = try await SymbolOps.getSymbol(store: store, query: "B._check_validity")
+
+            #expect(result.symbols.isEmpty)
+            let candidates = try #require(result.candidates)
+            #expect(candidates.first?.qualifiedPath == "A._check_values")
+            #expect(candidates.allSatisfy { $0.matchTier == .near })
+            let note = try #require(result.note)
+            #expect(note.contains("B._check_validity"))
+        }
+    }
+
+    @Test
+    func getSymbolGivesTheSameMemberOfOtherClassesAsNearCandidates() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedInheritanceFixture(store: store, root: root)
+
+            let result = try await SymbolOps.getSymbol(store: store, query: "Unknown.clean")
+
+            #expect(result.symbols.isEmpty)
+            let paths = Set(try #require(result.candidates).map(\.qualifiedPath))
+            #expect(paths == ["A.clean", "M.clean"])
+            #expect(result.note != nil)
+        }
+    }
+
+    @Test
     func searchSymbolFuzzyMatchesQualifiedPath() async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
@@ -358,6 +440,48 @@ private func seedNestedClassFixture(store: Store, root: URL) async throws {
                 return 1
         """,
         to: "model.py",
+        in: root
+    )
+    _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+    try await TreeSitterWorker.run(store: store, rootDirectory: root)
+}
+
+/// Seeds `store` with a chunker-populated Python class tree: `A` defines
+/// `validate`, `clean` and `_check_values`; `B(A)` defines nothing; the
+/// decorated `M(A)` defines `clean` again; `D(B, M)` is a diamond over `A`;
+/// and `E(models.A)` names its base with a module prefix.
+private func seedInheritanceFixture(store: Store, root: URL) async throws {
+    try write(
+        """
+        class A:
+            def validate(self, value):
+                return value
+
+            def clean(self, value):
+                return value
+
+            def _check_values(self, value):
+                return value
+
+
+        class B(A):
+            pass
+
+
+        @decorator
+        class M(A):
+            def clean(self, value):
+                return value
+
+
+        class D(B, M, metaclass=Meta):
+            pass
+
+
+        class E(models.A):
+            pass
+        """,
+        to: "forms.py",
         in: root
     )
     _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
