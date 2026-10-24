@@ -51,12 +51,17 @@ again.
 - A `file` is a path relative to the root of the workspace. `get diagnostics`
   also accepts an absolute path or a glob. `get blastradius` also accepts a
   glob.
-- A `line` and a `character` are 0-based: the first line is line 0, and the
-  first character is character 0. A `character` is a count of UTF-16 units.
+- Each line and each column is 1-based, in the parameters and in the results:
+  the first line is line 1, and the first column is column 1, as in a file
+  reader, a compiler message and a traceback. A `character` is a count of
+  UTF-16 units. A `character` of 0, or no `character`, means the start of the
+  line: the operation then finds `symbol` on the line, or uses the first name
+  on the line. A `line` of 0 is read as line 1, with a note. The index and the
+  language servers count from 0; the tools convert at their boundary.
 - `query ast` takes its S-expression in the `astQuery` parameter. The aliases
   of that parameter are `query`, `sexp` and `pattern`.
 - `get callgraph` accepts a symbol name, or a `<file>:<line>:<column>` locator
-  with 0-based numbers.
+  with 1-based numbers.
 - The `severity` parameter of `get diagnostics` takes a name: error, warning,
   information or hint. The `severity` field of the output is the LSP number:
   1 = error, 2 = warning, 3 = information, 4 = hint.
@@ -155,8 +160,8 @@ The five operations `get definition`, `get type_definition`, `get hover`,
 | Parameter | Aliases | Necessary | What it is |
 |---|---|---|---|
 | `file` | `path`, `filePath`, `filename` | yes | The file that holds the position. |
-| `line` | `row` | yes | The line of the position. The first line is line 0. |
-| `character` | `column`, `col` | yes | The character offset in the line, in UTF-16 units. The first character is character 0. |
+| `line` | `row` | yes | The line of the position. The first line is line 1. |
+| `character` | `column`, `col` | no | The column in the line, in UTF-16 units. The first column is column 1. Leave it out, or give 0, to find `symbol` on the line or use the first name on the line. |
 
 Each other parameter belongs to one operation:
 

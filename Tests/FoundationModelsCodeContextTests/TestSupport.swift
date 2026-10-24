@@ -1,5 +1,5 @@
 import Foundation
-import FoundationModelsCodeContext
+@testable import FoundationModelsCodeContext
 import FoundationModelsExtras
 import GRDB
 import Testing
@@ -377,18 +377,30 @@ enum TestJSON {
     /// compare the replies of the client with this value, not with the constant of the package.
     static let methodNotFoundCode = -32601
 
-    /// Encodes `value` with `.sortedKeys` and returns the JSON text.
+    /// Encodes `value` as a tool gives it and returns the JSON text: with
+    /// `.sortedKeys`, and with each line and each column from 1.
     ///
-    /// The tools encode each result with `.sortedKeys`, so this text is the
-    /// same as the output of a tool for the same value.
+    /// The tools encode each result with `.sortedKeys`, through
+    /// `ToolOutcome`, so this text is the same as the output of a tool for the
+    /// same engine result.
     ///
-    /// - Parameter value: The value to encode.
+    /// - Parameter value: The engine result.
     /// - Returns: The JSON text.
     /// - Throws: An `EncodingError` when `value` cannot be encoded.
-    static func encodedText<Value: Encodable>(_ value: Value) throws -> String {
+    static func encodedText<Value: Encodable & Sendable>(_ value: Value) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
-        return String(decoding: try encoder.encode(value), as: UTF8.self)
+        return String(decoding: try encoder.encode(ToolOutcome.success(value)), as: UTF8.self)
+    }
+
+    /// Encodes `value` as a tool gives it, and parses the JSON object again.
+    ///
+    /// - Parameter value: The engine result. It must encode as a JSON object.
+    /// - Returns: The parsed JSON object, with each line and each column from 1.
+    /// - Throws: An `EncodingError` when `value` cannot be encoded, or an
+    ///   expectation failure when the JSON is not an object.
+    static func toolObject<Value: Encodable & Sendable>(_ value: Value) throws -> NSDictionary {
+        try encodedObject(ToolOutcome.success(value))
     }
 
     /// Encodes `value` and parses the JSON object again.

@@ -39,13 +39,15 @@ public struct ResolvedPosition: Codable, Sendable, Equatable {
 /// 1. A symbol name: its first whole-identifier occurrence on the line, else
 ///    on the nearest line within `symbolSearchRadius` lines.
 /// 2. A column in the line: the column, as given.
-/// 3. A column one past the end of the line: a one-based column, minus one.
-/// 4. Otherwise: the first identifier on the line that is not a keyword.
+/// 3. Otherwise: the first identifier on the line that is not a keyword.
+///
+/// The positions are 0-based, as in the engine. The notes are for the model,
+/// thus they give each line and each column from 1, as the tools do.
 enum PositionInference {
     /// How many lines before and after the given line a symbol search looks.
     static let symbolSearchRadius = 3
 
-    /// The keywords that rule 4 skips: they are never the symbol that the
+    /// The keywords that rule 3 skips: they are never the symbol that the
     /// caller wants. The set holds the keywords of the common languages of the
     /// index; a name that is a keyword in one language only is not in it.
     static let keywords: Set<String> = [
@@ -81,35 +83,29 @@ enum PositionInference {
                 return ResolvedPosition(line: line, character: character)
             }
             if let found = nearestOccurrence(of: name, around: line, in: lines) {
-                let place = found.line == line ? "on line \(line)" : "on line \(found.line), not on line \(line)"
+                let place =
+                    found.line == line
+                    ? "on line \(found.line + 1)" : "on line \(found.line + 1), not on line \(line + 1)"
                 return ResolvedPosition(
                     line: found.line,
                     character: found.character,
-                    note: "Used the position of `\(name)` \(place), at character \(found.character)."
+                    note: "Used the position of `\(name)` \(place), at column \(found.character + 1)."
                 )
             }
         }
         let width = lines[line].utf16.count
-        if let character {
-            if character >= 0, character < max(width, 1) {
-                return ResolvedPosition(line: line, character: character)
-            }
-            if character == width, width > 0 {
-                return ResolvedPosition(
-                    line: line,
-                    character: character - 1,
-                    note: "Character \(character) is past the end of line \(line); used it as a 1-based column, character \(character - 1)."
-                )
-            }
+        if let character, character >= 0, character < max(width, 1) {
+            return ResolvedPosition(line: line, character: character)
         }
         guard let first = firstIdentifier(in: lines[line]) else {
             return ResolvedPosition(line: line, character: character.map { min(max($0, 0), width) } ?? 0)
         }
-        let reason = character == nil ? "No character was given" : "Character \(character ?? 0) is not in line \(line)"
+        let reason =
+            character.map { "Column \($0 + 1) is not in line \(line + 1)" } ?? "No column was given"
         return ResolvedPosition(
             line: line,
             character: first.character,
-            note: "\(reason); used the first name on the line, `\(first.name)`, at character \(first.character)."
+            note: "\(reason); used the first name on the line, `\(first.name)`, at column \(first.character + 1)."
         )
     }
 

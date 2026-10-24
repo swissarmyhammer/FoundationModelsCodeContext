@@ -11,6 +11,10 @@ import Testing
 /// calls it: with a `GeneratedContent` payload. The fixture has no project
 /// marker, so no LSP daemon starts. Each operation then falls back to the LSP
 /// index, and the `sourceLayer` of each result is `lspIndex`.
+///
+/// The engine counts lines and columns from 0, and the tool from 1. Thus each
+/// direct engine call uses the 0-based constants, and each tool call uses the
+/// 1-based `tool` constants of the same position.
 struct CodeNavigationToolTests {
     /// The file of the fixture, relative to the workspace root.
     private static let fixtureFile = "Greeter.swift"
@@ -32,20 +36,29 @@ struct CodeNavigationToolTests {
         }
         """
 
-    /// The line of the free function `helper` of the fixture. The first line
-    /// of the file is line 0.
+    /// The 0-based line of the free function `helper` of the fixture, for a
+    /// direct engine call.
     private static let helperLine = 6
 
-    /// A character offset inside the name `helper` on `helperLine`. The first
-    /// character of the line is character 0.
+    /// A 0-based character offset inside the name `helper` on `helperLine`,
+    /// for a direct engine call.
     private static let helperCharacter = 5
+
+    /// The 0-based character offset that follows the name `helper` on
+    /// `helperLine`. The range of `get code_actions` ends here.
+    private static let helperEndCharacter = 11
+
+    /// `helperLine` as the tool takes it: from 1.
+    private static let toolLine = helperLine + 1
+
+    /// `helperCharacter` as the tool takes it: from 1.
+    private static let toolCharacter = helperCharacter + 1
+
+    /// `helperEndCharacter` as the tool takes it: from 1.
+    private static let toolEndCharacter = helperEndCharacter + 1
 
     /// The maximum number of results of the calls that give a maximum.
     private static let callMaxResults = 5
-
-    /// The character offset that follows the name `helper` on `helperLine`.
-    /// The range of `get code_actions` ends here.
-    private static let helperEndCharacter = 11
 
     /// The new name that `get rename_edits` gives to `helper`.
     private static let newHelperName = "greeting"
@@ -122,37 +135,37 @@ struct CodeNavigationToolTests {
                 [
                     (
                         GeneratedContent(properties: [
-                            "op": "get definition", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter, "includeSource": true,
+                            "op": "get definition", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter, "includeSource": true,
                         ]),
                         try TestJSON.encodedText(definition)
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get type_definition", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter, "includeSource": true,
+                            "op": "get type_definition", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter, "includeSource": true,
                         ]),
                         try TestJSON.encodedText(typeDefinition)
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get hover", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "get hover", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         try TestJSON.encodedText(hover)
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get references", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter, "includeDeclaration": true,
+                            "op": "get references", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter, "includeDeclaration": true,
                             "maxResults": Self.callMaxResults,
                         ]),
                         try TestJSON.encodedText(references)
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get implementations", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter, "includeSource": true,
+                            "op": "get implementations", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter, "includeSource": true,
                             "maxResults": Self.callMaxResults,
                         ]),
                         try TestJSON.encodedText(implementations)
@@ -180,22 +193,22 @@ struct CodeNavigationToolTests {
                 [
                     (
                         GeneratedContent(properties: [
-                            "op": "get definition", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "get definition", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         try TestJSON.encodedText(definition)
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get references", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "get references", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         try TestJSON.encodedText(references)
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get implementations", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "get implementations", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         try TestJSON.encodedText(implementations)
                     ),
@@ -235,50 +248,50 @@ struct CodeNavigationToolTests {
                 [
                     (
                         GeneratedContent(properties: [
-                            "op": "get typedefinition", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "get typedefinition", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         typeDefinition
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "type_definition get", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "type_definition get", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         typeDefinition
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "goto def", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "goto def", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         definition
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "find references", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "find references", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         references
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "find reference", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "find reference", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         references
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get refs", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "get refs", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         references
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get hover", "path": Self.fixtureFile, "row": Self.helperLine,
-                            "column": Self.helperCharacter,
+                            "op": "get hover", "path": Self.fixtureFile, "row": Self.toolLine,
+                            "column": Self.toolCharacter,
                         ]),
                         hover
                     ),
@@ -295,7 +308,7 @@ struct CodeNavigationToolTests {
         try await Self.withIndexedTool { tool, _ in
             let output = try await tool.call(
                 arguments: GeneratedContent(properties: [
-                    "op": "get hover", "file": Self.fixtureFile, "character": Self.helperCharacter,
+                    "op": "get hover", "file": Self.fixtureFile, "character": Self.toolCharacter,
                 ])
             )
 
@@ -328,23 +341,23 @@ struct CodeNavigationToolTests {
                 [
                     (
                         GeneratedContent(properties: [
-                            "op": "get code_actions", "file": Self.fixtureFile, "startLine": Self.helperLine,
-                            "startCharacter": Self.helperCharacter, "endLine": Self.helperLine,
-                            "endCharacter": Self.helperEndCharacter,
+                            "op": "get code_actions", "file": Self.fixtureFile, "startLine": Self.toolLine,
+                            "startCharacter": Self.toolCharacter, "endLine": Self.toolLine,
+                            "endCharacter": Self.toolEndCharacter,
                         ]),
                         try TestJSON.encodedText(codeActions)
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get rename_edits", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter, "newName": Self.newHelperName,
+                            "op": "get rename_edits", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter, "newName": Self.newHelperName,
                         ]),
                         try TestJSON.encodedText(renameEdits)
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get inbound_calls", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "get inbound_calls", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         try TestJSON.encodedText(inboundCalls)
                     ),
@@ -412,38 +425,38 @@ struct CodeNavigationToolTests {
                 [
                     (
                         GeneratedContent(properties: [
-                            "op": "get codeactions", "file": Self.fixtureFile, "startLine": Self.helperLine,
-                            "startCharacter": Self.helperCharacter, "endLine": Self.helperLine,
-                            "endCharacter": Self.helperEndCharacter,
+                            "op": "get codeactions", "file": Self.fixtureFile, "startLine": Self.toolLine,
+                            "startCharacter": Self.toolCharacter, "endLine": Self.toolLine,
+                            "endCharacter": Self.toolEndCharacter,
                         ]),
                         codeActions
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get code_action", "file": Self.fixtureFile, "startLine": Self.helperLine,
-                            "startCharacter": Self.helperCharacter, "endLine": Self.helperLine,
-                            "endCharacter": Self.helperEndCharacter,
+                            "op": "get code_action", "file": Self.fixtureFile, "startLine": Self.toolLine,
+                            "startCharacter": Self.toolCharacter, "endLine": Self.toolLine,
+                            "endCharacter": Self.toolEndCharacter,
                         ]),
                         codeActions
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get rename_edits", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter, "name": Self.newHelperName,
+                            "op": "get rename_edits", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter, "name": Self.newHelperName,
                         ]),
                         renameEdits
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get inboundcalls", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "get inboundcalls", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         inboundCalls
                     ),
                     (
                         GeneratedContent(properties: [
-                            "op": "get callers", "file": Self.fixtureFile, "line": Self.helperLine,
-                            "character": Self.helperCharacter,
+                            "op": "get callers", "file": Self.fixtureFile, "line": Self.toolLine,
+                            "character": Self.toolCharacter,
                         ]),
                         inboundCalls
                     ),

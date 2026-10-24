@@ -9,7 +9,8 @@ import Operations
 /// of the model. The operation returns `.corrective(_:)` instead, so that the
 /// model can correct the call and try again.
 internal enum ToolOutcome<Success: Encodable & Sendable>: Encodable, Sendable {
-    /// A success. It encodes as the value.
+    /// A success. It encodes as the value, with each line and each column
+    /// from 1 (see `OneBasedEncoder`).
     case success(Success)
 
     /// A recoverable failure. It encodes as a bare JSON string that tells the
@@ -18,15 +19,16 @@ internal enum ToolOutcome<Success: Encodable & Sendable>: Encodable, Sendable {
 
     /// Encodes the outcome.
     ///
-    /// `.success(_:)` encodes the value itself. `.corrective(_:)` encodes the
-    /// message as one JSON string.
+    /// `.success(_:)` encodes the value itself, through `OneBasedEncoder`: the
+    /// engine counts lines and columns from 0, and the model from 1.
+    /// `.corrective(_:)` encodes the message as one JSON string.
     ///
     /// - Parameter encoder: The encoder that receives the outcome.
     /// - Throws: The error that `encoder` throws.
     func encode(to encoder: any Encoder) throws {
         switch self {
         case .success(let value):
-            try value.encode(to: encoder)
+            try value.encode(to: OneBasedEncoder(base: encoder))
         case .corrective(let message):
             var container = encoder.singleValueContainer()
             try container.encode(message)
@@ -70,7 +72,10 @@ internal struct PositionedResult<Result: Encodable & Sendable>: Encodable, Senda
 internal enum PositionGuide {
     /// The description of `character`.
     static let character =
-        "The character offset of the position in its line, in UTF-16 units. The first character is character 0. Leave it out when you do not know it: the operation then finds `symbol` on the line, or uses the first name on the line."
+        "The column of the position in its line, in UTF-16 units. The first column is column 1. Leave it out, or give 0, when you do not know it: the operation then finds `symbol` on the line, or uses the first name on the line."
+
+    /// The description of `line`.
+    static let line = "The line of the position in the file. The first line is line 1."
 
     /// The description of `symbol`.
     static let symbol =
@@ -249,13 +254,16 @@ internal enum ToolSupport {
     /// then finds the position, and the result tells the model which one it
     /// used.
     ///
+    /// The model gives the line and the column from 1; `ToolCoordinates`
+    /// converts them to the 0-based position that `call` receives.
+    ///
     /// - Parameters:
     ///   - context: The tool context.
     ///   - file: The file of the position.
-    ///   - line: The line that the model gave.
-    ///   - character: The column that the model gave, or `nil`.
+    ///   - line: The 1-based line that the model gave.
+    ///   - character: The 1-based column that the model gave, or `nil`.
     ///   - symbol: The symbol name that the model gave, or `nil`.
-    ///   - call: The `CodeContext` call at the resolved position.
+    ///   - call: The `CodeContext` call at the resolved, 0-based position.
     /// - Returns: The outcome of `call`, as in `outcome(of:)`.
     /// - Throws: The error that `call` threw, when the model cannot correct it.
     static func outcome<Success: Encodable & Sendable>(
@@ -266,9 +274,16 @@ internal enum ToolSupport {
         symbol: String?,
         of call: (ResolvedPosition) async throws -> Success
     ) async throws -> ToolOutcome<PositionedResult<Success>> {
-        let position = await context.operating.resolvePosition(
-            filePath: file, line: line, character: character, symbol: symbol
+        var position = await context.operating.resolvePosition(
+            filePath: file,
+            line: ToolCoordinates.zeroBased(line: line),
+            character: ToolCoordinates.zeroBased(character: character),
+            symbol: symbol
         )
+        if let lineNote = ToolCoordinates.lineNote(line) {
+            let note = [lineNote, position.note].compactMap { $0 }.joined(separator: " ")
+            position = ResolvedPosition(line: position.line, character: position.character, note: note)
+        }
         return try await outcome { PositionedResult(result: try await call(position), position: position) }
     }
 

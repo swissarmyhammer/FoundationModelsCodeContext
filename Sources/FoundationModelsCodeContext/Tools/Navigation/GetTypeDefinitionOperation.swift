@@ -21,7 +21,7 @@ internal struct GetTypeDefinitionOperation {
     var file: String
 
     /// The line of the position.
-    @Guide(description: "The line of the position in the file. The first line is line 0.")
+    @Guide(description: PositionGuide.line)
     @OperationParam(aliases: ["row"])
     var line: Int
 

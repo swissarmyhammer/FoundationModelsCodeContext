@@ -38,7 +38,7 @@ struct CodeSearchToolTests {
 
     /// The shared description of the `symbol` parameter.
     private static let symbolDescription =
-        "For `get callgraph`: a symbol name, or a `<file>:<line>:<column>` locator with 0-based numbers. "
+        "For `get callgraph`: a symbol name, or a `<file>:<line>:<column>` locator with 1-based numbers. "
         + "For `get blastradius`: the name of a symbol inside `file`."
 
     /// The shared description of the `file` parameter.

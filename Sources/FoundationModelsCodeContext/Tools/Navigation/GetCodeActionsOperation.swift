@@ -25,27 +25,27 @@ internal struct GetCodeActionsOperation {
     var file: String
 
     /// The line where the range starts.
-    @Guide(description: "The line where the range starts in the file. The first line is line 0.")
+    @Guide(description: "The line where the range starts in the file. The first line is line 1.")
     @OperationParam(aliases: ["fromLine", "startRow"])
     var startLine: Int
 
-    /// The character offset where the range starts in its line.
+    /// The column where the range starts in its line.
     @Guide(
         description:
-            "The character offset where the range starts in its line, in UTF-16 units. The first character is character 0."
+            "The column where the range starts in its line, in UTF-16 units. The first column is column 1; 0 also means the start of the line."
     )
     @OperationParam(aliases: ["startColumn", "fromColumn"])
     var startCharacter: Int
 
     /// The line where the range ends.
-    @Guide(description: "The line where the range ends in the file. The first line is line 0.")
+    @Guide(description: "The line where the range ends in the file. The first line is line 1.")
     @OperationParam(aliases: ["toLine", "endRow"])
     var endLine: Int
 
-    /// The character offset where the range ends in its line.
+    /// The column where the range ends in its line.
     @Guide(
         description:
-            "The character offset where the range ends in its line, in UTF-16 units. The first character is character 0."
+            "The column where the range ends in its line, in UTF-16 units. The first column is column 1; 0 also means the start of the line."
     )
     @OperationParam(aliases: ["endColumn", "toColumn"])
     var endCharacter: Int
@@ -64,7 +64,8 @@ extension GetCodeActionsOperation {
     ///
     /// The call gives an empty list of diagnostics, because the operation has
     /// no diagnostics parameter: a `Diagnostic` is not a supported parameter
-    /// type.
+    /// type. The model gives the range from 1; `ToolCoordinates` converts it
+    /// to the 0-based range of the engine.
     ///
     /// - Parameter context: The tool context.
     /// - Returns: The engine result, or a corrective message.
@@ -73,10 +74,10 @@ extension GetCodeActionsOperation {
         try await ToolSupport.outcome {
             try await context.operating.codeActions(
                 filePath: file,
-                startLine: startLine,
-                startCharacter: startCharacter,
-                endLine: endLine,
-                endCharacter: endCharacter,
+                startLine: ToolCoordinates.zeroBased(line: startLine),
+                startCharacter: ToolCoordinates.zeroBased(character: startCharacter) ?? 0,
+                endLine: ToolCoordinates.zeroBased(line: endLine),
+                endCharacter: ToolCoordinates.zeroBased(character: endCharacter) ?? 0,
                 diagnostics: [],
                 only: only
             )

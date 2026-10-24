@@ -15,7 +15,7 @@ internal struct GetCallgraphOperation {
     /// The symbol where the walk starts.
     @Guide(
         description:
-            "For `get callgraph`: a symbol name, or a `<file>:<line>:<column>` locator with 0-based numbers. For `get blastradius`: the name of a symbol inside `file`."
+            "For `get callgraph`: a symbol name, or a `<file>:<line>:<column>` locator with 1-based numbers. For `get blastradius`: the name of a symbol inside `file`."
     )
     @OperationParam(aliases: ["name", "locator"])
     var symbol: String
@@ -40,6 +40,9 @@ extension GetCallgraphOperation {
 
     /// Calls `callGraph(of:direction:maxDepth:)`.
     ///
+    /// The model gives a locator from 1; `ToolCoordinates` converts it to the
+    /// 0-based locator of the engine.
+    ///
     /// - Parameter context: The tool context.
     /// - Returns: The engine result, or a corrective message.
     /// - Throws: An error that the model cannot correct.
@@ -47,7 +50,7 @@ extension GetCallgraphOperation {
         let parse = ToolSupport.parseOptionalChoice(direction, choices: Self.directionChoices, parameter: "direction")
         return try await ToolSupport.outcome(after: parse) { walkDirection in
             try await context.operating.callGraph(
-                of: symbol,
+                of: ToolCoordinates.zeroBased(locator: symbol),
                 direction: walkDirection ?? CodeContextDefaults.callGraphDirection,
                 maxDepth: maxDepth ?? CodeContextDefaults.callGraphMaxDepth
             )

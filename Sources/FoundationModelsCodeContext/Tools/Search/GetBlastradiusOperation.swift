@@ -33,7 +33,7 @@ internal struct GetBlastradiusOperation {
     /// the file. Only for a `file` that is one path.
     @Guide(
         description:
-            "For `get callgraph`: a symbol name, or a `<file>:<line>:<column>` locator with 0-based numbers. For `get blastradius`: the name of a symbol inside `file`."
+            "For `get callgraph`: a symbol name, or a `<file>:<line>:<column>` locator with 1-based numbers. For `get blastradius`: the name of a symbol inside `file`."
     )
     @OperationParam(aliases: ["name"])
     var symbol: String?
