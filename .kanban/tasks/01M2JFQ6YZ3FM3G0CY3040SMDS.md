@@ -36,6 +36,10 @@ comments:
     - commit: 067d58f
     - review: clean — 0 findings (2 files, 7 validator runs)
   timestamp: 2026-09-15T15:18:09.231095+00:00
+- actor: claude-code
+  id: 01m6kxztzkfdp76bkkyv66kdkm
+  text: 'Correction: the line "CodeContext does not use Ranker''s selection tier ... Do not add one." was wrong. The user''s quote in this task says "we need to pass ranker an LLM and an Embedder". CodeContext does take a required selection model from the host (SelectionFactory -> SelectionConfig), and it runs SelectionTier after retrieval. Task 01M6KHGCDACD41T2FSAET6EWPK (^et6ewpk) added the model. The description line is now corrected (task ^w6z300d). This task changed the embedding-model type only.'
+  timestamp: 2026-11-04T18:43:52.435935+00:00
 depends_on:
 - 01M2JFKFQ1DS4B95ACWJPQWGMW
 position_column: done
@@ -47,7 +51,7 @@ The user said: "we need to pass ranker an LLM and an Embedder". Ranker's `Search
 
 Make the embedding-model type one protocol: Ranker's. Then a caller conforms one time, and the same value works for CodeContext indexing, `searchCode`, and every Ranker API. Ranker `origin/main` (`0015ff2`) still has `Sources/FoundationModelsRanker/TextEmbedding.swift`.
 
-CodeContext does not use Ranker's selection tier (`Searcher`, `SelectionTier`, `AgentSession`). Thus CodeContext takes no LLM input. Do not add one.
+This task changes the embedding-model type only. CodeContext also uses Ranker's selection tier (`SelectionTier`), and the host must give CodeContext a selection model. Task 01M6KHGCDACD41T2FSAET6EWPK (^et6ewpk) adds that model. The older text of this line, which said that CodeContext needs no model for selection, was false.
 
 - [x] Replace the protocol in `Sources/FoundationModelsCodeContext/Embedding/TextEmbedding.swift` with `import FoundationModelsRanker` and `public typealias TextEmbedding = FoundationModelsRanker.TextEmbedding`. Use the same pattern as `Hit`/`Signals` in `Sources/FoundationModelsCodeContext/Search/RankingTypes.swift`. The doc comment gives the contract: one vector per input, in input order, each `dimension` long and L2-normalized. The host supplies the model. There is no Router in this package.
 - [x] Make sure that all current uses compile with no change: `CodeContext.swift` (lines 40, 139, 641), `CodeContextManager.swift` (lines 38, 94, 375), `Index/TreeSitterWorker.swift` (lines 53, 212, 227, 256), `Ops/SearchCode.swift` (lines 193, 286, 306), and `Tests/FoundationModelsCodeContextTests/Support/FakeEmbedder.swift`. If a file that imports both modules gets an "ambiguous type" error, qualify the name in that file.

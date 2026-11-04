@@ -25,3 +25,31 @@ Rules:
 - A result value that is already 1-based must not use a key in `positionKeys`, because the encoder then adds 1 a second time.
 - A byte offset or a count is not a position. Do not give it a key in `positionKeys`.
 - When you add a key for a line or a column, add it to `positionKeys` and to `OneBasedToolSurfaceTests`.
+
+## Retrieval and selection
+
+`searchCode` retrieves candidates, and then a language model selects from them. The host supplies both models. This package ships no model.
+
+Retrieval reads three layers of the index, from the lowest to the highest:
+
+- tree-sitter: chunks and call edges that come from the syntax tree
+- LSP: symbols and call edges that come from the language servers
+- search: the ranked lookup over the chunks that the two layers made
+
+The search layer has three signals for each chunk: BM25, trigram Dice and embedding cosine. `HybridRanker` of FoundationModelsRanker fuses the three signals with RRF. `SignalWeights` sets the weight of each signal. The embedding signal is absent when the host gives no embedder.
+
+Selection runs after retrieval:
+
+- The host gives a required selection model: a `SelectionFactory` that returns a `SelectionConfig`. It has the same shape as the `SelectionFactory` of FoundationModelsMultitool. The host picks the model.
+- `CodeContext` and `CodeContextManager` take `selection` as a required parameter. It has no `nil`, no default and no retrieval-only mode.
+- `SelectionTier` of FoundationModelsRanker takes the retrieval hits and selects from them. The result is the selected hits, in the order of the model.
+- An error of the factory or of the model session is the error of the call. We do not catch it, and we have no fallback.
+- A search with no candidate applies no factory and calls no model.
+
+In the traces, the selection step is the `select` span. It is a child of the `search` span, so the `search` span covers both retrieval and selection. Neither span holds the query or the text of a chunk.
+
+Rules:
+
+- Do not add a retrieval-only path that skips the selection model.
+- Do not load a model in this package. The host owns model loading and model residency.
+- `CodeContextManager.searchCode` runs the selection model one time for each search, over the merged candidates of all roots, and not one time for each root.

@@ -178,10 +178,18 @@ comments:
     - evidence: swift build, build of 3 examples, swift build --package-path IntegrationTests --build-tests, swift format lint -r --strict, and swift test all exit 0. The only warning is the allowed "missing creator for mutated node" mlx-swift_Cmlx.bundle warning.
     - next: review
   timestamp: 2026-11-04T18:40:44.603429+00:00
+- actor: claude-code
+  id: 01m6kxy7874t9ekj56gq0qzf31
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD (174bd31): findings 0, confirmed 0, refuted 2, attempted 7, failed 0. 16 files reviewed. 2 files skipped (.kanban, ignore rule). All prior items are checked.
+    - note: The engine gave no finding on Examples/ExampleSupport/HashingEmbedder.swift. The 3 findings that the implementer reported did not appear in this run.
+    - next: task moved to done.
+  timestamp: 2026-11-04T18:42:59.463336+00:00
 depends_on:
 - 01M6KHG55E3K73B27F5AJWFM9Y
-position_column: doing
-position_ordinal: '80'
+position_column: done
+position_ordinal: ff9080
 title: Add a required selection model to CodeContext and run SelectionTier after retrieval in search code
 ---
 ## What
