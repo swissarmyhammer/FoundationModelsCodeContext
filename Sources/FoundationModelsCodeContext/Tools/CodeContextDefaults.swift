@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsRanker
 
 /// The default values of the `CodeContext` operations.
 ///
@@ -36,7 +37,7 @@ internal enum CodeContextDefaults {
     @usableFromInline static let searchTopK = 20
 
     /// The weight of each signal of the `searchCode` ranking.
-    @usableFromInline static let searchWeights = SearchWeights.default
+    @usableFromInline static let searchWeights = SignalWeights()
 
     /// The minimum cosine similarity of a `findDuplicates` pair.
     @usableFromInline static let duplicateMinSimilarity = 0.85

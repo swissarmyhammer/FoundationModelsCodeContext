@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsRanker
 import Testing
 
 @testable import FoundationModelsCodeContext
@@ -178,7 +179,7 @@ struct ToolSupportTests {
         #expect(CodeContext<FakeLanguageServerConnection>.defaultMaxQueryResults == CodeContextDefaults.maxQueryResults)
         #expect(CodeContext<FakeLanguageServerConnection>.defaultIncludeSource == CodeContextDefaults.includeSource)
         #expect(QueryASTOptions().maxResults == CodeContextDefaults.queryASTMaxResults)
-        #expect(SearchWeights.default == CodeContextDefaults.searchWeights)
+        #expect(SignalWeights() == CodeContextDefaults.searchWeights)
 
         // The public default values are the same as before the tools.
         #expect(CodeContextDefaults.maxQueryResults == 50)
@@ -188,7 +189,7 @@ struct ToolSupportTests {
         #expect(CodeContextDefaults.blastRadiusMaxHops == 3)
         #expect(CodeContextDefaults.grepLanguages.isEmpty)
         #expect(CodeContextDefaults.searchTopK == 20)
-        #expect(CodeContextDefaults.searchWeights == SearchWeights(bm25: 1.0, trigram: 1.0, cosine: 1.0))
+        #expect(CodeContextDefaults.searchWeights == SignalWeights(bm25: 1.0, trigram: 1.0, cosine: 1.0))
         #expect(CodeContextDefaults.duplicateMinSimilarity == 0.85)
         #expect(CodeContextDefaults.duplicateMinChunkBytes == 100)
         #expect(CodeContextDefaults.duplicateMaxPerChunk == 5)

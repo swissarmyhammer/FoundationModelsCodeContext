@@ -77,7 +77,7 @@ public struct SearchCorpusSnapshot: Sendable {
     /// The number of chunks with `embeddedFlags[i] == true`.
     public var embeddedChunkCount: Int { embeddedFlags.count { $0 } }
 
-    /// Scores every chunk's cosine similarity against `queryVector` with one
+    /// Scores every embedded chunk's cosine similarity against `queryVector` with one
     /// `vDSP_mmul` matrix–vector product over `embeddingMatrix`.
     ///
     /// Both `embeddingMatrix`'s rows and `queryVector` must already be
@@ -87,16 +87,19 @@ public struct SearchCorpusSnapshot: Sendable {
     ///
     /// - Parameter queryVector: The L2-normalized query embedding, of length
     ///   `embeddingDimension`.
-    /// - Returns: One score per chunk, positionally aligned with `chunkIDs`;
-    ///   every score is `0.0` if `queryVector`'s length doesn't match
-    ///   `embeddingDimension` or the corpus has no chunks.
-    public func cosineScores(queryVector: [Float]) -> [Float] {
-        CosineScoring.matvecScores(
+    /// - Returns: One score per chunk, positionally aligned with `chunkIDs`, in the shape
+    ///   `HybridRanker` takes as `cosineScores`. A chunk without an embedding
+    ///   (`embeddedFlags[i] == false`) scores `nil`, so it gets no cosine rank. An embedded
+    ///   chunk scores its own value, also `0.0` or a negative one. Every embedded chunk scores
+    ///   `0.0` if `queryVector`'s length doesn't match `embeddingDimension`.
+    public func cosineScores(queryVector: [Float]) -> [Double?] {
+        let scores = CosineScoring.matvecScores(
             matrix: embeddingMatrix,
             rowCount: chunkCount,
             dimension: embeddingDimension,
             queryVector: queryVector
         )
+        return zip(scores, embeddedFlags).map { score, isEmbedded in isEmbedded ? Double(score) : nil }
     }
 }
 

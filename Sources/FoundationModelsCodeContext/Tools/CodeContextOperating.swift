@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsRanker
 
 /// The `CodeContext` operations that the FoundationModels tools call.
 ///
@@ -55,7 +56,7 @@ internal protocol CodeContextOperating: Sendable {
     func grepCode(pattern: String, languages: [String], filePattern: String?, maxResults: Int) async throws -> GrepCodeResult
 
     /// See `CodeContext.searchCode(query:topK:weights:)`.
-    func searchCode(query: String, topK: Int, weights: SearchWeights) async throws -> SearchCodeResult
+    func searchCode(query: String, topK: Int, weights: SignalWeights) async throws -> SearchCodeResult
 
     /// See `CodeContext.findDuplicates(file:minSimilarity:minChunkBytes:maxPerChunk:)`.
     func findDuplicates(file: String?, minSimilarity: Double, minChunkBytes: Int, maxPerChunk: Int) async throws -> FindDuplicatesResult

@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModelsRanker
 
 /// One per-context result, disambiguated by which open root produced it.
 ///
@@ -68,7 +69,7 @@ extension CodeContextManager {
     ///
     /// **Scores are not comparable across roots.** `SearchCode.run`'s fused score is
     /// `RRF.normalize`d to `[0, 1]` **per corpus** — relative to each root's own chunk population
-    /// (see `SearchCode.fuseRankings`) — so merging the union by score would systematically favor
+    /// (see `HybridRanker.topMatches(ids:documents:query:cosineScores:weights:limit:)`) — so merging the union by score would systematically favor
     /// a small repo's inflated normalized scores over a large repo's genuinely stronger, but
     /// comparatively scaled-down, ones. Results are therefore merged by rank (each root's own
     /// hit order), never by score, and every hit keeps its own root-relative `SearchCodeMatch`
@@ -80,13 +81,13 @@ extension CodeContextManager {
     ///   - topK: The maximum number of hits to return, across the union of every root's results.
     ///     Defaults to 20, mirroring `CodeContext.searchCode(query:topK:weights:)`.
     ///   - weights: The per-signal fusion weights, passed to every open context unchanged.
-    ///     Defaults to `SearchWeights.default`.
+    ///     Defaults to `SignalWeights()`, equal weight for every signal.
     /// - Returns: The rank-major-interleaved, root-qualified hits (capped at `topK`), plus one
     ///   `FanOutFailure` per root whose own `searchCode` call threw.
     public func searchCode(
         query: String,
         topK: Int = CodeContextDefaults.searchTopK,
-        weights: SearchWeights = CodeContextDefaults.searchWeights
+        weights: SignalWeights = CodeContextDefaults.searchWeights
     ) async -> (results: [Rooted<SearchCodeMatch>], failures: [FanOutFailure]) {
         let (perRoot, failures) = await fanOutQuery { context in
             try await context.searchCode(query: query, topK: topK, weights: weights).hits

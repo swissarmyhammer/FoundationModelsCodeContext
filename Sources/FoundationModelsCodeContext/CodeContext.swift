@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModelsExtras
+import FoundationModelsRanker
 import Tracing
 
 /// The public facade actor tying every subsystem in this package together for one workspace.
@@ -766,7 +767,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     public func searchCode(
         query: String,
         topK: Int = CodeContextDefaults.searchTopK,
-        weights: SearchWeights = CodeContextDefaults.searchWeights
+        weights: SignalWeights = CodeContextDefaults.searchWeights
     ) async throws -> SearchCodeResult {
         let embedder = try requireEmbedder()
         return try await SearchCode.run(corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights, tracer: tracer)

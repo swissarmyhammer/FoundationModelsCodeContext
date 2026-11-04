@@ -3,44 +3,6 @@ import FoundationModelsExtras
 import FoundationModelsRanker
 import Tracing
 
-/// The relative weight of each ranking signal
-/// `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)` fuses via
-/// `RRF.fuse(rankedLists:weights:k:)`.
-///
-/// A weight of `0.0` excludes that signal from the fused ranking entirely —
-/// its ranked list is left out of `RRF.fuse`'s inputs altogether, rather than
-/// included with a zero weight, so `RRF.normalize(fused:weights:k:)`'s
-/// ceiling never counts a signal no chunk could actually score against (see
-/// `SearchCode.fuseRankings`).
-public struct SearchWeights: Sendable, Equatable {
-    /// The weight applied to the BM25 keyword-ranking signal.
-    public let bm25: Double
-
-    /// The weight applied to the trigram fuzzy-ranking signal.
-    public let trigram: Double
-
-    /// The weight applied to the cosine semantic-ranking signal.
-    public let cosine: Double
-
-    /// Equal weight (`1.0`) for every signal.
-    public static let `default` = SearchWeights(bm25: 1.0, trigram: 1.0, cosine: 1.0)
-
-    /// Creates a set of per-signal ranking weights.
-    ///
-    /// - Parameters:
-    ///   - bm25: The weight applied to the BM25 keyword-ranking signal.
-    ///     Defaults to `1.0`.
-    ///   - trigram: The weight applied to the trigram fuzzy-ranking signal.
-    ///     Defaults to `1.0`.
-    ///   - cosine: The weight applied to the cosine semantic-ranking signal.
-    ///     Defaults to `1.0`.
-    public init(bm25: Double = 1.0, trigram: Double = 1.0, cosine: Double = 1.0) {
-        self.bm25 = bm25
-        self.trigram = trigram
-        self.cosine = cosine
-    }
-}
-
 /// A note that `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)`'s
 /// ranking ran with an incomplete (or entirely absent) embedding layer,
 /// attached to `SearchCodeResult` instead of failing the search.
@@ -230,14 +192,14 @@ public struct SearchCodeResult: Sendable, Equatable, Encodable {
 ///
 /// Port of the Rust `swissarmyhammer-search` crate's top-level search entry
 /// point, fusing three independent rankings — BM25 keyword, trigram fuzzy,
-/// cosine semantic — with `RRF.fuse(rankedLists:weights:k:)` (see plan.md
-/// "Search"). Chunk data and the cosine matrix live in a `SearchCorpus`,
+/// cosine semantic — with `HybridRanker.topMatches(ids:documents:query:cosineScores:weights:limit:)`
+/// of FoundationModelsRanker (see plan.md "Search"). Chunk data and the cosine matrix live in a `SearchCorpus`,
 /// meant to be reused across calls so the tokenize/trigram precomputation in
 /// `SearchCorpus.build(rows:)` happens once per corpus generation, not once
 /// per query.
 public enum SearchCode {
     /// Searches `corpus` for `query`, fusing BM25, trigram, and (when
-    /// available) cosine rankings via Reciprocal Rank Fusion.
+    /// available) cosine rankings through `HybridRanker`.
     ///
     /// `embedder` embeds `query` itself for the cosine signal; it is
     /// independent of whatever embedder (if any) originally embedded the
@@ -255,7 +217,8 @@ public enum SearchCode {
     ///   - query: The search query, used for all three signals.
     ///   - topK: The maximum number of hits to return. Defaults to 20.
     ///   - weights: The per-signal fusion weights. Defaults to
-    ///     `SearchWeights.default`.
+    ///     `SignalWeights()`, equal weight for every
+    ///     signal.
     ///   - tracer: The tracer of the search span and of the embed span of the
     ///     query. Defaults to `nil`, which reads the bootstrapped tracer at the
     ///     time of the call.
@@ -272,7 +235,7 @@ public enum SearchCode {
         embedder: PooledEmbedding?,
         query: String,
         topK: Int = CodeContextDefaults.searchTopK,
-        weights: SearchWeights = CodeContextDefaults.searchWeights,
+        weights: SignalWeights = CodeContextDefaults.searchWeights,
         tracer: (any Tracer)? = nil
     ) async throws -> SearchCodeResult {
         try await CodeContextSpans.withSearchSpan(
@@ -282,24 +245,8 @@ public enum SearchCode {
             resultCount: \.hits.count
         ) {
             let snapshot = try await corpus.snapshot()
-
-            let (bm25Ranking, bm25Scores) = computeBM25Ranking(snapshot: snapshot, query: query)
-            let (trigramRanking, trigramScores) = computeTrigramRanking(snapshot: snapshot, query: query)
-            let (cosineRanking, cosineScores) = await computeCosineRanking(
-                snapshot: snapshot, embedder: embedder, query: query, tracer: tracer
-            )
-
-            let hits = fuseRankings(
-                snapshot: snapshot,
-                bm25Ranking: bm25Ranking,
-                bm25Scores: bm25Scores,
-                trigramRanking: trigramRanking,
-                trigramScores: trigramScores,
-                cosineRanking: cosineRanking,
-                cosineScores: cosineScores,
-                weights: weights,
-                topK: topK
-            )
+            let cosineScores = await queryCosineScores(snapshot: snapshot, embedder: embedder, query: query, tracer: tracer)
+            let hits = rank(snapshot: snapshot, query: query, cosineScores: cosineScores, weights: weights, topK: topK)
 
             return SearchCodeResult(
                 query: query,
@@ -309,86 +256,29 @@ public enum SearchCode {
         }
     }
 
-    // MARK: - Per-signal ranking
+    // MARK: - Cosine signal
 
-    /// Computes the BM25 keyword-ranking signal: `query`'s tokens scored
-    /// against every chunk's precomputed weighted term frequency.
+    /// Scores every chunk of `snapshot` against the embedding of `query`.
     ///
-    /// - Returns: The matching chunk indices ranked descending by score (see
-    ///   `rankingOfPositiveScores(scores:)`), and the full-length, positionally
-    ///   aligned raw score for every chunk.
-    private static func computeBM25Ranking(snapshot: SearchCorpusSnapshot, query: String) -> (ranking: [Int], scores: [Double]) {
-        let queryTokens = Tokenizer.tokenize(text: query)
-        guard snapshot.chunkCount > 0, !queryTokens.isEmpty else {
-            return ([], [Double](repeating: 0.0, count: snapshot.chunkCount))
-        }
-
-        let corpus = BM25Corpus(
-            queryTokens: queryTokens,
-            documents: snapshot.rankedDocuments.lazy.map { ($0.documentLength, $0.termSet) }
-        )
-        let scores = snapshot.rankedDocuments.map { document in
-            corpus.score(
-                weightedTermFrequency: document.weightedTermFrequency,
-                documentLength: document.documentLength,
-                queryTokens: queryTokens
-            )
-        }
-        return (rankingOfPositiveScores(scores: scores), scores)
-    }
-
-    /// Computes the trigram fuzzy-ranking signal: `query`'s canonical
-    /// trigram set scored against each chunk's `symbolPath` (the primary
-    /// field, weighted `BM25.primaryFieldWeight`) and `text` (the body
-    /// field, weighted `BM25.bodyFieldWeight`) trigram sets.
+    /// Returns `nil` — no cosine signal, so keyword-only ranking — whenever `embedder` is
+    /// `nil`, no chunk in `snapshot` has an embedding yet, or embedding `query` fails. Each of
+    /// those is graceful degradation, not an error.
     ///
-    /// - Returns: The matching chunk indices ranked descending by score (see
-    ///   `rankingOfPositiveScores(scores:)`), and the full-length, positionally
-    ///   aligned raw score for every chunk.
-    private static func computeTrigramRanking(snapshot: SearchCorpusSnapshot, query: String) -> (ranking: [Int], scores: [Double]) {
-        guard snapshot.chunkCount > 0 else {
-            return ([], [])
-        }
-
-        let querySet = Trigram.canonicalTrigramSet(text: query)
-        let scores = snapshot.rankedDocuments.map { document in
-            BM25.primaryFieldWeight * Trigram.dice(querySet: querySet, targetSet: document.primaryTrigramSet)
-                + BM25.bodyFieldWeight * Trigram.dice(querySet: querySet, targetSet: document.bodyTrigramSet)
-        }
-        return (rankingOfPositiveScores(scores: scores), scores)
-    }
-
-    /// Computes the cosine semantic-ranking signal by embedding `query` with
-    /// `embedder` and scoring it against `snapshot`'s embedding matrix.
-    ///
-    /// Returns an empty ranking (but a full-length, all-zero `scores` array)
-    /// whenever `embedder` is `nil`, no chunk in `snapshot` has an embedding
-    /// yet, or embedding `query` itself fails — each of those is graceful
-    /// degradation to keyword-only ranking, not an error.
-    ///
-    /// - Returns: The embedded chunk indices ranked descending by cosine
-    ///   score, and the full-length, positionally aligned raw score for
-    ///   every chunk (`0.0` for an un-embedded chunk, matching
-    ///   `Signals.cosine`'s documented "no embedding" value).
-    private static func computeCosineRanking(
+    /// - Returns: One score per chunk, positionally aligned with `snapshot.chunkIDs`; `nil`
+    ///   for a chunk without an embedding (see `SearchCorpusSnapshot.cosineScores(queryVector:)`).
+    private static func queryCosineScores(
         snapshot: SearchCorpusSnapshot,
         embedder: PooledEmbedding?,
         query: String,
         tracer: (any Tracer)?
-    ) async -> (ranking: [Int], scores: [Double]) {
-        let zeroScores = [Double](repeating: 0.0, count: snapshot.chunkCount)
+    ) async -> [Double?]? {
         guard let embedder, snapshot.embeddedChunkCount > 0 else {
-            return ([], zeroScores)
+            return nil
         }
         guard let queryVector = await embedQuery(embedder: embedder, query: query, tracer: tracer) else {
-            return ([], zeroScores)
+            return nil
         }
-
-        let scores = snapshot.cosineScores(queryVector: queryVector).map(Double.init)
-        let ranking = snapshot.chunkIDs.indices
-            .filter { snapshot.embeddedFlags[$0] }
-            .sorted { scores[$0] > scores[$1] }
-        return (ranking, scores)
+        return snapshot.cosineScores(queryVector: queryVector)
     }
 
     /// Embeds `query` with `embedder`, or `nil` if embedding fails or
@@ -408,78 +298,37 @@ public enum SearchCode {
         }
     }
 
-    /// The indices of every positive score, descending by score — the
-    /// "graceful degradation, no zero-fill" ranked-list shape
-    /// `RRF.fuse(rankedLists:weights:k:)` expects: a chunk that scored `0.0`
-    /// (no match at all for this signal) is simply absent from the list,
-    /// exactly as if it weren't in the corpus for this signal.
-    private static func rankingOfPositiveScores(scores: [Double]) -> [Int] {
-        scores.indices.filter { scores[$0] > 0.0 }.sorted { scores[$0] > scores[$1] }
-    }
+    // MARK: - Ranking
 
-    // MARK: - Fusion
-
-    /// Fuses the three per-signal rankings via `RRF.fuse(rankedLists:weights:k:)`,
-    /// normalizes to `[0, 1]` via `RRF.normalize(fused:weights:k:)`, and
-    /// builds the ordered `SearchCodeMatch` list capped at `topK`.
-    private static func fuseRankings(
+    /// Ranks `snapshot` with `HybridRanker.topMatches(ids:documents:query:cosineScores:weights:limit:)`
+    /// and builds the ordered `SearchCodeMatch` list capped at `topK`.
+    ///
+    /// The snapshot arrays are sorted ascending by chunk id (see `SearchCorpus`), and
+    /// `HybridRanker` breaks ties by ascending input index, so a tie goes to the lower chunk id.
+    private static func rank(
         snapshot: SearchCorpusSnapshot,
-        bm25Ranking: [Int],
-        bm25Scores: [Double],
-        trigramRanking: [Int],
-        trigramScores: [Double],
-        cosineRanking: [Int],
-        cosineScores: [Double],
-        weights: SearchWeights,
+        query: String,
+        cosineScores: [Double?]?,
+        weights: SignalWeights,
         topK: Int
     ) -> [SearchCodeMatch] {
-        // One (ranking, weight) pair per signal — a data-driven loop below
-        // rather than three hand-maintained if-blocks, so adding a fourth
-        // signal later is a one-line addition here, not three parallel
-        // arms that must stay in lockstep.
-        let signals: [(ranking: [Int], weight: Double)] = [
-            (bm25Ranking, weights.bm25),
-            (trigramRanking, weights.trigram),
-            (cosineRanking, weights.cosine),
-        ]
+        let ids = snapshot.chunkIDs.map { String($0) }
+        let hits = HybridRanker.topMatches(
+            ids: ids,
+            documents: snapshot.rankedDocuments,
+            query: query,
+            cosineScores: cosineScores,
+            weights: weights,
+            limit: topK
+        )
 
-        var rankedLists: [[Int]] = []
-        var listWeights: [Double] = []
-        // Only signals with a positive configured weight AND at least one
-        // matching chunk enter RRF.fuse/normalize's inputs: an empty list
-        // would contribute nothing to `fuse` regardless, but leaving its
-        // weight out of `normalize`'s ceiling too keeps a perfect
-        // keyword-only match normalizing to 1.0 instead of being capped
-        // below it by an unreachable cosine share.
-        for (ranking, weight) in signals where weight > 0.0 && !ranking.isEmpty {
-            rankedLists.append(ranking)
-            listWeights.append(weight)
-        }
-
-        let fused = RRF.fuse(rankedLists: rankedLists, weights: listWeights)
-        let normalized = RRF.normalize(fused: fused, weights: listWeights)
-
-        let orderedChunkIndices = normalized.keys.sorted { leftIndex, rightIndex in
-            let leftScore = normalized[leftIndex] ?? 0.0
-            let rightScore = normalized[rightIndex] ?? 0.0
-            guard leftScore != rightScore else {
-                // Deterministic tie-break: lower chunk id first.
-                return snapshot.chunkIDs[leftIndex] < snapshot.chunkIDs[rightIndex]
+        let chunkIndexByID = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($0.element, $0.offset) })
+        return hits.map { hit in
+            guard let chunkIndex = chunkIndexByID[hit.id] else {
+                preconditionFailure("HybridRanker returned the id \(hit.id), which is not a chunk id of the snapshot")
             }
-            return leftScore > rightScore
-        }
-
-        return orderedChunkIndices.prefix(topK).map { chunkIndex in
-            SearchCodeMatch(
-                hit: Hit(
-                    id: String(snapshot.chunkIDs[chunkIndex]),
-                    score: normalized[chunkIndex] ?? 0.0,
-                    signals: Signals(
-                        bm25: bm25Scores[chunkIndex],
-                        trigram: trigramScores[chunkIndex],
-                        cosine: cosineScores[chunkIndex]
-                    )
-                ),
+            return SearchCodeMatch(
+                hit: hit,
                 filePath: snapshot.filePaths[chunkIndex],
                 symbolPath: snapshot.symbolPaths[chunkIndex],
                 kind: snapshot.kinds[chunkIndex],

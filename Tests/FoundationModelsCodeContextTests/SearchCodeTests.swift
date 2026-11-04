@@ -189,6 +189,62 @@ struct SearchCodeTests {
         }
     }
 
+    // MARK: - Cosine rank of every embedded chunk, tie order
+
+    @Test
+    func snapshotCosineScoreIsNilForAChunkWithoutAnEmbedding() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let embedder = FakeEmbedder(vectorLength: Self.embeddingDimension)
+            let vector = try #require(try await embedder.embed(texts: ["query"]).first)
+            try await insertChunk(store: store, filePath: "A.swift", symbolPath: "A.first", text: "first body", embedding: vector)
+            try await insertChunk(store: store, filePath: "B.swift", symbolPath: "B.second", text: "second body", embedding: nil)
+
+            let snapshot = try await SearchCorpus(store: store).snapshot()
+            let scores = snapshot.cosineScores(queryVector: vector)
+
+            #expect(scores.map { $0 == nil } == [false, true])
+        }
+    }
+
+    @Test
+    func chunkWithANegativeCosineAndNoKeywordOverlapIsStillRankedBySimilarity() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            let query = "retry backoff strategy"
+            let embedder = FakeEmbedder(vectorLength: Self.embeddingDimension)
+            let queryVector = try #require(try await embedder.embed(texts: [query]).first)
+            try await insertChunk(
+                store: store,
+                filePath: "Opposite.swift",
+                symbolPath: "N000111.N222333",
+                text: "444555 666777 888999",
+                embedding: queryVector.map { -$0 }
+            )
+
+            let result = try await SearchCode.run(corpus: SearchCorpus(store: store), embedder: embedder, query: query)
+
+            let hit = try #require(result.hits.first)
+            #expect(abs(hit.hit.signals.cosine + 1.0) < 1e-5)
+        }
+    }
+
+    @Test
+    func chunksWithEqualScoresComeInAscendingChunkIdOrder() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            for fileName in ["Z.swift", "M.swift", "A.swift"] {
+                try await insertChunk(
+                    store: store, filePath: fileName, symbolPath: "Same.symbol", text: "identical body text", embedding: nil
+                )
+            }
+
+            let result = try await SearchCode.run(corpus: SearchCorpus(store: store), embedder: nil, query: "identical body")
+
+            #expect(result.hits.map(\.filePath) == ["Z.swift", "M.swift", "A.swift"])
+        }
+    }
+
     // MARK: - Generation staleness
 
     @Test
