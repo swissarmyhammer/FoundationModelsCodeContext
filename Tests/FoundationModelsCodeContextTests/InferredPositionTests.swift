@@ -76,20 +76,21 @@ struct InferredPositionTests {
             source: fixtureSource,
             file: fixtureFile,
             embeddingDimension: embeddingDimension,
-            make: { try CodeNavigationTool.make(context: $0) }
-        ) { tool, context in
-            let direct = try TestJSON.toolObject(
-                try await context.definition(filePath: fixtureFile, line: line, character: character)
-            )
-            for call in arguments {
-                let output = try await tool.call(arguments: call)
-                let object = try #require(
-                    try JSONSerialization.jsonObject(with: Data(output.utf8), options: .fragmentsAllowed) as? NSDictionary,
-                    "output: \(output)"
+            make: { try CodeNavigationTool.make(context: $0) },
+            { tool, context in
+                let direct = try TestJSON.toolObject(
+                    try await context.definition(filePath: fixtureFile, line: line, character: character)
                 )
-                try check(object, direct)
+                for call in arguments {
+                    let output = try await tool.call(arguments: call)
+                    let object = try #require(
+                        try JSONSerialization.jsonObject(with: Data(output.utf8), options: .fragmentsAllowed) as? NSDictionary,
+                        "output: \(output)"
+                    )
+                    try check(object, direct)
+                }
             }
-        }
+        )
     }
 
     @Test

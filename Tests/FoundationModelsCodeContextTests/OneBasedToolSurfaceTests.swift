@@ -85,20 +85,22 @@ struct OneBasedToolSurfaceTests {
     func theSymbolVerbsGiveTheLineOfTheSymbolFromOne() async throws {
         try await Self.expectOutputs(
             [GeneratedContent(properties: ["op": "get symbol", "query": "helper"])],
-            make: { try CodeSearchTool.make(context: $0) }
-        ) { output in
-            let helper = try Self.named("helper", in: output["symbols"])
-            #expect(helper["startLine"] as? Int == Self.helperLine)
-            #expect(helper["endLine"] as? Int == Self.helperEndLine)
-        }
+            make: { try CodeSearchTool.make(context: $0) },
+            { output in
+                let helper = try Self.named("helper", in: output["symbols"])
+                #expect(helper["startLine"] as? Int == Self.helperLine)
+                #expect(helper["endLine"] as? Int == Self.helperEndLine)
+            }
+        )
         try await Self.expectOutputs(
             [GeneratedContent(properties: ["op": "list symbol", "file": Self.fixtureFile])],
-            make: { try CodeSearchTool.make(context: $0) }
-        ) { output in
-            let helper = try Self.named("helper", in: output["symbols"])
-            #expect(helper["startLine"] as? Int == Self.helperLine)
-            #expect(helper["endLine"] as? Int == Self.helperEndLine)
-        }
+            make: { try CodeSearchTool.make(context: $0) },
+            { output in
+                let helper = try Self.named("helper", in: output["symbols"])
+                #expect(helper["startLine"] as? Int == Self.helperLine)
+                #expect(helper["endLine"] as? Int == Self.helperEndLine)
+            }
+        )
     }
 
     @Test
@@ -107,20 +109,21 @@ struct OneBasedToolSurfaceTests {
             source: Self.fixtureSource,
             file: Self.fixtureFile,
             embeddingDimension: Self.embeddingDimension,
-            make: { try CodeSearchTool.make(context: $0) }
-        ) { tool, _ in
-            let search = try JSONSerialization.jsonObject(
-                with: Data(try await tool.call(arguments: GeneratedContent(properties: ["op": "search symbol", "query": "helper"])).utf8)
-            )
-            let helper = try Self.named("helper", in: (search as? NSDictionary)?["symbols"] ?? search)
-            #expect(helper["startLine"] as? Int == Self.helperLine)
+            make: { try CodeSearchTool.make(context: $0) },
+            { tool, _ in
+                let search = try JSONSerialization.jsonObject(
+                    with: Data(try await tool.call(arguments: GeneratedContent(properties: ["op": "search symbol", "query": "helper"])).utf8)
+                )
+                let helper = try Self.named("helper", in: (search as? NSDictionary)?["symbols"] ?? search)
+                #expect(helper["startLine"] as? Int == Self.helperLine)
 
-            let grep = try JSONSerialization.jsonObject(
-                with: Data(try await tool.call(arguments: GeneratedContent(properties: ["op": "grep code", "pattern": "def helper"])).utf8)
-            )
-            let matches = try #require(((grep as? NSDictionary)?["matches"] ?? grep) as? [NSDictionary], "grep: \(grep)")
-            #expect(matches.map { $0["startLine"] as? Int } == [Self.helperLine])
-        }
+                let grep = try JSONSerialization.jsonObject(
+                    with: Data(try await tool.call(arguments: GeneratedContent(properties: ["op": "grep code", "pattern": "def helper"])).utf8)
+                )
+                let matches = try #require(((grep as? NSDictionary)?["matches"] ?? grep) as? [NSDictionary], "grep: \(grep)")
+                #expect(matches.map { $0["startLine"] as? Int } == [Self.helperLine])
+            }
+        )
     }
 
     @Test
@@ -131,12 +134,13 @@ struct OneBasedToolSurfaceTests {
                     "op": "get definition", "file": Self.fixtureFile, "line": Self.callLine, "character": Self.callColumn,
                 ])
             ],
-            make: { try CodeNavigationTool.make(context: $0) }
-        ) { output in
-            let locations = try #require(output["locations"] as? [NSDictionary], "output: \(output)")
-            #expect(locations.map { $0.value(forKeyPath: "range.start.line") as? Int } == [Self.helperLine])
-            #expect(output["position"] == nil)
-        }
+            make: { try CodeNavigationTool.make(context: $0) },
+            { output in
+                let locations = try #require(output["locations"] as? [NSDictionary], "output: \(output)")
+                #expect(locations.map { $0.value(forKeyPath: "range.start.line") as? Int } == [Self.helperLine])
+                #expect(output["position"] == nil)
+            }
+        )
     }
 
     // MARK: - Inputs
@@ -145,10 +149,11 @@ struct OneBasedToolSurfaceTests {
     func theCallgraphLocatorCountsFromOne() async throws {
         try await Self.expectOutputs(
             [GeneratedContent(properties: ["op": "get callgraph", "symbol": "\(Self.fixtureFile):\(Self.helperEndLine):5"])],
-            make: { try CodeSearchTool.make(context: $0) }
-        ) { output in
-            #expect(output.value(forKeyPath: "root.name") as? String == "helper", "output: \(output)")
-        }
+            make: { try CodeSearchTool.make(context: $0) },
+            { output in
+                #expect(output.value(forKeyPath: "root.name") as? String == "helper", "output: \(output)")
+            }
+        )
     }
 
     @Test
@@ -160,24 +165,26 @@ struct OneBasedToolSurfaceTests {
                 ]),
                 GeneratedContent(properties: ["op": "get definition", "file": Self.fixtureFile, "line": Self.helperLine]),
             ],
-            make: { try CodeNavigationTool.make(context: $0) }
-        ) { output in
-            #expect(output.value(forKeyPath: "position.line") as? Int == Self.helperLine)
-            #expect(output.value(forKeyPath: "position.character") as? Int == Self.helperColumn)
-            let locations = try #require(output["locations"] as? [NSDictionary], "output: \(output)")
-            #expect(locations.map { $0.value(forKeyPath: "range.start.line") as? Int } == [Self.helperLine])
-        }
+            make: { try CodeNavigationTool.make(context: $0) },
+            { output in
+                #expect(output.value(forKeyPath: "position.line") as? Int == Self.helperLine)
+                #expect(output.value(forKeyPath: "position.character") as? Int == Self.helperColumn)
+                let locations = try #require(output["locations"] as? [NSDictionary], "output: \(output)")
+                #expect(locations.map { $0.value(forKeyPath: "range.start.line") as? Int } == [Self.helperLine])
+            }
+        )
     }
 
     @Test
     func lineZeroIsReadAsLineOneWithANote() async throws {
         try await Self.expectOutputs(
             [GeneratedContent(properties: ["op": "get hover", "file": Self.fixtureFile, "line": 0])],
-            make: { try CodeNavigationTool.make(context: $0) }
-        ) { output in
-            #expect(output.value(forKeyPath: "position.line") as? Int == 1, "output: \(output)")
-            #expect((output.value(forKeyPath: "position.note") as? String)?.contains("line 1") == true)
-        }
+            make: { try CodeNavigationTool.make(context: $0) },
+            { output in
+                #expect(output.value(forKeyPath: "position.line") as? Int == 1, "output: \(output)")
+                #expect((output.value(forKeyPath: "position.note") as? String)?.contains("line 1") == true)
+            }
+        )
     }
 
     @Test

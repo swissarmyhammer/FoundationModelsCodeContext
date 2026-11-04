@@ -97,6 +97,6 @@ let package = Package(
                 .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
             ],
             path: "Tests/FoundationModelsCodeContextIntegrationTests"
-        )
+        ),
     ]
 )

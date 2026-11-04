@@ -92,7 +92,8 @@ let stats = await embedder.stats.snapshot()
 let passSeconds = seconds(passDuration)
 let embedSeconds = seconds(stats.embedDuration)
 // swiftlint:disable:next no_direct_standard_out_logs
-print("""
+print(
+    """
 
     Index pass:       \(format(passDuration))
     Files walked:     \(progress.filesWalked)

@@ -1,8 +1,9 @@
 import Foundation
-@testable import FoundationModelsCodeContext
 import FoundationModelsExtras
 import GRDB
 import Testing
+
+@testable import FoundationModelsCodeContext
 
 /// The place of each temporary item of the test target.
 ///

@@ -240,7 +240,8 @@ enum TSCallGraph {
 
         var deletedIDs: [Int64] = []
         for stale in staleRows {
-            let target = chunks
+            let target =
+                chunks
                 .filter { $0.name == stale.name && !occupiedLines.contains($0.startLine) }
                 .min { abs($0.startLine - stale.startLine) < abs($1.startLine - stale.startLine) }
             if let target {

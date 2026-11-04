@@ -576,9 +576,10 @@ struct LSPIndexWorkerReferencesTests {
 
             let connection = FakeLanguageServerConnection()
             await connection.setDocumentSymbolsResult(
-                .success((0..<Self.manyFunctionsCount).map { index in
-                    Self.flatSymbol(name: "f\(index)", kind: .function, startLine: index * 3, endLine: index * 3 + 2)
-                }),
+                .success(
+                    (0..<Self.manyFunctionsCount).map { index in
+                        Self.flatSymbol(name: "f\(index)", kind: .function, startLine: index * 3, endLine: index * 3 + 2)
+                    }),
                 for: Self.uri(for: relativePath, in: root)
             )
             let (requestStarted, requestStartedContinuation) = AsyncStream.makeStream(of: Void.self)
