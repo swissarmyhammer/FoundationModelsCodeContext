@@ -330,16 +330,9 @@ struct ManagerQueriesTests {
 
             let results = try await manager.searchCode(query: "elephant").results
 
-            let searchSpans = tracer.finishedSpans.filter { $0.operationName == CodeContextTracing.SpanName.search }
-            let selectSpans = tracer.finishedSpans.filter { $0.operationName == CodeContextTracing.SpanName.select }
-            #expect(searchSpans.count == 1)
-            #expect(selectSpans.count == 1)
-            let searchSpan = try #require(searchSpans.first)
-            let selectSpan = try #require(selectSpans.first)
-            #expect(selectSpan.parentSpanID == searchSpan.spanID)
-            #expect(searchSpan.attributes.get(CodeContextTracing.AttributeKey.searchResultCount) == .int64(Int64(results.count)))
-            #expect(selectSpan.attributes.get(CodeContextTracing.AttributeKey.selectionCandidateCount) == .int64(2))
-            #expect(selectSpan.attributes.get(CodeContextTracing.AttributeKey.selectionResultCount) == .int64(Int64(results.count)))
+            try SearchSpanTreeCheck.expectOneSearchSpanWithOneSelectChild(
+                in: tracer, candidateCount: 2, resultCount: results.count
+            )
 
             await manager.shutdown()
         }

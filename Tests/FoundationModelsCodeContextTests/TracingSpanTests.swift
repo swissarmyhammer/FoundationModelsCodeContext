@@ -54,7 +54,7 @@ internal struct TracingSpanTests {
         let tracer = InMemoryTracer()
         try await Self.runFirstIndexPass(embedder: nil, tracer: tracer)
 
-        let passSpans = Self.spans(named: CodeContextTracing.SpanName.indexPass, in: tracer)
+        let passSpans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.indexPass, in: tracer)
         #expect(passSpans.count == 1)
         let passSpan = try #require(passSpans.first)
         #expect(passSpan.attributes.get(CodeContextTracing.AttributeKey.indexFilesIndexed) == .int64(Int64(Self.fixtureFileCount)))
@@ -66,8 +66,8 @@ internal struct TracingSpanTests {
         let tracer = InMemoryTracer()
         try await Self.runFirstIndexPass(embedder: FakeEmbedder(vectorLength: Self.embeddingDimension), tracer: tracer)
 
-        let passSpan = try #require(Self.spans(named: CodeContextTracing.SpanName.indexPass, in: tracer).first)
-        let embedSpans = Self.spans(named: CodeContextTracing.SpanName.embed, in: tracer)
+        let passSpan = try #require(SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.indexPass, in: tracer).first)
+        let embedSpans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.embed, in: tracer)
         #expect(embedSpans.count == Self.firstPassEmbedSpanCount)
         for embedSpan in embedSpans {
             #expect(embedSpan.parentSpanID == passSpan.spanID)
@@ -114,7 +114,7 @@ internal struct TracingSpanTests {
             await watcher.waitForQuiescence()
             await watcher.stop()
 
-            let batchSpans = Self.spans(named: CodeContextTracing.SpanName.watcherBatch, in: tracer)
+            let batchSpans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.watcherBatch, in: tracer)
             #expect(batchSpans.count == 1)
             let batchSpan = try #require(batchSpans.first)
             #expect(batchSpan.attributes.get(CodeContextTracing.AttributeKey.watcherBatchSize) == .int64(Int64(Self.watcherBatchFiles.count)))
@@ -138,8 +138,8 @@ internal struct TracingSpanTests {
                 tracer: tracer
             )
 
-            let searchSpans = Self.spans(named: CodeContextTracing.SpanName.search, in: tracer)
-            let embedSpans = Self.spans(named: CodeContextTracing.SpanName.embed, in: tracer)
+            let searchSpans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.search, in: tracer)
+            let embedSpans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.embed, in: tracer)
             #expect(searchSpans.count == 1)
             #expect(embedSpans.count == 1)
             let searchSpan = try #require(searchSpans.first)
@@ -165,7 +165,7 @@ internal struct TracingSpanTests {
                 corpus: corpus, embedder: embedder, selection: model.factory(), query: Self.searchQuery, tracer: tracer
             )
 
-            let searchSpan = try #require(Self.spans(named: CodeContextTracing.SpanName.search, in: tracer).first)
+            let searchSpan = try #require(SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.search, in: tracer).first)
             #expect(result.hits.count == 1)
             #expect(searchSpan.attributes.get(CodeContextTracing.AttributeKey.searchResultCount) == .int64(Int64(result.hits.count)))
         }
@@ -183,14 +183,9 @@ internal struct TracingSpanTests {
                 corpus: corpus, embedder: embedder, selection: model.factory(), query: Self.searchQuery, tracer: tracer
             )
 
-            let searchSpan = try #require(Self.spans(named: CodeContextTracing.SpanName.search, in: tracer).first)
-            let selectSpans = Self.spans(named: CodeContextTracing.SpanName.select, in: tracer)
-            #expect(selectSpans.count == 1)
-            let selectSpan = try #require(selectSpans.first)
-            #expect(selectSpan.parentSpanID == searchSpan.spanID)
-            #expect(selectSpan.attributes.get(CodeContextTracing.AttributeKey.selectionCandidateCount) == .int64(Int64(Self.twoChunkCount)))
-            #expect(selectSpan.attributes.get(CodeContextTracing.AttributeKey.selectionResultCount) == .int64(1))
-            #expect(selectSpan.errors.isEmpty)
+            try SearchSpanTreeCheck.expectOneSearchSpanWithOneSelectChild(
+                in: tracer, candidateCount: Self.twoChunkCount, resultCount: 1
+            )
         }
     }
 
@@ -207,7 +202,7 @@ internal struct TracingSpanTests {
                 )
             }
 
-            let selectSpan = try #require(Self.spans(named: CodeContextTracing.SpanName.select, in: tracer).first)
+            let selectSpan = try #require(SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.select, in: tracer).first)
             let recorded = try #require(selectSpan.errors.first)
             #expect(String(describing: recorded.error) == String(reflecting: MarkedEmbedError.self))
             #expect(selectSpan.attributes.get(CodeContextTracing.AttributeKey.selectionResultCount) == nil)
@@ -229,7 +224,7 @@ internal struct TracingSpanTests {
             )
 
             #expect(result.hits.isEmpty)
-            #expect(Self.spans(named: CodeContextTracing.SpanName.select, in: tracer).isEmpty)
+            #expect(SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.select, in: tracer).isEmpty)
         }
     }
 
@@ -264,7 +259,7 @@ internal struct TracingSpanTests {
                 tracer: tracer
             )
 
-            let embedSpan = try #require(Self.spans(named: CodeContextTracing.SpanName.embed, in: tracer).first)
+            let embedSpan = try #require(SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.embed, in: tracer).first)
             let recorded = try #require(embedSpan.errors.first)
             #expect(embedSpan.errors.count == 1)
             #expect(String(describing: recorded.error) == String(reflecting: MarkedEmbedError.self))
@@ -300,7 +295,7 @@ internal struct TracingSpanTests {
 
             let matches = try await context.searchSymbol(query: "retry", maxResults: Self.searchLimit)
 
-            let spans = Self.spans(named: CodeContextTracing.SpanName.searchSymbol, in: tracer)
+            let spans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.searchSymbol, in: tracer)
             #expect(spans.count == 1)
             let span = try #require(spans.first)
             #expect(span.attributes.get(CodeContextTracing.AttributeKey.searchLimit) == .int64(Int64(Self.searchLimit)))
@@ -317,7 +312,7 @@ internal struct TracingSpanTests {
 
             let result = try await context.grepCode(pattern: "retry", maxResults: Self.searchLimit)
 
-            let spans = Self.spans(named: CodeContextTracing.SpanName.grepCode, in: tracer)
+            let spans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.grepCode, in: tracer)
             #expect(spans.count == 1)
             let span = try #require(spans.first)
             #expect(span.attributes.get(CodeContextTracing.AttributeKey.searchLimit) == .int64(Int64(Self.searchLimit)))
@@ -341,7 +336,7 @@ internal struct TracingSpanTests {
             values
         }
 
-        let spans = Self.spans(named: CodeContextTracing.SpanName.search, in: tracer)
+        let spans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.search, in: tracer)
         #expect(output == values)
         #expect(spans.count == 1)
         let span = try #require(spans.first)
@@ -367,7 +362,7 @@ internal struct TracingSpanTests {
             )
         }
 
-        let span = try #require(Self.spans(named: CodeContextTracing.SpanName.grepCode, in: tracer).first)
+        let span = try #require(SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.grepCode, in: tracer).first)
         let recorded = try #require(span.errors.first)
         #expect(span.errors.count == 1)
         #expect(String(describing: recorded.error) == String(reflecting: MarkedEmbedError.self))
@@ -447,15 +442,6 @@ internal struct TracingSpanTests {
             text: "retry backoff strategy once more"
         )
         return (corpus, FakeEmbedder(vectorLength: embeddingDimension))
-    }
-
-    /// Gives the finished spans of `tracer` that have the name `name`.
-    /// - Parameters:
-    ///   - name: The operation name of the spans.
-    ///   - tracer: The tracer that holds the spans.
-    /// - Returns: The spans, in the order of their end.
-    private static func spans(named name: String, in tracer: InMemoryTracer) -> [FinishedInMemorySpan] {
-        tracer.finishedSpans.filter { $0.operationName == name }
     }
 
     /// Gives the "enter" records of the spans that have the name `spanName`.

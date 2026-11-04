@@ -246,23 +246,25 @@ public enum SearchCode {
         weights: SignalWeights = CodeContextDefaults.searchWeights,
         tracer: (any Tracer)? = nil
     ) async throws -> SearchCodeResult {
-        try await CodeContextSpans.withSearchSpan(
-            CodeContextTracing.SpanName.search,
-            tracer: tracer,
+        try await CodeSelection.search(
+            query: query,
             limit: topK,
-            resultCount: \.hits.count
-        ) {
-            let retrieved = try await retrieve(
-                corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights, tracer: tracer
-            )
-            let candidates = retrieved.hits.map { match in
-                match.selectionCandidate(id: match.hit.id, payload: match)
+            factory: selection,
+            tracer: tracer,
+            resultCount: \.hits.count,
+            retrieve: {
+                let retrieved = try await retrieve(
+                    corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights, tracer: tracer
+                )
+                let candidates = retrieved.hits.map { match in
+                    match.selectionCandidate(id: match.hit.id, payload: match)
+                }
+                return (candidates, retrieved.indexingProgress)
+            },
+            assemble: { selected, indexingProgress in
+                SearchCodeResult(query: query, hits: selected, indexingProgress: indexingProgress)
             }
-            let selected = try await CodeSelection.select(
-                candidates, query: query, limit: topK, factory: selection, tracer: tracer
-            )
-            return SearchCodeResult(query: query, hits: selected, indexingProgress: retrieved.indexingProgress)
-        }
+        )
     }
 
     /// Searches `corpus` for `query`, fusing BM25, trigram, and (when

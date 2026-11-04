@@ -1,3 +1,4 @@
+import ExampleSupport
 import Foundation
 import FoundationModelsCodeContext
 import FoundationModelsExtras
@@ -6,8 +7,6 @@ import FoundationModelsExtras
 ///
 /// This program measures the time of the first index pass of `CodeContext` on one source tree,
 /// with a real MLX embedding model from FoundationModelsExtras. It is a local measurement step.
-/// It is not part of the automated verification of this package (`swift build` and `swift test`
-/// are).
 ///
 /// Run it with `swift run -c release IndexBenchmark [root] [model]`:
 ///
@@ -31,9 +30,9 @@ import FoundationModelsExtras
 /// The program turns LSP auto-install off, so that the run installs no language server. It runs no
 /// `searchCode`, so it gives a selection factory that throws if a search ever asks for a model.
 ///
-/// This demo is a command-line program, and it has no logging system. Each `print` below writes
-/// the result that the reader asked for, and not a debug log. Thus each one carries the
-/// swiftlint directive for `no_direct_standard_out_logs` on the line immediately above it.
+/// This demo is a command-line program, and it has no logging system. It writes each result that
+/// the reader asked for through `ExampleOutput.report(_:)`, the one place that holds the swiftlint
+/// directive for `no_direct_standard_out_logs`.
 
 /// The default embedding model: the default of the `embedding` slot of FoundationModelsACPAgent.
 let defaultModel: ModelRef = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
@@ -50,10 +49,14 @@ let unusedSelection: SelectionFactory = { _ in throw SelectionNotUsedError() }
 /// The text of the probe embed that loads the model before the timer starts.
 let warmUpText = "load the model"
 
-let arguments = CommandLine.arguments
-let rootPath = arguments.count > 1 ? arguments[1] : FileManager.default.currentDirectoryPath
-let sourceRoot = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
-let model = arguments.count > 2 ? ModelRef(stringLiteral: arguments[2]) : defaultModel
+/// The number of attoseconds in one second, to turn the fraction of a `Duration` into seconds.
+let attosecondsPerSecond = 1e18
+
+/// The factor that turns a fraction into a percentage.
+let percentFactor = 100.0
+
+let sourceRoot = ExampleArguments.directoryURL()
+let model = ModelRef(stringLiteral: ExampleArguments.secondArgument(default: defaultModel.stringValue))
 
 // MARK: - Copy the source tree to an empty directory
 
@@ -61,22 +64,17 @@ let copyRoot = FileManager.default.temporaryDirectory
     .appendingPathComponent("IndexBenchmark-\(UUID().uuidString)", isDirectory: true)
 try copyTree(from: sourceRoot, to: copyRoot, excluding: excludedFolderNames)
 
-// swiftlint:disable:next no_direct_standard_out_logs
-print("Source: \(sourceRoot.path)")
-// swiftlint:disable:next no_direct_standard_out_logs
-print("Copy:   \(copyRoot.path)")
-// swiftlint:disable:next no_direct_standard_out_logs
-print("Model:  \(model.stringValue)")
+ExampleOutput.report("Source: \(sourceRoot.path)")
+ExampleOutput.report("Copy:   \(copyRoot.path)")
+ExampleOutput.report("Model:  \(model.stringValue)")
 
 // MARK: - Load the model before the timer starts
 
-let clock = ContinuousClock()
 let pooledEmbedder = PooledEmbedder(ref: model)
-let loadStart = clock.now
-_ = try await pooledEmbedder.embed(texts: [warmUpText])
-let loadDuration = clock.now - loadStart
-// swiftlint:disable:next no_direct_standard_out_logs
-print("Model load and first embed: \(format(loadDuration))")
+let (_, loadDuration) = try await timed {
+    try await pooledEmbedder.embed(texts: [warmUpText])
+}
+ExampleOutput.report("Model load and first embed: \(loadDuration.formattedSeconds)")
 
 // MARK: - Run one cold index pass
 
@@ -87,23 +85,22 @@ let context = try await CodeContext(
     selection: unusedSelection,
     autoInstall: LspAutoInstall(isEnabled: false)
 )
-let passStart = clock.now
-try await context.start()
-await context.waitForFirstIndexPass()
-let passDuration = clock.now - passStart
+let (_, passDuration) = try await timed {
+    try await context.start()
+    await context.waitForFirstIndexPass()
+}
 let progress = await context.indexStatus()
 await context.stop()
 
 // MARK: - Print the result
 
 let stats = await embedder.stats.snapshot()
-let passSeconds = seconds(passDuration)
-let embedSeconds = seconds(stats.embedDuration)
-// swiftlint:disable:next no_direct_standard_out_logs
-print(
+let passSeconds = passDuration.inSeconds
+let embedSeconds = stats.embedDuration.inSeconds
+ExampleOutput.report(
     """
 
-    Index pass:       \(format(passDuration))
+    Index pass:       \(passDuration.formattedSeconds)
     Files walked:     \(progress.filesWalked)
     Files parsed:     \(progress.filesParsed)
     Files embedded:   \(progress.filesEmbedded)
@@ -111,7 +108,7 @@ print(
     Texts embedded:   \(stats.texts)
     Largest call:     \(stats.largestCall) texts
     Text characters:  \(stats.characters)
-    Embed time:       \(format(stats.embedDuration)) (\(percent(embedSeconds, of: passSeconds)) of the pass)
+    Embed time:       \(stats.embedDuration.formattedSeconds) (\(percent(embedSeconds, of: passSeconds)) of the pass)
     Texts per second: \(rate(stats.texts, in: passSeconds)) (pass), \(rate(stats.texts, in: embedSeconds)) (embed only)
     """)
 
@@ -121,30 +118,22 @@ try FileManager.default.removeItem(at: copyRoot)
 
 /// The counts and the time of the embed calls of one run.
 actor EmbedStats {
-    /// One read of the counts.
+    /// The counts and the time of the embed calls until now.
     struct Snapshot: Sendable {
         /// The number of `embed(texts:)` calls.
-        let calls: Int
+        var calls = 0
         /// The number of texts in all the calls.
-        let texts: Int
+        var texts = 0
         /// The number of characters in all the texts.
-        let characters: Int
+        var characters = 0
         /// The number of texts in the largest call.
-        let largestCall: Int
+        var largestCall = 0
         /// The sum of the durations of all the calls.
-        let embedDuration: Duration
+        var embedDuration = Duration.zero
     }
 
-    /// The number of `embed(texts:)` calls.
-    private var calls = 0
-    /// The number of texts in all the calls.
-    private var texts = 0
-    /// The number of characters in all the texts.
-    private var characters = 0
-    /// The number of texts in the largest call.
-    private var largestCall = 0
-    /// The sum of the durations of all the calls.
-    private var embedDuration = Duration.zero
+    /// The counts and the time of the calls until now.
+    private var counts = Snapshot()
 
     /// Adds one call to the counts.
     ///
@@ -153,24 +142,18 @@ actor EmbedStats {
     ///   - characterCount: The number of characters in the texts of the call.
     ///   - duration: The duration of the call.
     func record(textCount: Int, characterCount: Int, duration: Duration) {
-        calls += 1
-        texts += textCount
-        characters += characterCount
-        largestCall = max(largestCall, textCount)
-        embedDuration += duration
+        counts.calls += 1
+        counts.texts += textCount
+        counts.characters += characterCount
+        counts.largestCall = max(counts.largestCall, textCount)
+        counts.embedDuration += duration
     }
 
     /// Gives the current counts.
     ///
     /// - Returns: The counts of all the calls until now.
     func snapshot() -> Snapshot {
-        Snapshot(
-            calls: calls,
-            texts: texts,
-            characters: characters,
-            largestCall: largestCall,
-            embedDuration: embedDuration
-        )
+        counts
     }
 }
 
@@ -196,13 +179,13 @@ struct TimedEmbedder: PooledEmbedding {
     /// - Returns: One vector for each text, in the order of `texts`.
     /// - Throws: The error of `wrapped`.
     func embed(texts: [String]) async throws -> [[Float]] {
-        let clock = ContinuousClock()
-        let start = clock.now
-        let vectors = try await wrapped.embed(texts: texts)
+        let (vectors, duration) = try await timed {
+            try await wrapped.embed(texts: texts)
+        }
         await stats.record(
             textCount: texts.count,
             characterCount: texts.reduce(0) { sum, text in sum + text.count },
-            duration: clock.now - start
+            duration: duration
         )
         return vectors
     }
@@ -242,21 +225,43 @@ func copyTree(from source: URL, to destination: URL, excluding excludedNames: Se
     }
 }
 
-/// Gives `duration` in seconds.
+/// Runs `work` and measures its wall time.
 ///
-/// - Parameter duration: The duration.
-/// - Returns: The number of seconds, with the fraction.
-func seconds(_ duration: Duration) -> Double {
-    let parts = duration.components
-    return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+/// - Parameter work: The call to measure.
+/// - Returns: The value of `work`, and the time that it took.
+/// - Throws: The error of `work`.
+func timed<Value>(_ work: () async throws -> Value) async throws -> (value: Value, duration: Duration) {
+    let clock = ContinuousClock()
+    let start = clock.now
+    let value = try await work()
+    return (value, clock.now - start)
 }
 
-/// Gives `duration` as text in seconds, with two decimals.
+extension Duration {
+    /// The duration in seconds, with the fraction.
+    var inSeconds: Double {
+        Double(components.seconds) + Double(components.attoseconds) / attosecondsPerSecond
+    }
+
+    /// The duration as text in seconds, with two decimals, for example `12.34 s`.
+    var formattedSeconds: String {
+        String(format: "%.2f s", inSeconds)
+    }
+}
+
+/// Gives `numerator / denominator` as text.
 ///
-/// - Parameter duration: The duration.
-/// - Returns: For example `12.34 s`.
-func format(_ duration: Duration) -> String {
-    String(format: "%.2f s", seconds(duration))
+/// - Parameters:
+///   - numerator: The dividend.
+///   - denominator: The divisor.
+///   - scale: The factor that multiplies the quotient, for example 100 for a percentage.
+///   - pattern: The `String(format:)` pattern of the result. It takes one `Double`.
+/// - Returns: The formatted quotient, or `n/a` when `denominator` is 0.
+func quotient(_ numerator: Double, over denominator: Double, scale: Double = 1, pattern: String) -> String {
+    guard denominator > 0 else {
+        return "n/a"
+    }
+    return String(format: pattern, numerator / denominator * scale)
 }
 
 /// Gives `count / interval` as text, with one decimal.
@@ -266,10 +271,7 @@ func format(_ duration: Duration) -> String {
 ///   - interval: The time in seconds.
 /// - Returns: The rate, or `n/a` when `interval` is 0.
 func rate(_ count: Int, in interval: Double) -> String {
-    guard interval > 0 else {
-        return "n/a"
-    }
-    return String(format: "%.1f", Double(count) / interval)
+    quotient(Double(count), over: interval, pattern: "%.1f")
 }
 
 /// Gives `part / whole` as a percentage text, with no decimals.
@@ -279,8 +281,5 @@ func rate(_ count: Int, in interval: Double) -> String {
 ///   - whole: The whole.
 /// - Returns: For example `87%`, or `n/a` when `whole` is 0.
 func percent(_ part: Double, of whole: Double) -> String {
-    guard whole > 0 else {
-        return "n/a"
-    }
-    return String(format: "%.0f%%", part / whole * 100)
+    quotient(part, over: whole, scale: percentFactor, pattern: "%.0f%%")
 }

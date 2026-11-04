@@ -124,6 +124,52 @@ internal enum CodeSelection {
     }
 }
 
+extension CodeSelection {
+    /// Runs one whole search call in the one ``CodeContextTracing/SpanName/search`` span: the
+    /// retrieval, and then the selection of the candidates that it gives.
+    ///
+    /// This is the one body of the search call of `SearchCode.run` and of the manager fan-out.
+    /// Each caller gives only the part that differs: how it retrieves the candidates, and how it
+    /// builds its result.
+    ///
+    /// - Parameters:
+    ///   - query: The query that the model reads as the request.
+    ///   - limit: The maximum number of hits. The span holds it.
+    ///   - factory: Makes the selection configuration from the candidate ids.
+    ///   - tracer: The tracer of the search span and of the select span, or `nil` to read the
+    ///     bootstrapped tracer now.
+    ///   - resultCount: Gives the number of hits in the `Output` of the call. The span holds it.
+    ///   - retrieve: Retrieves the candidates in retrieval order with unique ids, and gives a
+    ///     value of the caller (for example the indexing note) that `assemble` gets back.
+    ///   - assemble: Builds the `Output` from the selected payloads, in the order of the model,
+    ///     and from the value of `retrieve`.
+    /// - Returns: The `Output` of `assemble`.
+    /// - Throws: What `retrieve` throws, what `factory` throws, and what the selection session
+    ///   throws.
+    static nonisolated(nonsending) func search<Payload: Sendable, Retrieved, Output>(
+        query: String,
+        limit: Int,
+        factory: SelectionFactory,
+        tracer: (any Tracer)?,
+        resultCount: (Output) -> Int,
+        retrieve: nonisolated(nonsending) () async throws -> (candidates: [SelectionCandidate<Payload>], retrieved: Retrieved),
+        assemble: ([Payload], Retrieved) -> Output
+    ) async throws -> Output {
+        try await CodeContextSpans.withSearchSpan(
+            CodeContextTracing.SpanName.search,
+            tracer: tracer,
+            limit: limit,
+            resultCount: resultCount
+        ) {
+            let (candidates, retrieved) = try await retrieve()
+            let selected = try await select(
+                candidates, query: query, limit: limit, factory: factory, tracer: tracer
+            )
+            return assemble(selected, retrieved)
+        }
+    }
+}
+
 /// Writes the diagnostics of the selection tier to the search log of this package.
 internal enum SelectionDiagnostics {
     /// The message of the record for an id that is not a candidate.

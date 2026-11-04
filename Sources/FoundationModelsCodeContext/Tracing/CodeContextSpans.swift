@@ -111,15 +111,14 @@ internal enum CodeContextSpans {
         resultCount: (Output) -> Int,
         _ body: nonisolated(nonsending) () async throws -> Output
     ) async throws -> Output {
-        try await withSpan(
+        try await withCountedSpan(
             spanName,
             tracer: tracer,
-            attributes: { $0[CodeContextTracing.AttributeKey.searchLimit] = limit },
-            { span in
-                let output = try await body()
-                span.attributes[CodeContextTracing.AttributeKey.searchResultCount] = resultCount(output)
-                return output
-            }
+            startKey: CodeContextTracing.AttributeKey.searchLimit,
+            startValue: limit,
+            resultKey: CodeContextTracing.AttributeKey.searchResultCount,
+            resultCount: resultCount,
+            body
         )
     }
 
@@ -143,13 +142,48 @@ internal enum CodeContextSpans {
         resultCount: (Output) -> Int,
         _ body: nonisolated(nonsending) () async throws -> Output
     ) async throws -> Output {
-        try await withSpan(
+        try await withCountedSpan(
             CodeContextTracing.SpanName.select,
             tracer: tracer,
-            attributes: { $0[CodeContextTracing.AttributeKey.selectionCandidateCount] = candidateCount },
+            startKey: CodeContextTracing.AttributeKey.selectionCandidateCount,
+            startValue: candidateCount,
+            resultKey: CodeContextTracing.AttributeKey.selectionResultCount,
+            resultCount: resultCount,
+            body
+        )
+    }
+
+    /// Runs `body` in one span that holds one count before `body` starts and one result count
+    /// after `body` returns, and writes no log record. This is the one body of the search span and
+    /// of the select span, thus the two spans record an error and a count in the same way.
+    ///
+    /// - Parameters:
+    ///   - spanName: The name of the span, from ``CodeContextTracing/SpanName``.
+    ///   - tracer: The tracer of the span, or `nil` to read the bootstrapped tracer now.
+    ///   - startKey: The attribute that holds `startValue` when the span starts.
+    ///   - startValue: The count that is known before `body` starts.
+    ///   - resultKey: The attribute that holds the result count when `body` returns.
+    ///   - resultCount: Gives the number of results in the value of `body`.
+    ///   - body: The call. It runs on the actor of the caller.
+    /// - Returns: The value of `body`.
+    /// - Throws: The error of `body`. The span records only the type name of the error, and it
+    ///   holds no result count.
+    private nonisolated(nonsending) static func withCountedSpan<Output>(
+        _ spanName: String,
+        tracer: (any Tracer)?,
+        startKey: String,
+        startValue: Int,
+        resultKey: String,
+        resultCount: (Output) -> Int,
+        _ body: nonisolated(nonsending) () async throws -> Output
+    ) async throws -> Output {
+        try await withSpan(
+            spanName,
+            tracer: tracer,
+            attributes: { $0[startKey] = startValue },
             { span in
                 let output = try await body()
-                span.attributes[CodeContextTracing.AttributeKey.selectionResultCount] = resultCount(output)
+                span.attributes[resultKey] = resultCount(output)
                 return output
             }
         )

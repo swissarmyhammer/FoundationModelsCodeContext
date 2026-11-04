@@ -105,25 +105,25 @@ extension CodeContextManager {
         topK: Int = CodeContextDefaults.searchTopK,
         weights: SignalWeights = CodeContextDefaults.searchWeights
     ) async throws -> (results: [Rooted<SearchCodeMatch>], failures: [FanOutFailure]) {
-        try await CodeContextSpans.withSearchSpan(
-            CodeContextTracing.SpanName.search,
-            tracer: tracer,
+        try await CodeSelection.search(
+            query: query,
             limit: topK,
-            resultCount: \.results.count
-        ) {
-            let (perRoot, failures) = await fanOutQuery { context in
-                try await context.retrieveCode(query: query, topK: topK, weights: weights).hits
-            }
-            let candidates = Self.interleave(perRoot: perRoot, limit: topK).enumerated().map { position, rooted in
-                rooted.value.selectionCandidate(
-                    id: String(position), summaryPrefix: "[\(rooted.root.lastPathComponent)] ", payload: rooted
-                )
-            }
-            let selected = try await CodeSelection.select(
-                candidates, query: query, limit: topK, factory: selection, tracer: tracer
-            )
-            return (selected, failures)
-        }
+            factory: selection,
+            tracer: tracer,
+            resultCount: \.results.count,
+            retrieve: {
+                let (perRoot, failures) = await fanOutQuery { context in
+                    try await context.retrieveCode(query: query, topK: topK, weights: weights).hits
+                }
+                let candidates = Self.interleave(perRoot: perRoot, limit: topK).enumerated().map { position, rooted in
+                    rooted.value.selectionCandidate(
+                        id: String(position), summaryPrefix: "[\(rooted.root.lastPathComponent)] ", payload: rooted
+                    )
+                }
+                return (candidates, failures)
+            },
+            assemble: { selected, failures in (results: selected, failures: failures) }
+        )
     }
 
     // MARK: - searchSymbol

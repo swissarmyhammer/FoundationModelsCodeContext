@@ -12,6 +12,12 @@ import FoundationModelsExtras
 /// optional injected failure lets tests exercise the worker's
 /// graceful-skip path.
 ///
+/// This double differs from `HashingEmbedder` of the `ExampleSupport` target on purpose. The
+/// example embedder counts hashed tokens, so texts that share words have near vectors. This double
+/// seeds a random generator with the hash of the whole text, so each text gets its own vector and
+/// no two texts are near. Tests that rely on this spread cannot use the counting embedder, and the
+/// test target does not depend on the example support target.
+///
 /// The double declares no length: `PooledEmbedding` has no `dimension`
 /// requirement. The only way to learn the length is to read a returned vector.
 struct FakeEmbedder: PooledEmbedding {

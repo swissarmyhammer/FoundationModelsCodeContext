@@ -14,6 +14,10 @@ let packageName = "FoundationModelsCodeContext"
 // cannot depend on a target. The library product `packageName` does not contain it.
 let scriptedLSPServerSupportName = "ScriptedLSPServerSupport"
 
+// The library target of the code that the example programs share (`HashingEmbedder`). No product
+// lists it, thus the library of this package does not contain it.
+let exampleSupportName = "ExampleSupport"
+
 // Per-language tree-sitter grammar packages. `alex-pinkus/tree-sitter-swift`
 // does not commit generated parser sources on its default branch (SwiftPM
 // can't run the tree-sitter CLI codegen step), so it is pinned to the
@@ -295,46 +299,60 @@ let package = Package(
             // disk through `PackagePaths`, not through a resource bundle.
             exclude: ["Support/scripted-lsp-server.swift", "Goldens"]
         ),
-        // Standalone, single-root "way in" example (see plan.md's Goal and the
-        // package README). It is a thin script over the public API of this
-        // package, and it is not part of the library product. The caller
-        // supplies the embedding model: the example defines its own small
-        // `PooledEmbedding` conformance and gives it to `CodeContext`. The caller also
-        // supplies the selection model: the example gives a `SelectionFactory` over the
-        // on-device model. Thus it needs the library target, FoundationModelsExtras for the
-        // embedding protocol, and FoundationModelsRanker for `SelectionConfig`.
-        .executableTarget(
-            name: "CodeContextExample",
+        // The code that the examples share: the reader of the command-line arguments, the output
+        // function, the on-device selection factory, and `HashingEmbedder`, a `PooledEmbedding`
+        // that needs no model. An executable target cannot import another
+        // executable target, thus the shared code is a small library target. It is not a product.
+        .target(
+            name: exampleSupportName,
             dependencies: [
                 .target(name: packageName),
                 .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
                 .product(name: "FoundationModelsRanker", package: "FoundationModelsRanker"),
             ],
+            path: "Examples/\(exampleSupportName)"
+        ),
+        // Standalone, single-root "way in" example (see plan.md's Goal and the
+        // package README). It is a thin script over the public API of this
+        // package, and it is not part of the library product. The caller
+        // supplies the embedding model: the example uses the small
+        // `PooledEmbedding` conformance of `ExampleSupport` and gives it to `CodeContext`. The caller also
+        // supplies the selection model: the example gives a `SelectionFactory` over the
+        // on-device model. Thus it needs the library target, the shared `ExampleSupport` target
+        // for the embedder and the selection factory, and FoundationModelsExtras for the embedding protocol.
+        .executableTarget(
+            name: "CodeContextExample",
+            dependencies: [
+                .target(name: packageName),
+                .target(name: exampleSupportName),
+                .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
+            ],
             path: "Examples/CodeContextExample"
         ),
         // Second "way in" example, over `CodeContextManager` instead of one `CodeContext`.
         // It opens each repo root below a parent directory, not one fixed root. Like
-        // `CodeContextExample` above, it defines its own `PooledEmbedding` conformance and
+        // `CodeContextExample` above, it uses the `PooledEmbedding` conformance of `ExampleSupport` and
         // gives it to the manager. It also gives a `SelectionFactory` over the on-device model.
-        // Thus it needs the library target, FoundationModelsExtras for the embedding protocol, and
-        // FoundationModelsRanker for `SelectionConfig`.
+        // Thus it needs the library target, the shared `ExampleSupport` target for the embedder
+        // and the selection factory, and FoundationModelsExtras for the embedding protocol.
         .executableTarget(
             name: "ManagerExample",
             dependencies: [
                 .target(name: packageName),
+                .target(name: exampleSupportName),
                 .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
-                .product(name: "FoundationModelsRanker", package: "FoundationModelsRanker"),
             ],
             path: "Examples/ManagerExample"
         ),
         // Local benchmark of one cold index pass with a real MLX embedding model. It is not part of
         // the automated verification. It uses `PooledEmbedder` of FoundationModelsExtras, which loads
         // the model through the MLX loader of the shared model pool. Thus it needs the library target,
-        // and FoundationModelsExtras for the embedder.
+        // the shared `ExampleSupport` target for the arguments, and FoundationModelsExtras for the embedder.
         .executableTarget(
             name: "IndexBenchmark",
             dependencies: [
                 .target(name: packageName),
+                .target(name: exampleSupportName),
                 .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
             ],
             path: "Examples/IndexBenchmark"
