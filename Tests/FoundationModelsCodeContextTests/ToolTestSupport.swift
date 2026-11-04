@@ -45,17 +45,22 @@ enum ToolTest {
     ///   - source: The text of the fixture file.
     ///   - file: The path of the fixture file, relative to the workspace root.
     ///   - embeddingDimension: The dimension of the fake embedding vectors.
+    ///   - selection: The selection factory of the `CodeContext`. Defaults to a model that selects
+    ///     every candidate.
     ///   - body: The test body.
     /// - Throws: The error that the setup or `body` throws.
     static func withStartedContext(
         source: String,
         file: String,
         embeddingDimension: Int,
+        selection: @escaping SelectionFactory = selectingEveryCandidateFactory(),
         _ body: (CodeContext<FakeLanguageServerConnection>) async throws -> Void
     ) async throws {
         try await withTemporaryWorkspace { root in
             try write(source, to: file, in: root)
-            try await withStartedContext(rootDirectory: root, embeddingDimension: embeddingDimension, body)
+            try await withStartedContext(
+                rootDirectory: root, embeddingDimension: embeddingDimension, selection: selection, body
+            )
         }
     }
 
@@ -70,17 +75,20 @@ enum ToolTest {
     /// - Parameters:
     ///   - root: The workspace root, with the files of the test in it.
     ///   - embeddingDimension: The dimension of the fake embedding vectors.
+    ///   - selection: The selection factory of the `CodeContext`. Defaults to a model that selects
+    ///     every candidate.
     ///   - body: The test body.
     /// - Throws: The error that the setup or `body` throws.
     static func withStartedContext(
         rootDirectory root: URL,
         embeddingDimension: Int,
+        selection: @escaping SelectionFactory = selectingEveryCandidateFactory(),
         _ body: (CodeContext<FakeLanguageServerConnection>) async throws -> Void
     ) async throws {
         let context = try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: root,
             embedder: FakeEmbedder(vectorLength: embeddingDimension),
-            selection: selectingEveryCandidateFactory(),
+            selection: selection,
             eventSource: FakeFileEventSource(),
             autoInstall: LspAutoInstall(isEnabled: false),
             connectionFactory: fakeConnectionFactory(pid: fakeProcessIdentifier, processState: ProcessState())
@@ -103,6 +111,8 @@ enum ToolTest {
     ///   - source: The text of the fixture file.
     ///   - file: The path of the fixture file, relative to the workspace root.
     ///   - embeddingDimension: The dimension of the fake embedding vectors.
+    ///   - selection: The selection factory of the `CodeContext`. Defaults to a model that selects
+    ///     every candidate.
     ///   - make: Makes the tool from the tool context.
     ///   - body: The test body.
     /// - Throws: The error that the setup or `body` throws.
@@ -110,10 +120,13 @@ enum ToolTest {
         source: String,
         file: String,
         embeddingDimension: Int,
+        selection: @escaping SelectionFactory = selectingEveryCandidateFactory(),
         make: (CodeContextToolContext) throws -> OperationTool<CodeContextToolContext>,
         _ body: (OperationTool<CodeContextToolContext>, CodeContext<FakeLanguageServerConnection>) async throws -> Void
     ) async throws {
-        try await withStartedContext(source: source, file: file, embeddingDimension: embeddingDimension) { context in
+        try await withStartedContext(
+            source: source, file: file, embeddingDimension: embeddingDimension, selection: selection
+        ) { context in
             try await body(try make(CodeContextToolContext(operating: context)), context)
         }
     }

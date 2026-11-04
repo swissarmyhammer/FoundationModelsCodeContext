@@ -123,6 +123,38 @@ internal enum CodeContextSpans {
         )
     }
 
+    /// Runs the selection step of a search in one ``CodeContextTracing/SpanName/select`` span, and
+    /// writes no log record.
+    ///
+    /// The span holds the candidate count before `body` starts, and the result count after `body`
+    /// returns. It never holds the query, the ids or the text of a candidate.
+    ///
+    /// - Parameters:
+    ///   - tracer: The tracer of the span, or `nil` to read the bootstrapped tracer now.
+    ///   - candidateCount: The number of candidates that the selection step gets.
+    ///   - resultCount: Gives the number of results in the value of `body`.
+    ///   - body: The selection call. It runs on the actor of the caller.
+    /// - Returns: The value of `body`.
+    /// - Throws: The error of `body`. The span records only the type name of the error, and it
+    ///   holds no result count.
+    internal nonisolated(nonsending) static func withSelectionSpan<Output>(
+        tracer: (any Tracer)?,
+        candidateCount: Int,
+        resultCount: (Output) -> Int,
+        _ body: nonisolated(nonsending) () async throws -> Output
+    ) async throws -> Output {
+        try await withSpan(
+            CodeContextTracing.SpanName.select,
+            tracer: tracer,
+            attributes: { $0[CodeContextTracing.AttributeKey.selectionCandidateCount] = candidateCount },
+            { span in
+                let output = try await body()
+                span.attributes[CodeContextTracing.AttributeKey.selectionResultCount] = resultCount(output)
+                return output
+            }
+        )
+    }
+
     /// Embeds `texts` with `embedder` in one ``CodeContextTracing/SpanName/embed`` span, and writes
     /// one "enter" log record before the call.
     ///

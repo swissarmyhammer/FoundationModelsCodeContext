@@ -39,91 +39,100 @@ import FoundationModelsRanker
 /// `autoInstall: LspAutoInstall(isEnabled: false)` to opt out (see the "Language servers" section of the package
 /// README). This example uses the default.
 
-let arguments = CommandLine.arguments
-let parentPath = arguments.count > 1 ? arguments[1] : FileManager.default.currentDirectoryPath
-let parentDirectory = URL(fileURLWithPath: parentPath, isDirectory: true)
-let query = arguments.count > 2 ? arguments[2] : "TODO"
+/// Runs the whole walkthrough. The state lives in this function and not in top-level globals.
+///
+/// `@MainActor` keeps the main-actor isolation that a top-level entry point has, so the code below reads
+/// `manager.state.contexts` and each `CodeContextState` without an `await`.
+@MainActor
+func runExample() async throws {
+    let arguments = CommandLine.arguments
+    let parentPath = arguments.count > 1 ? arguments[1] : FileManager.default.currentDirectoryPath
+    let parentDirectory = URL(fileURLWithPath: parentPath, isDirectory: true)
+    let query = arguments.count > 2 ? arguments[2] : "TODO"
 
-// MARK: - Make the caller-defined embedder
+    // MARK: - Make the caller-defined embedder
 
-// One embedder, shared by each `CodeContext` that the manager opens below. It is the same embedder as in
-// `CodeContextExample`, but this file gives it to a manager, not to one context.
-// The number of hash buckets, thus the length of each embedding vector.
-let embeddingDimension = 256
-private let embedder = HashingEmbedder(vectorLength: embeddingDimension)
+    // One embedder, shared by each `CodeContext` that the manager opens below. It is the same embedder as in
+    // `CodeContextExample`, but this file gives it to a manager, not to one context.
+    // The number of hash buckets, thus the length of each embedding vector.
+    let embeddingDimension = 256
+    let embedder = HashingEmbedder(vectorLength: embeddingDimension)
 
-// MARK: - Create the manager and discover every repo root under the parent directory
+    // MARK: - Create the manager and discover every repo root under the parent directory
 
-// The factory runs one time for each `searchCode` call. It gets the ids of the candidates, and it returns the
-// configuration of the model that picks among them.
-let selection: SelectionFactory = { _ in SelectionConfig(model: SystemLanguageModel.default) }
+    // The factory runs one time for each `searchCode` call. It gets the ids of the candidates, and it returns the
+    // configuration of the model that picks among them.
+    let selection: SelectionFactory = { _ in SelectionConfig(model: SystemLanguageModel.default) }
 
-let manager = await CodeContextManager(embedder: embedder, selection: selection)
+    let manager = await CodeContextManager(embedder: embedder, selection: selection)
 
-let discoveredRoots = try RootDiscovery.discoverRoots(under: parentDirectory)
-print("Discovered \(discoveredRoots.count) repo root(s) under \(parentDirectory.path):")
-for root in discoveredRoots {
-    print("  \(root.path)")
-}
-
-// MARK: - Open each discovered root explicitly
-
-// `context(for:)` returns before the index of the root is complete. `waitForFirstIndexPass()` waits for the
-// complete first index pass, thus the ready state and the search below read a complete index.
-for root in discoveredRoots {
-    let context = try await manager.context(for: root)
-    await context.waitForFirstIndexPass()
-}
-
-// `ManagerState.contexts` is `@MainActor`-isolated, mirroring `CodeContextState`'s own
-// observable-state contract; a `main.swift` top-level entry point runs on the main actor by
-// default, so no `await` is needed to read either `contexts` or a `CodeContextState`'s
-// `isReady` here — only truly cross-actor calls elsewhere in this file (e.g. into `manager`
-// itself) do.
-let openedStates = manager.state.contexts
-for root in discoveredRoots {
-    let isReady = openedStates[root]?.isReady ?? false
-    print("Opened \(root.path) — ready: \(isReady)")
-}
-
-// MARK: - Demonstrate lazy routing via context(containing:)
-
-// Every discovered root is already open above, so this resolves via `context(containing:)`'s
-// already-open-root fast path rather than its lazy `RootDiscovery.gitRoot` fallback — but it is the
-// same call a host would make for an arbitrary file path without knowing in advance which (if any)
-// open root, or undiscovered sibling repo, covers it.
-if let sampleRoot = discoveredRoots.first, let sampleFile = firstRegularFile(under: sampleRoot) {
-    if let containingContext = try await manager.context(containing: sampleFile) {
-        // `containingContext.state` is `nonisolated`; `rootDirectory` is `@MainActor`-isolated
-        // but this top-level entry point already runs on the main actor (see the comment above),
-        // so no `await` is needed here either.
-        let containingRoot = containingContext.state.rootDirectory
-        print("context(containing:) for \(sampleFile.path) resolved to root: \(containingRoot.path)")
-    } else {
-        print("context(containing:) for \(sampleFile.path) found no covering root")
+    let discoveredRoots = try RootDiscovery.discoverRoots(under: parentDirectory)
+    print("Discovered \(discoveredRoots.count) repo root(s) under \(parentDirectory.path):")
+    for root in discoveredRoots {
+        print("  \(root.path)")
     }
-} else {
-    print("No regular file found under any discovered root — skipping the context(containing:) demonstration")
+
+    // MARK: - Open each discovered root explicitly
+
+    // `context(for:)` returns before the index of the root is complete. `waitForFirstIndexPass()` waits for the
+    // complete first index pass, thus the ready state and the search below read a complete index.
+    for root in discoveredRoots {
+        let context = try await manager.context(for: root)
+        await context.waitForFirstIndexPass()
+    }
+
+    // `ManagerState.contexts` is `@MainActor`-isolated, mirroring `CodeContextState`'s own
+    // observable-state contract; a `main.swift` top-level entry point runs on the main actor by
+    // default, so no `await` is needed to read either `contexts` or a `CodeContextState`'s
+    // `isReady` here — only truly cross-actor calls elsewhere in this file (e.g. into `manager`
+    // itself) do.
+    let openedStates = manager.state.contexts
+    for root in discoveredRoots {
+        let isReady = openedStates[root]?.isReady ?? false
+        print("Opened \(root.path) — ready: \(isReady)")
+    }
+
+    // MARK: - Demonstrate lazy routing via context(containing:)
+
+    // Every discovered root is already open above, so this resolves via `context(containing:)`'s
+    // already-open-root fast path rather than its lazy `RootDiscovery.gitRoot` fallback — but it is the
+    // same call a host would make for an arbitrary file path without knowing in advance which (if any)
+    // open root, or undiscovered sibling repo, covers it.
+    if let sampleRoot = discoveredRoots.first, let sampleFile = firstRegularFile(under: sampleRoot) {
+        if let containingContext = try await manager.context(containing: sampleFile) {
+            // `containingContext.state` is `nonisolated`; `rootDirectory` is `@MainActor`-isolated
+            // but this top-level entry point already runs on the main actor (see the comment above),
+            // so no `await` is needed here either.
+            let containingRoot = containingContext.state.rootDirectory
+            print("context(containing:) for \(sampleFile.path) resolved to root: \(containingRoot.path)")
+        } else {
+            print("context(containing:) for \(sampleFile.path) found no covering root")
+        }
+    } else {
+        print("No regular file found under any discovered root — skipping the context(containing:) demonstration")
+    }
+
+    // MARK: - Fan-out search across every open root
+
+    // Scores are per-root-normalized (see `CodeContextManager.searchCode`'s doc comment) — never
+    // compare `rooted.value.hit.score` across two different `rooted.root`s.
+    let (searchResults, searchFailures) = try await manager.searchCode(query: query)
+    print("searchCode(\"\(query)\") fan-out results:")
+    for rooted in searchResults {
+        print("  [\(rooted.root.path)] \(rooted.value.filePath) score=\(rooted.value.hit.score)")
+    }
+    for failure in searchFailures {
+        print("  FanOutFailure root=\(failure.root.path): \(failure.message)")
+    }
+
+    // MARK: - Shutdown
+
+    // Shut down the manager. This stops each context that it opened. The embedder holds no resources, so it needs no
+    // teardown.
+    await manager.shutdown()
 }
 
-// MARK: - Fan-out search across every open root
-
-// Scores are per-root-normalized (see `CodeContextManager.searchCode`'s doc comment) — never
-// compare `rooted.value.hit.score` across two different `rooted.root`s.
-let (searchResults, searchFailures) = try await manager.searchCode(query: query)
-print("searchCode(\"\(query)\") fan-out results:")
-for rooted in searchResults {
-    print("  [\(rooted.root.path)] \(rooted.value.filePath) score=\(rooted.value.hit.score)")
-}
-for failure in searchFailures {
-    print("  FanOutFailure root=\(failure.root.path): \(failure.message)")
-}
-
-// MARK: - Shutdown
-
-// Shut down the manager. This stops each context that it opened. The embedder holds no resources, so it needs no
-// teardown.
-await manager.shutdown()
+try await runExample()
 
 // MARK: - Helpers
 

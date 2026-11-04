@@ -1,4 +1,5 @@
 import FoundationModelsRanker
+import Tracing
 
 /// Makes the selection configuration for one search, given the ids of the candidates of that
 /// search.
@@ -84,30 +85,42 @@ internal enum CodeSelection {
     /// factory and it calls no model. An error of the factory or of the model session is not
     /// caught. It is the error of the search.
     ///
+    /// The step runs in one `CodeContextTracing.SpanName.select` span, a child of the search span
+    /// that is open in the caller. The span holds the candidate count and the result count. It
+    /// never holds the query or the text of a candidate.
+    ///
     /// - Parameters:
     ///   - candidates: The retrieval candidates, in retrieval order, with unique ids.
     ///   - query: The query that the model reads as the request.
     ///   - limit: The maximum number of payloads to return.
     ///   - factory: Makes the selection configuration from the candidate ids.
+    ///   - tracer: The tracer of the select span, or `nil` to read the bootstrapped tracer now.
     /// - Returns: The payload of each selected candidate, in the order of the model.
     /// - Throws: What `factory` throws, and what the selection session throws.
     static func select<Payload: Sendable>(
         _ candidates: [SelectionCandidate<Payload>],
         query: String,
         limit: Int,
-        factory: SelectionFactory
+        factory: SelectionFactory,
+        tracer: (any Tracer)?
     ) async throws -> [Payload] {
         guard !candidates.isEmpty else { return [] }
-        let catalog = CandidateCatalog(candidates)
-        let tier = SelectionTier(
-            catalog: catalog,
-            config: try factory(catalog.ids),
-            onDiagnostic: SelectionDiagnostics.write
-        )
-        let selected = try await tier.search(intent: query, limit: limit)
+        return try await CodeContextSpans.withSelectionSpan(
+            tracer: tracer,
+            candidateCount: candidates.count,
+            resultCount: \.count
+        ) {
+            let catalog = CandidateCatalog(candidates)
+            let tier = SelectionTier(
+                catalog: catalog,
+                config: try factory(catalog.ids),
+                onDiagnostic: SelectionDiagnostics.write
+            )
+            let selected = try await tier.search(intent: query, limit: limit)
 
-        let payloadByID = Dictionary(uniqueKeysWithValues: candidates.map { ($0.id, $0.payload) })
-        return selected.compactMap { payloadByID[$0.id] }
+            let payloadByID = Dictionary(uniqueKeysWithValues: candidates.map { ($0.id, $0.payload) })
+            return selected.compactMap { payloadByID[$0.id] }
+        }
     }
 }
 

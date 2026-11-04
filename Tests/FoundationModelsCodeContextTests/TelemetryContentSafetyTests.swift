@@ -171,6 +171,9 @@ internal struct TelemetryContentSafetyTests {
     /// no folder must exist.
     private static let daemonWorkspaceRoot = URL(fileURLWithPath: "/tmp/telemetry-content-safety-tests")
 
+    /// The number of search paths that run the selection step: the context and the manager.
+    private static let selectionPathCount = 2
+
     /// The names of the spans that the test must see. The test fails when a path writes no span,
     /// because then the check proves nothing about that path.
     private static let expectedSpanNames: Set<String> = [
@@ -178,6 +181,7 @@ internal struct TelemetryContentSafetyTests {
         CodeContextTracing.SpanName.watcherBatch,
         CodeContextTracing.SpanName.embed,
         CodeContextTracing.SpanName.search,
+        CodeContextTracing.SpanName.select,
         CodeContextTracing.SpanName.searchSymbol,
         CodeContextTracing.SpanName.grepCode,
     ]
@@ -198,12 +202,16 @@ internal struct TelemetryContentSafetyTests {
         try await withTemporaryWorkspace { root in
             try write(Self.markedSource(capture.marker), to: Self.markedFilePath, in: root)
             try await Self.runIndexPassAndSearches(root: root, capture: capture)
+            try await Self.runManagerSearch(root: root, capture: capture)
             try await Self.runWatcherBatch(root: root, capture: capture)
             try await Self.runLSPIndexBatch(root: root, serverName: sessionServerName, capture: capture)
         }
         try await Self.runForcedRestart(capture: capture)
 
         #expect(Set(capture.tracer.finishedSpans.map(\.operationName)).isSuperset(of: Self.expectedSpanNames))
+        // The selection step runs one time in the search of the context, and one time in the search of the manager.
+        let selectSpanCount = capture.tracer.finishedSpans.filter { $0.operationName == CodeContextTracing.SpanName.select }.count
+        #expect(selectSpanCount == Self.selectionPathCount)
         #expect(Set(Self.metricNames(in: capture.metrics)).isSuperset(of: Self.expectedMetricNames))
         let sessionFailureRecords = CapturedLogRecords.entries(matching: [
             CodeContextTracing.MetadataKey.lspServer: sessionServerName,
@@ -250,6 +258,28 @@ internal struct TelemetryContentSafetyTests {
         #expect(!hits.isEmpty)
         #expect(!symbols.isEmpty)
         #expect(!grep.matches.isEmpty)
+    }
+
+    /// Opens `root` in a manager, and runs one fan-out search with the marker as its query. The
+    /// manager runs the selection one time over the candidates, and the marker is the request that
+    /// the selection model reads.
+    /// - Parameters:
+    ///   - root: The root directory that holds the marked source file.
+    ///   - capture: The telemetry stores and the marker of the test.
+    private static func runManagerSearch(root: URL, capture: ContentSafetyCapture) async throws {
+        let manager = await CodeContextManager<FakeLanguageServerConnection>(
+            embedder: FakeEmbedder(vectorLength: embeddingDimension),
+            selection: selectingEveryCandidateFactory(),
+            eventSource: FakeFileEventSource(),
+            autoInstall: LspAutoInstall(isEnabled: false),
+            tracer: capture.tracer,
+            connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
+        )
+        try await manager.context(for: root).waitForFirstIndexPass()
+        let hits = try await manager.searchCode(query: capture.marker, topK: searchLimit).results
+        await manager.shutdown()
+
+        #expect(!hits.isEmpty)
     }
 
     /// Changes the marked source file and flushes one watcher batch for it.

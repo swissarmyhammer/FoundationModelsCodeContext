@@ -35,6 +35,9 @@ internal struct TracingSpanTests {
     /// The maximum number of results that each search test asks for.
     private static let searchLimit = 5
 
+    /// The number of chunks of the corpus of `makeTwoChunkCorpus(root:)`.
+    private static let twoChunkCount = 2
+
     /// The query of each search test.
     private static let searchQuery = "retry backoff strategy"
 
@@ -126,9 +129,10 @@ internal struct TracingSpanTests {
             let corpus = try await Self.makeEmbeddedCorpus(root: root)
             let tracer = InMemoryTracer()
 
-            let result = try await SearchCode.retrieve(
+            let result = try await SearchCode.run(
                 corpus: corpus,
                 embedder: FakeEmbedder(vectorLength: Self.embeddingDimension),
+                selection: selectingEveryCandidateFactory(),
                 query: Self.searchQuery,
                 topK: Self.searchLimit,
                 tracer: tracer
@@ -145,6 +149,87 @@ internal struct TracingSpanTests {
             #expect(searchSpan.attributes.get(CodeContextTracing.AttributeKey.searchResultCount) == .int64(Int64(result.hits.count)))
             #expect(embedSpan.attributes.get(CodeContextTracing.AttributeKey.embeddingInputCount) == .int64(1))
             #expect(embedSpan.attributes.get(CodeContextTracing.AttributeKey.embeddingDimension) == .int64(Int64(Self.embeddingDimension)))
+        }
+    }
+
+    @Test
+    internal func theSearchSpanHoldsTheNumberOfSelectedHitsNotOfRetrievedCandidates() async throws {
+        try await withTemporaryWorkspace { root in
+            let (corpus, embedder) = try await Self.makeTwoChunkCorpus(root: root)
+            let retrieved = try await SearchCode.retrieve(corpus: corpus, embedder: embedder, query: Self.searchQuery)
+            try #require(retrieved.hits.count == Self.twoChunkCount)
+            let model = FakeLanguageModel(selecting: [retrieved.hits[0].hit.id])
+            let tracer = InMemoryTracer()
+
+            let result = try await SearchCode.run(
+                corpus: corpus, embedder: embedder, selection: model.factory(), query: Self.searchQuery, tracer: tracer
+            )
+
+            let searchSpan = try #require(Self.spans(named: CodeContextTracing.SpanName.search, in: tracer).first)
+            #expect(result.hits.count == 1)
+            #expect(searchSpan.attributes.get(CodeContextTracing.AttributeKey.searchResultCount) == .int64(Int64(result.hits.count)))
+        }
+    }
+
+    @Test
+    internal func theSelectSpanIsAChildOfTheSearchSpanAndHoldsOnlyCounts() async throws {
+        try await withTemporaryWorkspace { root in
+            let (corpus, embedder) = try await Self.makeTwoChunkCorpus(root: root)
+            let retrieved = try await SearchCode.retrieve(corpus: corpus, embedder: embedder, query: Self.searchQuery)
+            let model = FakeLanguageModel(selecting: [retrieved.hits[0].hit.id])
+            let tracer = InMemoryTracer()
+
+            _ = try await SearchCode.run(
+                corpus: corpus, embedder: embedder, selection: model.factory(), query: Self.searchQuery, tracer: tracer
+            )
+
+            let searchSpan = try #require(Self.spans(named: CodeContextTracing.SpanName.search, in: tracer).first)
+            let selectSpans = Self.spans(named: CodeContextTracing.SpanName.select, in: tracer)
+            #expect(selectSpans.count == 1)
+            let selectSpan = try #require(selectSpans.first)
+            #expect(selectSpan.parentSpanID == searchSpan.spanID)
+            #expect(selectSpan.attributes.get(CodeContextTracing.AttributeKey.selectionCandidateCount) == .int64(Int64(Self.twoChunkCount)))
+            #expect(selectSpan.attributes.get(CodeContextTracing.AttributeKey.selectionResultCount) == .int64(1))
+            #expect(selectSpan.errors.isEmpty)
+        }
+    }
+
+    @Test
+    internal func aFailedSelectionRecordsOnlyTheErrorTypeOnTheSelectSpanAndNoResultCount() async throws {
+        try await withTemporaryWorkspace { root in
+            let (corpus, embedder) = try await Self.makeTwoChunkCorpus(root: root)
+            let model = FakeLanguageModel(throwing: MarkedEmbedError(marker: Self.searchQuery))
+            let tracer = InMemoryTracer()
+
+            await #expect(throws: MarkedEmbedError.self) {
+                try await SearchCode.run(
+                    corpus: corpus, embedder: embedder, selection: model.factory(), query: Self.searchQuery, tracer: tracer
+                )
+            }
+
+            let selectSpan = try #require(Self.spans(named: CodeContextTracing.SpanName.select, in: tracer).first)
+            let recorded = try #require(selectSpan.errors.first)
+            #expect(String(describing: recorded.error) == String(reflecting: MarkedEmbedError.self))
+            #expect(selectSpan.attributes.get(CodeContextTracing.AttributeKey.selectionResultCount) == nil)
+            #expect(selectSpan.status?.code == .error)
+        }
+    }
+
+    @Test
+    internal func aSearchWithNoCandidateOpensNoSelectSpan() async throws {
+        try await withTemporaryWorkspace { root in
+            let tracer = InMemoryTracer()
+
+            let result = try await SearchCode.run(
+                corpus: SearchCorpus(store: Store(rootDirectory: root)),
+                embedder: nil,
+                selection: unusedSelection,
+                query: Self.searchQuery,
+                tracer: tracer
+            )
+
+            #expect(result.hits.isEmpty)
+            #expect(Self.spans(named: CodeContextTracing.SpanName.select, in: tracer).isEmpty)
         }
     }
 
@@ -347,6 +432,21 @@ internal struct TracingSpanTests {
             embedding: vectors.first
         )
         return SearchCorpus(store: store)
+    }
+
+    /// Makes a corpus with two chunks that both match the query of the search tests, and an
+    /// embedder for the query.
+    /// - Parameter root: The root directory of the store.
+    /// - Returns: The corpus and the embedder.
+    private static func makeTwoChunkCorpus(root: URL) async throws -> (SearchCorpus, FakeEmbedder) {
+        let corpus = try await makeEmbeddedCorpus(root: root)
+        try await insertChunk(
+            store: Store(rootDirectory: root),
+            filePath: "Retry.swift",
+            symbolPath: "Retry.backoffAgain",
+            text: "retry backoff strategy once more"
+        )
+        return (corpus, FakeEmbedder(vectorLength: embeddingDimension))
     }
 
     /// Gives the finished spans of `tracer` that have the name `name`.

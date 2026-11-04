@@ -102,6 +102,49 @@ comments:
     - evidence: 40 files committed locally. Not pushed.
     - next: review
   timestamp: 2026-11-04T16:31:35.377323+00:00
+- actor: claude-code
+  id: 01m6kpnynpp8pfqn655a4b4dnt
+  text: |-
+    ### review - findings
+    - evidence: review sha HEAD~1..HEAD. Engine: 2 findings (ManagerExample/main.swift:113, dead-code-swift). Acceptance review by hand: 3 more (SearchCode.swift:290, CodeSelection.swift:107, CodeSearchToolTests.swift:120). Total 5 open.
+    - note on the two engine findings: `searchResults` and `searchFailures` are used in the loops at lines 115-121 of the same file. They look like false positives of the dead-code rule for a top-level tuple pattern. The review skill gives no written rule to drop them, so they stay on the list. A person can decide if this is a rule conflict.
+    - checked and OK: `selection` has no default and no nil in CodeContext (both inits), CodeContextManager (both inits) and the one internal CodeContext build. All callers in Sources, Tests, Examples, IntegrationTests, README.md, plan.md and docs pass `selection:`. Selection error is thrown (context, manager, engine tests). Tool path rethrows it (ToolSupport.outcome only turns a CodeContextError into corrective text). Model runs one time per manager search over merged candidates. Hit score and signals are kept, model order is kept. unknownSelectedId goes to Log.search with a fixed message, no id, no query, no chunk text, and one test checks it. The content-safety test runs `searchCode` through the selection path with the marker as query. SelectionFactory is @Sendable, tier is made for each search, no shared mutable state. The new tests have no sleep and no timer wait.
+    - next: fix the open findings, then /review again.
+  timestamp: 2026-11-04T16:36:08.502990+00:00
+- actor: claude-code
+  id: 01m6kqb19mj8633h2465c37z6j
+  text: |-
+    ### implement — changed
+    - evidence: 13 files changed (Examples/ManagerExample/main.swift; Sources: CodeContextManager.swift, Ops/ManagerQueries.swift, Ops/SearchCode.swift, Search/CodeSelection.swift, Tracing/CodeContextSpans.swift, Tracing/CodeContextTracing.swift; Tests: CodeContextTracingTests, CodeSearchToolTests, ManagerQueriesTests, TelemetryContentSafetyTests, ToolTestSupport, TracingSpanTests).
+    - Findings 1 and 2 (dead-code-swift, `searchResults` and `searchFailures`): the cause was top-level state in main.swift. The rule runs the compiler on the file, and it also flagged the used global `query`. Fix: all example state now lives in one `@MainActor func runExample() async throws` that the file calls at top level. The file has no state global left. No validator was edited. `review file Examples/ManagerExample/main.swift` (code-hygiene) no longer reports any dead-code finding. CodeContextExample and IndexBenchmark have no dead-code finding. The same review still reports older findings outside the five (print calls, magic number, HashingEmbedder duplication, firstRegularFile); they are not part of this list.
+    - Finding 3: the search span now covers retrieval and selection. `SearchCode.run` and `CodeContextManager.searchCode` own it. `search.result_count` is the number of hits that the call returns after selection. `SearchCode.retrieve` opens no span. Test: `theSearchSpanHoldsTheNumberOfSelectedHitsNotOfRetrievedCandidates` (2 candidates, model selects 1, count is 1).
+    - Finding 4: new `SpanName.select` (child of search), `AttributeKey.selectionCandidateCount` and `selectionResultCount`. `CodeSelection.select` opens the span through `CodeContextSpans.withSelectionSpan`. It holds counts only. No span for a search with no candidate (no model call). The manager path has one search span and one select span (`aManagerSearchCodeGivesOneSearchSpanAndOneSelectSpanAsItsChild`). New internal `tracer:` parameter of the manager init (test seam, passed to each context). Tests: select span child and counts, failed selection records only the error type and no result count, no select span for no candidate. Vocabulary lists in CodeContextTracingTests have the new names. TelemetryContentSafetyTests now also runs a manager search with the marker as query, expects the select span name, and expects exactly 2 select spans (context and manager). Its span, log and metric check covers them.
+    - Finding 5: `CodeSearchToolTests.aSelectionErrorIsTheErrorOfTheSearchCodeToolCall`. The tool call throws `OperationError.executionFailed` with the selection error as cause: no corrective text, no retrieval result. This test passed at once because the behavior already existed; it guards it. `ToolTest.withIndexedTool` and `withStartedContext` take an optional `selection:` (default selects every candidate).
+    - Note: the tool layer wraps the engine error in `OperationError.executionFailed(cause:)`. The card text said "the tool throws the error"; the cause is the selection error.
+    - Commands: `swift build` ok, `swift build --package-path IntegrationTests --build-tests` ok (only the allowed mlx warning), `swift test` 1141 tests in 100 suites passed, `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` 0 findings.
+    - next: /review
+  timestamp: 2026-11-04T16:47:39.316167+00:00
+- actor: claude-code
+  id: 01m6kqg3dgvdhat1ck3vngz4vc
+  text: |-
+    ### test — green
+    - swift build: pass. The three Examples build alone: pass. Only the allowed "missing creator" warning.
+    - swift build --package-path IntegrationTests --build-tests: pass. No other warning.
+    - swift test: 1141 tests in 100 suites passed. 0 failures, 0 skipped.
+    - swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift: 0 findings.
+    - Five runs of TelemetryContentSafetyTests, TracingSpanTests, CodeContextTracingTests, CodeSearchToolTests, ManagerQueriesTests and SearchCodeSelectionTests: 72 tests each run, all pass. No flaky result.
+    - Content-safety check by reading: the test uses one marker as the query and as the chunk text. The selection runs in the context path and in the manager path, and the test checks that 2 select spans exist. TelemetryContentCheck.places reads each attribute, event, error and status of each span, and fails if any holds the marker. So a query or chunk text in a select span attribute fails the test.
+    - Integration run not done: three tests (DetectProjectsScaleTests, two in GrepCodeScaleTests) have no .timeLimit, and the live tests need sourcekit-lsp and pylsp, which are not installed here (they would skip). This change touches no IntegrationTests file. Left for CI.
+    - Files changed by this step: none.
+    - next: commit
+  timestamp: 2026-11-04T16:50:25.328780+00:00
+- actor: claude-code
+  id: 01m6kqgjds9qqv4b1dv9r1960b
+  text: |-
+    ### commit — changed
+    - evidence: local commit made with 15 files (Sources, Tests, Examples, .kanban)
+    - next: review
+  timestamp: 2026-11-04T16:50:40.697399+00:00
 depends_on:
 - 01M6KHG55E3K73B27F5AJWFM9Y
 position_column: doing
@@ -135,3 +178,22 @@ New signature (name to check against Multitool): `CodeContext(rootDirectory:embe
 
 ## Workflow
 Use /tdd. Write a failing test first. #retrieval #breaking-change
+
+## Review Findings (2026-11-04 10:35)
+
+> Scope: `review sha HEAD~1..HEAD` — reviewed the diffs only — lines this change added or modified. 32 file(s) reviewed, 8 not reviewed.
+
+> 4 file(s) not reviewed — excluded by an ignore rule:
+> - `.kanban/ (from .reviewignore)` — 4 file(s)
+
+> 4 file(s) not reviewed — no validator matched:
+> - `README.md` — no validator matches this file
+> - `docs/language-servers.md` — no validator matches this file
+> - `docs/multiple-repos.md` — no validator matches this file
+> - `plan.md` — no validator matches this file
+
+- [x] `Examples/ManagerExample/main.swift:113` `code-hygiene/dead-code-swift` — var.global `searchResults` is unused.
+- [x] `Examples/ManagerExample/main.swift:113` `code-hygiene/dead-code-swift` — var.global `searchFailures` is unused.
+- [x] `Sources/FoundationModelsCodeContext/Ops/SearchCode.swift:290` `task/acceptance-criteria (tracing)` — `CodeContextTracing.AttributeKey.searchResultCount` is documented as "The number of results that one search gives". `retrieve` sets it with `resultCount: \.hits.count`, so it now holds the number of retrieval candidates. The call returns the selected hits, and selection filters. The span value and the returned hit count differ. Record the number of selected hits that the call returns on the search span (or change the vocabulary text of `searchResultCount` and add a second attribute for the selected count), and add a test in `TracingSpanTests` for it.
+- [x] `Sources/FoundationModelsCodeContext/Search/CodeSelection.swift:107` `task/acceptance-criteria (tracing)` — The selection step (the model call, the slowest part of a search) runs outside every span. `CodeContextTracing.SpanName.search` is documented as "One `searchCode` call", but the span in `SearchCode.retrieve` ends before selection starts, and the manager path (`Ops/ManagerQueries.swift:111`) has no span for its one call that runs the selection. Add a selection span name to `CodeContextTracing.SpanName` (child of the search span, no query and no chunk text in it), open it in `CodeSelection.select`, make the one `searchCode` call of `SearchCode.run` and of the manager fan-out the owner of the search span, and add the span to `TracingSpanTests` and to the span, log and metric checks of `TelemetryContentSafetyTests`.
+- [x] `Tests/FoundationModelsCodeContextTests/CodeSearchToolTests.swift:120` `task/acceptance-criteria (tests)` — No test shows that a selection error is the error of the `code_search` tool path. `SearchCodeSelectionTests`, `ManagerQueriesTests` and `CodeContextE2ETests` cover the engine, the context and the manager. Add a test that gives the tool a `CodeContext` with a selection factory or model that throws, runs the `search code` operation, and expects the error to be thrown by the tool (no `.corrective` text and no retrieval-only result).

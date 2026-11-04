@@ -88,12 +88,14 @@ struct CodeSearchToolTests {
     /// - Parameter body: The test body.
     /// - Throws: The error that the setup or `body` throws.
     private static func withIndexedTool(
+        selection: @escaping SelectionFactory = selectingEveryCandidateFactory(),
         _ body: (OperationTool<CodeContextToolContext>, CodeContext<FakeLanguageServerConnection>) async throws -> Void
     ) async throws {
         try await ToolTest.withIndexedTool(
             source: fixtureSource,
             file: fixtureFile,
             embeddingDimension: embeddingDimension,
+            selection: selection,
             make: { try CodeSearchTool.make(context: $0) },
             body
         )
@@ -646,6 +648,24 @@ struct CodeSearchToolTests {
                 ],
                 on: tool
             )
+        }
+    }
+
+    @Test
+    func aSelectionErrorIsTheErrorOfTheSearchCodeToolCall() async throws {
+        let model = FakeLanguageModel(throwing: SelectionNotExpectedError())
+        try await Self.withIndexedTool(selection: model.factory()) { tool, _ in
+            // The tool call fails. The operation layer wraps the error of the engine, and the
+            // cause is the selection error. The call gives no corrective text and no retrieval
+            // result.
+            await #expect {
+                try await tool.call(
+                    arguments: GeneratedContent(properties: ["op": "search code", "query": Self.searchText])
+                )
+            } throws: { error in
+                guard case OperationError.executionFailed(let cause) = error else { return false }
+                return cause is SelectionNotExpectedError
+            }
         }
     }
 

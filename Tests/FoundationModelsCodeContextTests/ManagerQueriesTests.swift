@@ -1,5 +1,7 @@
 import Foundation
+import InMemoryTracing
 import Testing
+import Tracing
 
 @testable import FoundationModelsCodeContext
 
@@ -30,12 +32,14 @@ struct ManagerQueriesTests {
     ///   a test that runs `searchCode` over candidates gives a factory over a `FakeLanguageModel`.
     /// - Returns: A manager wired to fake filesystem-event and connection sources for testing.
     private static func makeManager(
-        selection: @escaping SelectionFactory = unusedSelection
+        selection: @escaping SelectionFactory = unusedSelection,
+        tracer: (any Tracer)? = nil
     ) async -> CodeContextManager<FakeLanguageServerConnection> {
         await CodeContextManager<FakeLanguageServerConnection>(
             embedder: FakeEmbedder(vectorLength: 8),
             selection: selection,
             eventSource: FakeFileEventSource(),
+            tracer: tracer,
             connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
         )
     }
@@ -311,6 +315,31 @@ struct ManagerQueriesTests {
             let selected = try await manager.searchCode(query: "elephant").results
 
             #expect(selected.map(\.value.hit) == retrieved.hits.prefix(1).map(\.hit))
+
+            await manager.shutdown()
+        }
+    }
+
+    @Test
+    func aManagerSearchCodeGivesOneSearchSpanAndOneSelectSpanAsItsChild() async throws {
+        try await withTemporaryWorkspace { workspace in
+            let tracer = InMemoryTracer()
+            let model = FakeLanguageModel(selecting: ["1"])
+            let manager = await Self.makeManager(selection: model.factory(), tracer: tracer)
+            _ = try await Self.openTwoElephantRoots(in: workspace, manager: manager)
+
+            let results = try await manager.searchCode(query: "elephant").results
+
+            let searchSpans = tracer.finishedSpans.filter { $0.operationName == CodeContextTracing.SpanName.search }
+            let selectSpans = tracer.finishedSpans.filter { $0.operationName == CodeContextTracing.SpanName.select }
+            #expect(searchSpans.count == 1)
+            #expect(selectSpans.count == 1)
+            let searchSpan = try #require(searchSpans.first)
+            let selectSpan = try #require(selectSpans.first)
+            #expect(selectSpan.parentSpanID == searchSpan.spanID)
+            #expect(searchSpan.attributes.get(CodeContextTracing.AttributeKey.searchResultCount) == .int64(Int64(results.count)))
+            #expect(selectSpan.attributes.get(CodeContextTracing.AttributeKey.selectionCandidateCount) == .int64(2))
+            #expect(selectSpan.attributes.get(CodeContextTracing.AttributeKey.selectionResultCount) == .int64(Int64(results.count)))
 
             await manager.shutdown()
         }

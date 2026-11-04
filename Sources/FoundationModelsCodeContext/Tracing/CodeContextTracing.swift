@@ -45,7 +45,8 @@ import Tracing
 /// marker:
 ///
 /// - `TelemetryContentSafetyTests` in the unit test target uses fakes. It runs
-///   an index pass with embed calls, a watcher batch, a search, a symbol search
+///   an index pass with embed calls, a watcher batch, a search with its
+///   selection step (for a context and for a manager), a symbol search
 ///   and a grep, a forced restart of a language server, and requests through an
 ///   LSP session.
 /// - `TelemetryContentSafetyTests` in the `IntegrationTests` package starts a
@@ -73,8 +74,15 @@ public enum CodeContextTracing {
         /// One `PooledEmbedding.embed(texts:)` call.
         public static let embed = modulePrefix + "embed"
 
-        /// One `searchCode` call.
+        /// One `searchCode` call: the retrieval and the selection. For a manager, one call
+        /// of `CodeContextManager.searchCode(query:topK:weights:)`, which covers the retrieval of
+        /// each root and the one selection.
         public static let search = modulePrefix + "search"
+
+        /// The selection step of one `searchCode` call: the call of the selection model over the
+        /// candidates of the retrieval. It is a child of the ``search`` span. A search with no
+        /// candidate runs no selection and opens no span of this name.
+        public static let select = modulePrefix + "select"
 
         /// One `searchSymbol` call.
         public static let searchSymbol = modulePrefix + "search_symbol"
@@ -129,12 +137,19 @@ public enum CodeContextTracing {
         /// vector length.
         public static let embeddingDimension = "embedding.dimension"
 
-        /// The number of results that one search gives.
+        /// The number of results that one search gives. For `searchCode` it is the number of hits
+        /// that the call returns, after the selection.
         public static let searchResultCount = "search.result_count"
 
         /// The maximum number of results that the caller of one search asked
         /// for.
         public static let searchLimit = "search.limit"
+
+        /// The number of candidates that the retrieval gave to one selection step.
+        public static let selectionCandidateCount = "selection.candidate_count"
+
+        /// The number of candidates that one selection step selected.
+        public static let selectionResultCount = "selection.result_count"
 
         /// Why a language server started again, for example `health`,
         /// `install` or `forced`.

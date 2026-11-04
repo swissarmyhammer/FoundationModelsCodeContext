@@ -22,6 +22,7 @@ struct CodeContextTracingTests {
         CodeContextTracing.SpanName.lspRequest,
         CodeContextTracing.SpanName.embed,
         CodeContextTracing.SpanName.search,
+        CodeContextTracing.SpanName.select,
         CodeContextTracing.SpanName.searchSymbol,
         CodeContextTracing.SpanName.grepCode,
     ]
@@ -42,6 +43,8 @@ struct CodeContextTracingTests {
         CodeContextTracing.AttributeKey.embeddingDimension,
         CodeContextTracing.AttributeKey.searchResultCount,
         CodeContextTracing.AttributeKey.searchLimit,
+        CodeContextTracing.AttributeKey.selectionCandidateCount,
+        CodeContextTracing.AttributeKey.selectionResultCount,
         CodeContextTracing.AttributeKey.restartReason,
         CodeContextTracing.AttributeKey.language,
     ]

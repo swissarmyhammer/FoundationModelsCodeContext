@@ -227,12 +227,16 @@ public enum SearchCode {
     ///   - topK: The maximum number of candidates, and of hits. Defaults to 20.
     ///   - weights: The per-signal fusion weights of retrieval. Defaults to `SignalWeights()`,
     ///     equal weight for every signal.
-    ///   - tracer: The tracer of the search span and of the embed span of the query. Defaults to
-    ///     `nil`, which reads the bootstrapped tracer at the time of the call.
+    ///   - tracer: The tracer of the search span, of the select span and of the embed span of the
+    ///     query. Defaults to `nil`, which reads the bootstrapped tracer at the time of the call.
     /// - Returns: The selected hits, plus an `IndexingProgress` note whenever the embedding layer
     ///   is incomplete.
     /// - Throws: Rethrows `Store`'s storage errors (via `corpus.snapshot()`), what `selection`
     ///   throws, and what the selection session throws.
+    ///
+    /// The call runs in one `CodeContextTracing.SpanName.search` span. It holds `topK`, and the
+    /// number of hits that the call returns, after the selection. The selection step is a child
+    /// span (`CodeContextTracing.SpanName.select`). Neither span holds the query.
     public static func run(
         corpus: SearchCorpus,
         embedder: PooledEmbedding?,
@@ -242,14 +246,23 @@ public enum SearchCode {
         weights: SignalWeights = CodeContextDefaults.searchWeights,
         tracer: (any Tracer)? = nil
     ) async throws -> SearchCodeResult {
-        let retrieved = try await retrieve(
-            corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights, tracer: tracer
-        )
-        let candidates = retrieved.hits.map { match in
-            match.selectionCandidate(id: match.hit.id, payload: match)
+        try await CodeContextSpans.withSearchSpan(
+            CodeContextTracing.SpanName.search,
+            tracer: tracer,
+            limit: topK,
+            resultCount: \.hits.count
+        ) {
+            let retrieved = try await retrieve(
+                corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights, tracer: tracer
+            )
+            let candidates = retrieved.hits.map { match in
+                match.selectionCandidate(id: match.hit.id, payload: match)
+            }
+            let selected = try await CodeSelection.select(
+                candidates, query: query, limit: topK, factory: selection, tracer: tracer
+            )
+            return SearchCodeResult(query: query, hits: selected, indexingProgress: retrieved.indexingProgress)
         }
-        let selected = try await CodeSelection.select(candidates, query: query, limit: topK, factory: selection)
-        return SearchCodeResult(query: query, hits: selected, indexingProgress: retrieved.indexingProgress)
     }
 
     /// Searches `corpus` for `query`, fusing BM25, trigram, and (when
@@ -276,17 +289,17 @@ public enum SearchCode {
     ///   - weights: The per-signal fusion weights. Defaults to
     ///     `SignalWeights()`, equal weight for every
     ///     signal.
-    ///   - tracer: The tracer of the search span and of the embed span of the
-    ///     query. Defaults to `nil`, which reads the bootstrapped tracer at the
-    ///     time of the call.
+    ///   - tracer: The tracer of the embed span of the query. Defaults to `nil`,
+    ///     which reads the bootstrapped tracer at the time of the call.
     /// - Returns: The fused, `[0, 1]`-normalized hits (capped at `topK`),
     ///   plus an `IndexingProgress` note whenever the embedding layer is
     ///   incomplete.
     /// - Throws: Rethrows `Store`'s storage errors (via `corpus.snapshot()`).
     ///
-    /// The retrieval runs in one `CodeContextTracing.SpanName.search` span, which
-    /// holds `topK` and the hit count. It never holds the query. The embed call
-    /// of the query is a child span of the search span.
+    /// The retrieval opens no search span: the caller owns the one
+    /// `CodeContextTracing.SpanName.search` span of the search call, which covers the retrieval
+    /// and the selection. The embed call of the query is a child span of the span that is open in
+    /// the caller.
     internal static func retrieve(
         corpus: SearchCorpus,
         embedder: PooledEmbedding?,
@@ -295,22 +308,15 @@ public enum SearchCode {
         weights: SignalWeights = CodeContextDefaults.searchWeights,
         tracer: (any Tracer)? = nil
     ) async throws -> SearchCodeResult {
-        try await CodeContextSpans.withSearchSpan(
-            CodeContextTracing.SpanName.search,
-            tracer: tracer,
-            limit: topK,
-            resultCount: \.hits.count
-        ) {
-            let snapshot = try await corpus.snapshot()
-            let cosineScores = await queryCosineScores(snapshot: snapshot, embedder: embedder, query: query, tracer: tracer)
-            let hits = rank(snapshot: snapshot, query: query, cosineScores: cosineScores, weights: weights, topK: topK)
+        let snapshot = try await corpus.snapshot()
+        let cosineScores = await queryCosineScores(snapshot: snapshot, embedder: embedder, query: query, tracer: tracer)
+        let hits = rank(snapshot: snapshot, query: query, cosineScores: cosineScores, weights: weights, topK: topK)
 
-            return SearchCodeResult(
-                query: query,
-                hits: hits,
-                indexingProgress: buildIndexingProgress(snapshot: snapshot, embedderAvailable: embedder != nil)
-            )
-        }
+        return SearchCodeResult(
+            query: query,
+            hits: hits,
+            indexingProgress: buildIndexingProgress(snapshot: snapshot, embedderAvailable: embedder != nil)
+        )
     }
 
     // MARK: - Cosine signal

@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModelsExtras
+import Tracing
 
 /// Owns and routes to one `CodeContext` per open workspace root, enforcing a strict
 /// non-overlapping-roots invariant across every root currently open.
@@ -100,6 +101,11 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// up needing.
     private let connectionFactory: ConnectionFactory<Connection>
 
+    /// The tracer of the search span of this manager, and of the spans of each context that it
+    /// opens. `nil` reads the bootstrapped tracer at the time of each span, see
+    /// `CodeContextTracing.tracer(explicit:)`.
+    internal let tracer: (any Tracer)?
+
     /// Unified, SwiftUI-observable aggregate of every open root's `CodeContextState`.
     public nonisolated let state: ManagerState
 
@@ -134,6 +140,9 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     ///     integration test driven through this manager never spawns a real installer command.
     ///   - indexDirectory: Gives the index directory of each root, from its `rootKey(for:)`.
     ///     Defaults to `nil`, which gives each context `<root>/.code-context`.
+    ///   - tracer: The tracer of the search span of this manager, and of the spans of each context
+    ///     that it creates. Defaults to `nil`, which reads the bootstrapped tracer at the time of
+    ///     each span; tests give an `InMemoryTracer`.
     ///   - connectionFactory: Spawns a fresh connection for every LSP daemon any created
     ///     `CodeContext`'s supervisor ends up needing.
     init(
@@ -144,6 +153,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
         autoInstall: LspAutoInstall = LspAutoInstall(),
         installRunner: any InstallRunner = ProcessInstallRunner(),
         indexDirectory: (@Sendable (URL) -> URL)? = nil,
+        tracer: (any Tracer)? = nil,
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) async {
         self.embedder = embedder
@@ -153,6 +163,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
         self.autoInstall = autoInstall
         self.installRunner = installRunner
         self.indexDirectory = indexDirectory
+        self.tracer = tracer
         self.connectionFactory = connectionFactory
         state = await ManagerState()
     }
@@ -457,6 +468,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
             eventSource: eventSource,
             autoInstall: autoInstall,
             installRunner: installRunner,
+            tracer: tracer,
             connectionFactory: connectionFactory
         )
         try await context.start()

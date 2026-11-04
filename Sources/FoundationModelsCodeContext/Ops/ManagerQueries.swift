@@ -95,21 +95,35 @@ extension CodeContextManager {
     ///   plus one `FanOutFailure` per root whose own retrieval threw.
     /// - Throws: What the selection factory throws, and what the selection session throws. There
     ///   is no fallback: a selection error is the error of the call.
+    ///
+    /// The call runs in one `CodeContextTracing.SpanName.search` span, the one owner of the
+    /// search. The roots open no search span of their own. The span holds `topK` and the number of
+    /// hits that the call returns, after the selection. The selection step is a child span
+    /// (`CodeContextTracing.SpanName.select`). Neither span holds the query.
     public func searchCode(
         query: String,
         topK: Int = CodeContextDefaults.searchTopK,
         weights: SignalWeights = CodeContextDefaults.searchWeights
     ) async throws -> (results: [Rooted<SearchCodeMatch>], failures: [FanOutFailure]) {
-        let (perRoot, failures) = await fanOutQuery { context in
-            try await context.retrieveCode(query: query, topK: topK, weights: weights).hits
-        }
-        let candidates = Self.interleave(perRoot: perRoot, limit: topK).enumerated().map { position, rooted in
-            rooted.value.selectionCandidate(
-                id: String(position), summaryPrefix: "[\(rooted.root.lastPathComponent)] ", payload: rooted
+        try await CodeContextSpans.withSearchSpan(
+            CodeContextTracing.SpanName.search,
+            tracer: tracer,
+            limit: topK,
+            resultCount: \.results.count
+        ) {
+            let (perRoot, failures) = await fanOutQuery { context in
+                try await context.retrieveCode(query: query, topK: topK, weights: weights).hits
+            }
+            let candidates = Self.interleave(perRoot: perRoot, limit: topK).enumerated().map { position, rooted in
+                rooted.value.selectionCandidate(
+                    id: String(position), summaryPrefix: "[\(rooted.root.lastPathComponent)] ", payload: rooted
+                )
+            }
+            let selected = try await CodeSelection.select(
+                candidates, query: query, limit: topK, factory: selection, tracer: tracer
             )
+            return (selected, failures)
         }
-        let selected = try await CodeSelection.select(candidates, query: query, limit: topK, factory: selection)
-        return (selected, failures)
     }
 
     // MARK: - searchSymbol
