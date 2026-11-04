@@ -64,35 +64,52 @@ public struct FanOutFailure: Sendable {
 extension CodeContextManager {
     // MARK: - searchCode
 
-    /// Fans `CodeContext.searchCode(query:topK:weights:)` out across every open context, merged
-    /// by rank-major interleave (see this extension's documentation).
+    /// Fans the retrieval of `CodeContext.searchCode(query:topK:weights:)` out across every open
+    /// context, merges the candidates by rank-major interleave (see this extension's
+    /// documentation), and lets the selection model pick and order the merged candidates.
     ///
-    /// **Scores are not comparable across roots.** `SearchCode.run`'s fused score is
+    /// **The model runs one time for each search, not one time for each root.** Each root gives
+    /// only its retrieval candidates (`CodeContext.retrieveCode(query:topK:weights:)`). The manager
+    /// merges them, builds one selection catalog over the merged list, and applies its selection
+    /// factory one time. The id of a candidate is its position in the merged list, because the ids
+    /// of the hits are chunk row ids that repeat across roots. The summary of a candidate names
+    /// its root. The result is in the order of the model.
+    ///
+    /// **Scores are not comparable across roots.** The fused score of retrieval is
     /// `RRF.normalize`d to `[0, 1]` **per corpus** — relative to each root's own chunk population
     /// (see `HybridRanker.topMatches(ids:documents:query:cosineScores:weights:limit:)`) — so merging the union by score would systematically favor
     /// a small repo's inflated normalized scores over a large repo's genuinely stronger, but
-    /// comparatively scaled-down, ones. Results are therefore merged by rank (each root's own
+    /// comparatively scaled-down, ones. Candidates are therefore merged by rank (each root's own
     /// hit order), never by score, and every hit keeps its own root-relative `SearchCodeMatch`
-    /// unchanged — only `Rooted.root` reveals which corpus's normalization scale a given
-    /// `hit.score` belongs to.
+    /// unchanged, with its own retrieval score and signals — only `Rooted.root` reveals which
+    /// corpus's normalization scale a given `hit.score` belongs to.
     ///
     /// - Parameters:
-    ///   - query: The search query, passed to every open context unchanged.
-    ///   - topK: The maximum number of hits to return, across the union of every root's results.
-    ///     Defaults to 20, mirroring `CodeContext.searchCode(query:topK:weights:)`.
+    ///   - query: The search query, passed to every open context unchanged. It is the request that
+    ///     the selection model reads.
+    ///   - topK: The maximum number of candidates and of hits, across the union of every root's
+    ///     results. Defaults to 20, mirroring `CodeContext.searchCode(query:topK:weights:)`.
     ///   - weights: The per-signal fusion weights, passed to every open context unchanged.
     ///     Defaults to `SignalWeights()`, equal weight for every signal.
-    /// - Returns: The rank-major-interleaved, root-qualified hits (capped at `topK`), plus one
-    ///   `FanOutFailure` per root whose own `searchCode` call threw.
+    /// - Returns: The selected, root-qualified hits (at most `topK`) in the order of the model,
+    ///   plus one `FanOutFailure` per root whose own retrieval threw.
+    /// - Throws: What the selection factory throws, and what the selection session throws. There
+    ///   is no fallback: a selection error is the error of the call.
     public func searchCode(
         query: String,
         topK: Int = CodeContextDefaults.searchTopK,
         weights: SignalWeights = CodeContextDefaults.searchWeights
-    ) async -> (results: [Rooted<SearchCodeMatch>], failures: [FanOutFailure]) {
+    ) async throws -> (results: [Rooted<SearchCodeMatch>], failures: [FanOutFailure]) {
         let (perRoot, failures) = await fanOutQuery { context in
-            try await context.searchCode(query: query, topK: topK, weights: weights).hits
+            try await context.retrieveCode(query: query, topK: topK, weights: weights).hits
         }
-        return (Self.interleave(perRoot: perRoot, limit: topK), failures)
+        let candidates = Self.interleave(perRoot: perRoot, limit: topK).enumerated().map { position, rooted in
+            rooted.value.selectionCandidate(
+                id: String(position), summaryPrefix: "[\(rooted.root.lastPathComponent)] ", payload: rooted
+            )
+        }
+        let selected = try await CodeSelection.select(candidates, query: query, limit: topK, factory: selection)
+        return (selected, failures)
     }
 
     // MARK: - searchSymbol

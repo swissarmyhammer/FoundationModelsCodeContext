@@ -8,7 +8,8 @@ workspace, one owner of the index and the LSP servers.
 
 ```swift
 let context = try await CodeContext(rootDirectory: URL(filePath: "/path/to/repo"),
-                                    embedder: someEmbedder)   // injected, see Embeddings; nil = no embedding layer
+                                    embedder: someEmbedder,   // injected, see Embeddings; nil = no embedding layer
+                                    selection: someFactory)   // injected, see Selection model; required, no nil
 try await context.start()          // walk, reconcile, watch, spawn LSP; the first index pass runs in the background
 await context.waitForFirstIndexPass()   // optional: wait for the complete first pass (parse + embed)
 
@@ -348,7 +349,8 @@ public typealias TextEmbedding = FoundationModelsRanker.TextEmbedding
 - There is one protocol, not two copies. The package ships no adapter and no
   embedding model, and its build graph has no Router.
 - The **host app** supplies the embedding model and gives it to
-  `CodeContext(rootDirectory:embedder:)` or `CodeContextManager(embedder:)`.
+  `CodeContext(rootDirectory:embedder:selection:)` or
+  `CodeContextManager(embedder:selection:)`.
   Reason: model loading and model residency belong to the app, not to a
   library that only consumes vectors.
 - The `embedder` parameter is `TextEmbedding?`. `embedder: nil` turns the
@@ -359,13 +361,50 @@ public typealias TextEmbedding = FoundationModelsRanker.TextEmbedding
 - The same value works with each FoundationModelsRanker API that takes an
   embedder. Ranker's `Searcher` takes `embedder:` and also `session:` (a
   FoundationModels `LanguageModelSession`) for its selection tier.
-  `CodeContext` takes no language model.
+  `CodeContext` takes the selection model as a required `selection`
+  parameter; see "Selection model" below.
 - The two examples define a file-local `HashingEmbedder` to show the seam.
 - Tests inject a deterministic fake (hash-based vectors); no models, no
   downloads, no Metal in CI.
 - Query text is embedded with the same embedder at search time; if the stored
   dimension differs from the current embedder's, treat all chunks as
   un-embedded and re-embed (dimension recorded in a small `meta` table).
+
+### Selection model
+
+`searchCode` has two steps: retrieval, and then selection by a language
+model. The retrieval step is `HybridRanker` (BM25, trigram, cosine, RRF). The
+selection step is a `SelectionTier` of FoundationModelsRanker.
+
+```swift
+// FoundationModelsCodeContext
+public typealias SelectionFactory = @Sendable (_ ids: [String]) throws -> SelectionConfig
+```
+
+- The **host app** picks the selection model, like the embedding model. The
+  package ships no model. `SelectionFactory` has the shape of the
+  `SelectionFactory` of FoundationModelsMultitool: `SelectionConfig` holds an
+  `any LanguageModel`.
+- `selection` is **required**: `CodeContext(rootDirectory:embedder:selection:autoInstall:indexDirectory:)`
+  and `CodeContextManager(embedder:selection:autoInstall:indexDirectory:)`. It
+  has no `nil`, no default and no retrieval-only mode.
+- Each search retrieves at most `topK` hits. The package builds a small
+  `SelectionCatalog` from those hits (ids are the hit ids in hit order, the
+  summary is the symbol path with the kind and the file, the block is the
+  verbatim chunk text), applies the factory one time with the ids, makes a new
+  `SelectionTier` and calls `search(intent: query, limit: topK)`. A search with
+  no candidate applies no factory and calls no model.
+- The result holds the selected hits in the order of the model. Each hit keeps
+  the score and the signals of its retrieval `Hit`.
+- A selection error is the error of the call. There is no catch and no
+  fallback. `RankDiagnostic.unknownSelectedId` goes to the search log of the
+  package, with a fixed message and no id, no query and no chunk text.
+- `CodeContextManager.searchCode` runs the model one time for each search. Each
+  root gives its retrieval candidates only. The manager merges them (rank-major
+  interleave), and applies its factory one time over the merged list. The ids
+  of that catalog are the positions in the merged list, because hit ids are
+  chunk row ids that repeat across roots. The method `throws`.
+- Tests use a scripted `FakeLanguageModel` (no real model, no GPU).
 
 ### Project detection
 
@@ -628,7 +667,7 @@ owns it:
 
 ```swift
 // The path under consideration enters exactly once, at construction.
-let context = try await CodeContext(rootDirectory: repoURL, embedder: embedder)
+let context = try await CodeContext(rootDirectory: repoURL, embedder: embedder, selection: selection)
 try await context.start()   // returns before the first index pass is complete;
                             // `state.indexing` shows the progress of that pass
 
@@ -845,7 +884,7 @@ agreed design decisions the manager's doc comments reference.
   }` — the per-context result's own paths stay root-relative, so `root` is
   what disambiguates an identically-pathed match in one open repo from the
   same path in another. **Merge rule: rank-major interleave, never
-  score.** `SearchCode.run`'s fused score is RRF-normalized to `[0, 1]`
+  score.** `SearchCode.retrieve`'s fused score is RRF-normalized to `[0, 1]`
   *per corpus*, relative to each root's own chunk population, so sorting the
   union by raw score would systematically favor a small repo's inflated
   scores over a large repo's genuinely stronger but comparatively

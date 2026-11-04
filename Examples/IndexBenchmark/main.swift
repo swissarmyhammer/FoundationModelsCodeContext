@@ -28,7 +28,8 @@ import FoundationModelsExtras
 /// 4. It prints the wall time of the pass, the embed time, the embed calls and the texts, and the
 ///    file counts of `indexStatus()`.
 ///
-/// The program turns LSP auto-install off, so that the run installs no language server.
+/// The program turns LSP auto-install off, so that the run installs no language server. It runs no
+/// `searchCode`, so it gives a selection factory that throws if a search ever asks for a model.
 ///
 /// This demo is a command-line program, and it has no logging system. Each `print` below writes
 /// the result that the reader asked for, and not a debug log. Thus each one carries the
@@ -39,6 +40,12 @@ let defaultModel: ModelRef = "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
 
 /// The folders that the copy does not include: build output, version control, and an index.
 let excludedFolderNames: Set<String> = [".build", ".git", ".code-context", ".swiftpm"]
+
+/// The error of `unusedSelection`: this program runs no search, so no selection model is needed.
+struct SelectionNotUsedError: Error {}
+
+/// The selection factory of this program. `CodeContext` needs one, and this program runs no search.
+let unusedSelection: SelectionFactory = { _ in throw SelectionNotUsedError() }
 
 /// The text of the probe embed that loads the model before the timer starts.
 let warmUpText = "load the model"
@@ -77,6 +84,7 @@ let embedder = TimedEmbedder(wrapping: pooledEmbedder)
 let context = try await CodeContext(
     rootDirectory: copyRoot,
     embedder: embedder,
+    selection: unusedSelection,
     autoInstall: LspAutoInstall(isEnabled: false)
 )
 let passStart = clock.now

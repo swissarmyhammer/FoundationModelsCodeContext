@@ -6,7 +6,7 @@ import Tracing
 /// The public facade actor tying every subsystem in this package together for one workspace.
 ///
 /// Ports plan.md's "Goal": one process, one workspace, one owner of the index and the LSP
-/// servers. `init(rootDirectory:embedder:)` opens (creating if necessary) the workspace's
+/// servers. `init(rootDirectory:embedder:selection:)` opens (creating if necessary) the workspace's
 /// `Store` and builds the shared `nonisolated let state: CodeContextState` observable exactly
 /// once; `start()` reconciles the on-disk index against the workspace, detects projects, starts
 /// the LSP supervisor, and then spawns the continuous background workers (indexing loop, per-server
@@ -50,6 +50,12 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// `nil` means that the host turned the embedding layer off: no pass makes embeddings, and
     /// `searchCode(...)` and `findDuplicates(...)` throw `CodeContextError.embeddingDisabled`.
     private let measuredEmbedder: MeasuredEmbedder?
+
+    /// Makes the selection configuration of each `searchCode(...)` call, from the ids of the
+    /// candidates. The host gives it, and this package ships no model. There is no default, and
+    /// there is no retrieval-only mode: each `searchCode(...)` call lets the selection model pick
+    /// and order the retrieval hits. See `SelectionFactory`.
+    private let selection: SelectionFactory
 
     /// The workspace's index store, opened once in `init`.
     private let store: Store
@@ -212,6 +218,8 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ///     `<rootDirectory>/.code-context`. See `Store.init(rootDirectory:indexDirectory:)`.
     ///   - embedder: The embedder used for the tree-sitter worker's embedding step and for
     ///     `searchCode(...)`, or `nil` to turn the embedding layer off.
+    ///   - selection: Makes the selection configuration of each `searchCode(...)` call. It is
+    ///     required: the host picks the selection model. See `SelectionFactory`.
     ///   - clock: The clock the index loop and watcher debounce timer sleep against. Defaults to
     ///     `ContinuousClock()`; tests inject a faster or manually-driven clock.
     ///   - eventSource: The raw filesystem-change event source the watcher subscribes to, or `nil`
@@ -241,6 +249,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         rootDirectory: URL,
         indexDirectory: URL? = nil,
         embedder: PooledEmbedding?,
+        selection: @escaping SelectionFactory,
         clock: any Clock<Duration> = ContinuousClock(),
         eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
@@ -252,6 +261,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     ) async throws {
         self.rootDirectory = rootDirectory
         measuredEmbedder = embedder.map(MeasuredEmbedder.init(embedder:))
+        self.selection = selection
         self.clock = clock
         self.eventSource = eventSource
         self.metrics = metrics
@@ -760,17 +770,36 @@ public actor CodeContext<Connection: LanguageServerConnection> {
         }
     }
 
-    /// See `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)`. The search opens its
-    /// spans through the tracer of this context.
-    /// - Throws: `CodeContextError.embeddingDisabled` when this context has no embedder, and
-    ///   the errors of `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)`.
+    /// See `SearchCode.run(corpus:embedder:selection:query:topK:weights:tracer:)`. Retrieval ranks
+    /// the chunks, and then the selection model of this context picks and orders the hits. The
+    /// search opens its spans through the tracer of this context.
+    /// - Throws: `CodeContextError.embeddingDisabled` when this context has no embedder, what the
+    ///   selection factory throws, what the selection session throws, and the errors of
+    ///   `SearchCode.run(corpus:embedder:selection:query:topK:weights:tracer:)`. A selection error
+    ///   is the error of the call: the result is never the retrieval result in its place.
     public func searchCode(
         query: String,
         topK: Int = CodeContextDefaults.searchTopK,
         weights: SignalWeights = CodeContextDefaults.searchWeights
     ) async throws -> SearchCodeResult {
         let embedder = try requireEmbedder()
-        return try await SearchCode.run(corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights, tracer: tracer)
+        return try await SearchCode.run(
+            corpus: corpus, embedder: embedder, selection: selection, query: query, topK: topK, weights: weights, tracer: tracer
+        )
+    }
+
+    /// The retrieval step of `searchCode(query:topK:weights:)`: the ranked candidates, with no
+    /// selection model. `CodeContextManager` calls it for each root, and runs one selection over
+    /// the merged candidates.
+    ///
+    /// See `SearchCode.retrieve(corpus:embedder:query:topK:weights:tracer:)`.
+    /// - Throws: `CodeContextError.embeddingDisabled` when this context has no embedder, and the
+    ///   errors of `SearchCode.retrieve(corpus:embedder:query:topK:weights:tracer:)`.
+    internal func retrieveCode(query: String, topK: Int, weights: SignalWeights) async throws -> SearchCodeResult {
+        let embedder = try requireEmbedder()
+        return try await SearchCode.retrieve(
+            corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights, tracer: tracer
+        )
     }
 
     /// See `FindDuplicatesOps.findDuplicates(corpus:file:minSimilarity:minChunkBytes:maxPerChunk:)`.
@@ -1263,7 +1292,7 @@ extension CodeContext where Connection == ProcessLanguageServerConnection {
     ///
     /// This is the only initializer visible outside this module — see plan.md's Goal:
     /// ```swift
-    /// let context = try await CodeContext(rootDirectory: ..., embedder: someEmbedder)
+    /// let context = try await CodeContext(rootDirectory: ..., embedder: someEmbedder, selection: someFactory)
     /// try await context.start()
     /// ```
     /// - Parameters:
@@ -1272,9 +1301,13 @@ extension CodeContext where Connection == ProcessLanguageServerConnection {
     ///     `searchCode(...)`. Give `nil` to turn the embedding layer off: the symbol, call graph
     ///     and language-server operations stay available, no pass makes embeddings, and
     ///     `searchCode(...)` and `findDuplicates(...)` throw `CodeContextError.embeddingDisabled`.
+    ///   - selection: Makes the selection configuration of each `searchCode(...)` call, from the
+    ///     ids of the candidates. It is required, with no default and no `nil`: the host picks the
+    ///     selection model, and this package ships none. A selection error is the error of
+    ///     `searchCode(...)`. See `SelectionFactory`.
     ///   - autoInstall: The opt-out policy gating whether the supervisor may auto-install a
     ///     `.notFound` server's binary via its `ServerSpec.installer`. Defaults to
-    ///     `LspAutoInstall()` (enabled, 300-second timeout); existing callers compile unchanged.
+    ///     `LspAutoInstall()` (enabled, 300-second timeout).
     ///   - eventSource: The raw filesystem-change event source of the watcher. Defaults to
     ///     `FSEventsFileEventSource()`. Give another `FileEventSource` to drive the watcher from
     ///     your own events. Give `nil` to turn the watcher off: then no FSEvents stream starts, and
@@ -1287,6 +1320,7 @@ extension CodeContext where Connection == ProcessLanguageServerConnection {
     public init(
         rootDirectory: URL,
         embedder: PooledEmbedding?,
+        selection: @escaping SelectionFactory,
         autoInstall: LspAutoInstall = LspAutoInstall(),
         eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
         indexDirectory: URL? = nil
@@ -1295,6 +1329,7 @@ extension CodeContext where Connection == ProcessLanguageServerConnection {
             rootDirectory: rootDirectory,
             indexDirectory: indexDirectory,
             embedder: embedder,
+            selection: selection,
             eventSource: eventSource,
             autoInstall: autoInstall,
             connectionFactory: LSPDaemon<ProcessLanguageServerConnection>.processConnectionFactory()

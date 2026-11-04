@@ -22,7 +22,7 @@ struct CallerEmbedderPublicAPITests {
     func publicManagerInitAcceptsCallerDefinedEmbedder() async throws {
         try await withTemporaryWorkspace { root in
             let embedder = CallerDefinedEmbedder(vectorLength: Self.embeddingDimension)
-            let manager = await CodeContextManager(embedder: embedder, autoInstall: LspAutoInstall(isEnabled: false))
+            let manager = await CodeContextManager(embedder: embedder, selection: unusedSelection, autoInstall: LspAutoInstall(isEnabled: false))
 
             let context = try await manager.context(for: root)
 

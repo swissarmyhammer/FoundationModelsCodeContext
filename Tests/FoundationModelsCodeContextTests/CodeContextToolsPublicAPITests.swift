@@ -27,7 +27,7 @@ struct CodeContextToolsPublicAPITests {
     func publicFactoryGivesTheThreeToolsToACaller() async throws {
         try await withTemporaryWorkspace { root in
             let embedder = CallerDefinedEmbedder(vectorLength: Self.embeddingDimension)
-            let manager = await CodeContextManager(embedder: embedder, autoInstall: LspAutoInstall(isEnabled: false))
+            let manager = await CodeContextManager(embedder: embedder, selection: unusedSelection, autoInstall: LspAutoInstall(isEnabled: false))
             let context = try await manager.context(for: root)
 
             let tools = try CodeContextTools.make(context: context)

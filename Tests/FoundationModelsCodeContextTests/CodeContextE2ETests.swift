@@ -26,11 +26,13 @@ struct CodeContextE2ETests {
     /// required to satisfy the general initializer's type).
     private static func makeCodeContext(
         rootDirectory: URL,
-        embedder: PooledEmbedding
+        embedder: PooledEmbedding,
+        selection: @escaping SelectionFactory = selectingEveryCandidateFactory()
     ) async throws -> CodeContext<FakeLanguageServerConnection> {
         try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: rootDirectory,
             embedder: embedder,
+            selection: selection,
             eventSource: FakeFileEventSource(),
             connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
         )
@@ -85,6 +87,44 @@ struct CodeContextE2ETests {
             await context.stop()
 
             // stop() must be safe to call again (idempotent no-op) and must not hang.
+            await context.stop()
+        }
+    }
+
+    // MARK: - The selection model of the context
+
+    @Test
+    func searchCodeGivesOnlyTheHitsThatTheSelectionModelPicks() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixture(in: root)
+            let model = FakeLanguageModel(selecting: [])
+            let context = try await Self.makeCodeContext(
+                rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8), selection: model.factory()
+            )
+            try await context.start()
+            await context.waitForFirstIndexPass()
+
+            let codeResult = try await context.searchCode(query: "hello")
+
+            #expect(codeResult.hits.isEmpty && model.calls.count == 1)
+            await context.stop()
+        }
+    }
+
+    @Test
+    func aSelectionErrorIsTheErrorOfSearchCodeOfTheContext() async throws {
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixture(in: root)
+            let model = FakeLanguageModel(throwing: SelectionNotExpectedError())
+            let context = try await Self.makeCodeContext(
+                rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8), selection: model.factory()
+            )
+            try await context.start()
+            await context.waitForFirstIndexPass()
+
+            await #expect(throws: SelectionNotExpectedError.self) {
+                try await context.searchCode(query: "hello")
+            }
             await context.stop()
         }
     }
@@ -271,6 +311,7 @@ struct CodeContextE2ETests {
             let context = try await CodeContext<FakeLanguageServerConnection>(
                 rootDirectory: root,
                 embedder: FakeEmbedder(vectorLength: 8),
+                selection: selectingEveryCandidateFactory(),
                 eventSource: FakeFileEventSource(),
                 autoInstall: .withoutFailureRecord,
                 installRunner: runner,
@@ -329,6 +370,7 @@ struct CodeContextE2ETests {
         try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: rootDirectory,
             embedder: FakeEmbedder(vectorLength: 8),
+            selection: selectingEveryCandidateFactory(),
             eventSource: FakeFileEventSource(),
             autoInstall: LspAutoInstall(isEnabled: false),
             connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())

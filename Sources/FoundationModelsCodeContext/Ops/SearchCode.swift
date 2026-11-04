@@ -3,7 +3,7 @@ import FoundationModelsExtras
 import FoundationModelsRanker
 import Tracing
 
-/// A note that `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)`'s
+/// A note that `SearchCode.run(corpus:embedder:selection:query:topK:weights:tracer:)`'s
 /// ranking ran with an incomplete (or entirely absent) embedding layer,
 /// attached to `SearchCodeResult` instead of failing the search.
 ///
@@ -39,7 +39,7 @@ public struct IndexingProgress: Sendable, Equatable, Encodable {
     }
 }
 
-/// One `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)` result: a fused
+/// One `SearchCode.run(corpus:embedder:selection:query:topK:weights:tracer:)` result: a fused
 /// `Hit` plus the `ts_chunks` metadata needed to locate and display it.
 ///
 /// The JSON form comes from a custom `encode(to:)`, because the Ranker `Hit`
@@ -157,7 +157,7 @@ extension SearchCodeMatch: Encodable {
     }
 }
 
-/// The result of a `SearchCode.run(corpus:embedder:query:topK:weights:tracer:)`
+/// The result of a `SearchCode.run(corpus:embedder:selection:query:topK:weights:tracer:)`
 /// call.
 ///
 /// The JSON keys are the property names. When `indexingProgress` is `nil`,
@@ -188,7 +188,8 @@ public struct SearchCodeResult: Sendable, Equatable, Encodable {
     }
 }
 
-/// Hybrid keyword + semantic code search over a workspace's `ts_chunks`.
+/// Hybrid keyword + semantic code search over a workspace's `ts_chunks`, then selection by a
+/// model.
 ///
 /// Port of the Rust `swissarmyhammer-search` crate's top-level search entry
 /// point, fusing three independent rankings — BM25 keyword, trigram fuzzy,
@@ -197,9 +198,62 @@ public struct SearchCodeResult: Sendable, Equatable, Encodable {
 /// meant to be reused across calls so the tokenize/trigram precomputation in
 /// `SearchCorpus.build(rows:)` happens once per corpus generation, not once
 /// per query.
+///
+/// A search has two steps. `retrieve(corpus:embedder:query:topK:weights:tracer:)` ranks the
+/// chunks. `run(corpus:embedder:selection:query:topK:weights:tracer:)` then lets the selection
+/// model of the host pick and order the retrieval hits.
 public enum SearchCode {
+    /// Searches `corpus` for `query` with retrieval, and lets the selection model pick and order
+    /// the retrieval hits.
+    ///
+    /// Retrieval gives at most `topK` candidates (see
+    /// `retrieve(corpus:embedder:query:topK:weights:tracer:)`). `selection` makes the selection
+    /// configuration from the ids of the candidates, one time. A `SelectionTier` over a catalog of
+    /// the candidates then asks the model to pick the candidates that serve `query`. The
+    /// candidate ids are the ids of the hits. The summary of a candidate is its symbol path with
+    /// the kind and the file, and its block is the verbatim chunk text.
+    ///
+    /// The result holds the selected hits in the order of the model, at most `topK`. Each hit keeps
+    /// its own retrieval score and its own signals. There is no fallback: an error of `selection`
+    /// or of the selection session is the error of this call.
+    ///
+    /// - Parameters:
+    ///   - corpus: The workspace's chunk/embedding cache to search.
+    ///   - embedder: The embedder to embed `query` with for the cosine signal, or `nil` to skip
+    ///     semantic ranking entirely.
+    ///   - selection: Makes the selection configuration from the ids of the candidates. A search
+    ///     with no candidate does not call it.
+    ///   - query: The search query. It is the request that the selection model reads.
+    ///   - topK: The maximum number of candidates, and of hits. Defaults to 20.
+    ///   - weights: The per-signal fusion weights of retrieval. Defaults to `SignalWeights()`,
+    ///     equal weight for every signal.
+    ///   - tracer: The tracer of the search span and of the embed span of the query. Defaults to
+    ///     `nil`, which reads the bootstrapped tracer at the time of the call.
+    /// - Returns: The selected hits, plus an `IndexingProgress` note whenever the embedding layer
+    ///   is incomplete.
+    /// - Throws: Rethrows `Store`'s storage errors (via `corpus.snapshot()`), what `selection`
+    ///   throws, and what the selection session throws.
+    public static func run(
+        corpus: SearchCorpus,
+        embedder: PooledEmbedding?,
+        selection: SelectionFactory,
+        query: String,
+        topK: Int = CodeContextDefaults.searchTopK,
+        weights: SignalWeights = CodeContextDefaults.searchWeights,
+        tracer: (any Tracer)? = nil
+    ) async throws -> SearchCodeResult {
+        let retrieved = try await retrieve(
+            corpus: corpus, embedder: embedder, query: query, topK: topK, weights: weights, tracer: tracer
+        )
+        let candidates = retrieved.hits.map { match in
+            match.selectionCandidate(id: match.hit.id, payload: match)
+        }
+        let selected = try await CodeSelection.select(candidates, query: query, limit: topK, factory: selection)
+        return SearchCodeResult(query: query, hits: selected, indexingProgress: retrieved.indexingProgress)
+    }
+
     /// Searches `corpus` for `query`, fusing BM25, trigram, and (when
-    /// available) cosine rankings through `HybridRanker`.
+    /// available) cosine rankings through `HybridRanker`. No model runs.
     ///
     /// `embedder` embeds `query` itself for the cosine signal; it is
     /// independent of whatever embedder (if any) originally embedded the
@@ -209,6 +263,9 @@ public enum SearchCode {
     /// embedding yet; `SearchCodeResult.indexingProgress` is non-`nil` in
     /// every one of those cases, and also whenever some (but not all)
     /// chunks are embedded.
+    ///
+    /// This is the retrieval step of `run(corpus:embedder:selection:query:topK:weights:tracer:)`.
+    /// A manager uses it for each root, and runs one selection over the merged candidates.
     ///
     /// - Parameters:
     ///   - corpus: The workspace's chunk/embedding cache to search.
@@ -227,10 +284,10 @@ public enum SearchCode {
     ///   incomplete.
     /// - Throws: Rethrows `Store`'s storage errors (via `corpus.snapshot()`).
     ///
-    /// The search runs in one `CodeContextTracing.SpanName.search` span, which
+    /// The retrieval runs in one `CodeContextTracing.SpanName.search` span, which
     /// holds `topK` and the hit count. It never holds the query. The embed call
     /// of the query is a child span of the search span.
-    public static func run(
+    internal static func retrieve(
         corpus: SearchCorpus,
         embedder: PooledEmbedding?,
         query: String,

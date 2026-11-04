@@ -50,7 +50,7 @@ struct ResultEncodingTests {
                 startLine: 3,
                 endLine: 5
             )
-            let result = try await SearchCode.run(corpus: SearchCorpus(store: store), embedder: nil, query: "validate")
+            let result = try await SearchCode.retrieve(corpus: SearchCorpus(store: store), embedder: nil, query: "validate")
             let match = try #require(result.hits.first)
 
             let json = try TestJSON.encodedObject(result)

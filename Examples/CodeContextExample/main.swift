@@ -2,18 +2,19 @@ import Foundation
 import FoundationModels
 import FoundationModelsCodeContext
 import FoundationModelsExtras
+import FoundationModelsRanker
 
 /// # Runnable demo: standalone, single-root `CodeContext`.
 ///
 /// This is the standalone "way in" to this package (see plan.md's Goal). Point
 /// it at one repository root. It then uses the public API from start to end: it
-/// makes an embedder, opens a `CodeContext`, starts it, runs two read-only
+/// makes an embedder and a selection model, opens a `CodeContext`, starts it, runs two read-only
 /// queries, and stops the context.
 ///
 /// ## The caller supplies the embedding model
 ///
 /// This package loads no embedding model. The caller gives any `PooledEmbedding`
-/// value to `CodeContext(rootDirectory:embedder:)`. The protocol has one
+/// value to `CodeContext(rootDirectory:embedder:selection:)`. The protocol has one
 /// member: `embed(texts:)`, which returns one unit-length vector for each text.
 /// The protocol declares no vector length: `CodeContext` reads the length
 /// from the first vector that the embedder returns. A production host wraps
@@ -25,6 +26,15 @@ import FoundationModelsExtras
 /// words, not texts that share meaning. Put a real model behind the same
 /// member to get semantic search.
 ///
+/// ## The caller supplies the selection model
+///
+/// `searchCode` retrieves candidates, and then a language model picks and orders them. This
+/// package ships no model, and `CodeContext` cannot be made without one: the caller gives a
+/// `SelectionFactory` to `CodeContext(rootDirectory:embedder:selection:)`. The package applies it
+/// one time for each search, with the ids of the candidates, and it uses the `SelectionConfig`
+/// that the factory returns. This file gives the on-device `SystemLanguageModel`. A selection
+/// error is the error of `searchCode`: there is no fallback to retrieval alone.
+///
 /// ## What this file does and does not exercise
 ///
 /// This target links only `FoundationModelsCodeContext`, so `swift build` stays
@@ -34,7 +44,7 @@ import FoundationModelsExtras
 ///   - Live LSP-backed ops and full indexing need the language servers of the
 ///     workspace on `PATH`. By default `CodeContext` auto-installs a missing
 ///     server for a detected language (opt out with
-///     `CodeContext(..., autoInstall: LspAutoInstall(isEnabled: false))`; see
+///     `CodeContext(..., selection: selection, autoInstall: LspAutoInstall(isEnabled: false))`; see
 ///     the "Language servers" section of the package README). Thus this example
 ///     needs no extra code for this, and gives no `autoInstall:` argument.
 ///
@@ -53,9 +63,15 @@ let query = arguments.count > 2 ? arguments[2] : "TODO"
 let embeddingDimension = 256
 private let embedder = HashingEmbedder(vectorLength: embeddingDimension)
 
+// MARK: - Make the caller-defined selection model
+
+// The factory runs one time for each `searchCode` call. It gets the ids of the candidates, and it
+// returns the configuration of the model that picks among them.
+let selection: SelectionFactory = { _ in SelectionConfig(model: SystemLanguageModel.default) }
+
 // MARK: - Open, start, query, and stop a CodeContext
 
-let context = try await CodeContext(rootDirectory: rootDirectory, embedder: embedder)
+let context = try await CodeContext(rootDirectory: rootDirectory, embedder: embedder, selection: selection)
 try await context.start()
 
 // `start()` returns before the index is complete. This call waits for the

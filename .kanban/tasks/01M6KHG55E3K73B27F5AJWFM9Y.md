@@ -61,8 +61,16 @@ comments:
     - evidence: fc0fee9 style: make swift format lint --strict pass again (7 format files, no behaviour change); task commit refactor(search)!: rank with FoundationModelsRanker HybridRanker (sha in step record below)
     - next: review
   timestamp: 2026-11-04T16:14:43.756852+00:00
-position_column: doing
-position_ordinal: '80'
+- actor: claude-code
+  id: 01m6knhctzck2xf7nj6c0e3arm
+  text: |-
+    ### review — clean
+    - evidence: review sha HEAD~1..HEAD, 0 findings (0 confirmed, 0 refuted, 8 files reviewed; .kanban files ignored by .reviewignore).
+    - checks by hand: SearchCode.swift has no RRF.fuse call and no hand-written ranking. rank() calls HybridRanker.topMatches with ids, rankedDocuments and [Double?] cosine scores. The snapshot is built from metas sorted ascending by chunk id, so the tie-break is the lower chunk id; a test covers equal scores. IndexingProgress note and keyword-only fallback (nil cosine scores) stay. SearchCodeMatch/Hit JSON shape unchanged; only the two documented breaking changes (SignalWeights replaces SearchWeights; cosineScores returns [Double?]). No remaining user of SearchWeights or the old [Float] cosine shape in Sources, Examples, IntegrationTests, README.md, ARCHITECTURE.md or plan.md. The docs say "RRF fusion from FoundationModelsRanker", which is still true.
+    - next: none, task moved to done.
+  timestamp: 2026-11-04T16:16:10.591001+00:00
+position_column: done
+position_ordinal: ff8f80
 title: Replace the hand-written fusion in SearchCode with FoundationModelsRanker HybridRanker
 ---
 ## What

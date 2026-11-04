@@ -85,6 +85,7 @@ extension ScaleBenchmarks {
                         wrapped: FakeEmbedder(vectorLength: Self.embeddingDimension),
                         callLatency: Self.embedCallLatency
                     ),
+                    selection: unusedSelection,
                     autoInstall: LspAutoInstall(isEnabled: false),
                     eventSource: nil
                 )

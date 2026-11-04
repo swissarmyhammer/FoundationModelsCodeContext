@@ -83,6 +83,7 @@ struct CodeContextStartTests {
         try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: rootDirectory,
             embedder: embedder,
+            selection: selectingEveryCandidateFactory(),
             clock: clock,
             eventSource: eventSource,
             autoInstall: LspAutoInstall(isEnabled: false),
@@ -347,6 +348,7 @@ struct CodeContextStartTests {
             let context = try await CodeContext(
                 rootDirectory: root,
                 embedder: nil,
+                selection: selectingEveryCandidateFactory(),
                 autoInstall: LspAutoInstall(isEnabled: false),
                 eventSource: nil
             )
@@ -523,6 +525,7 @@ struct CodeContextStartTests {
                 let context = try await CodeContext<FakeLanguageServerConnection>(
                     rootDirectory: root,
                     embedder: nil,
+                    selection: selectingEveryCandidateFactory(),
                     eventSource: FakeFileEventSource(),
                     autoInstall: .withoutFailureRecord,
                     installRunner: runner,

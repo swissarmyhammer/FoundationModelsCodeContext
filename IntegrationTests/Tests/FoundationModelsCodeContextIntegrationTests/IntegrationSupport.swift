@@ -106,6 +106,15 @@ internal func withAsyncCleanup<T>(
     }
 }
 
+/// The error of `unusedSelection`: no test of this suite runs `searchCode`, so no test needs a
+/// selection model.
+struct SelectionNotExpectedError: Error, Equatable {}
+
+/// The selection factory of each `CodeContext` of this suite. `CodeContext` needs one, and no test
+/// of this suite runs `searchCode`. It throws when something applies it, so a test that starts to
+/// search without a scripted model fails at once. The suite loads no real selection model.
+let unusedSelection: SelectionFactory = { _ in throw SelectionNotExpectedError() }
+
 /// Builds a `CodeContext<ProcessLanguageServerConnection>` for
 /// `rootDirectory`, runs `body` against it, and runs `context.stop()` on
 /// every exit path (success or throw), so that no real language-server
@@ -125,6 +134,7 @@ func withLiveContext<T: Sendable>(
     let context = try await CodeContext<ProcessLanguageServerConnection>(
         rootDirectory: rootDirectory,
         embedder: FakeEmbedder(vectorLength: liveEmbeddingDimension),
+        selection: unusedSelection,
         connectionFactory: connectionFactory
     )
     return try await withAsyncCleanup {

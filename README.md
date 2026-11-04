@@ -14,13 +14,19 @@ tools — `code_search`, `code_navigation` and `code_index` — so an in-process
 agent can call the same operations.
 
 ```swift
+import FoundationModels
 import FoundationModelsCodeContext
+import FoundationModelsRanker
 
 // `embedder` is your embedding model: any value that conforms to
 // `PooledEmbedding`, the embedding protocol of FoundationModelsExtras.
+// `selection` is your selection model: a `SelectionFactory` that returns a
+// `SelectionConfig` (FoundationModelsRanker) over any FoundationModels
+// `LanguageModel`. It is required.
 let context = try await CodeContext(
     rootDirectory: URL(fileURLWithPath: "/path/to/repo", isDirectory: true),
-    embedder: embedder
+    embedder: embedder,
+    selection: { _ in SelectionConfig(model: SystemLanguageModel.default) }
 )
 try await context.start()  // monitor files, start LSP servers, start the index in the background
 await context.waitForFirstIndexPass()  // optional: wait for the complete first index pass
@@ -42,6 +48,16 @@ Call `await context.stop()` before your process exits. With
 runs in its own process group, and `stop()` stops each server and each process
 that a server started. The package installs no exit hook: a host that exits
 with no `stop()` can leave language server processes that run.
+
+`searchCode` retrieves candidates with the hybrid ranking, and then the
+selection model picks and orders them. You choose the model: this package
+ships none, and `CodeContext` cannot be made without a `selection`. There is
+no `nil`, no default model and no fallback to retrieval alone. The package
+applies the factory one time for each search, with the ids of the candidates.
+Each hit keeps its retrieval score and signals, and the hits come back in the
+order of the model. An error of the selection model is the error of
+`searchCode`. A `CodeContextManager` runs the model one time for each
+`searchCode`, over the merged candidates of all its roots.
 
 `embedder: nil` turns the embedding layer off. Then there is no semantic
 search: `searchCode` and `findDuplicates` throw
@@ -105,6 +121,7 @@ Your app supplies the embedding model through `PooledEmbedding`, the embedding
 protocol of
 [FoundationModelsExtras](https://github.com/swissarmyhammer/FoundationModelsExtras).
 This package has no embedding model of its own. The same value also works with
-the `Searcher` of FoundationModelsRanker. `Searcher` also takes a FoundationModels
-`LanguageModel` for its selection tier. `CodeContext` itself takes no
-language model.
+the `Searcher` of FoundationModelsRanker. Your app also supplies the selection
+model, as a `SelectionFactory` over a FoundationModels `LanguageModel`, the same
+way as FoundationModelsMultitool does. This package has no language model of
+its own.

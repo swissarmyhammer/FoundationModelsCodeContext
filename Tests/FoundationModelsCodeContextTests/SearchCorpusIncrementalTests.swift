@@ -89,8 +89,8 @@ struct SearchCorpusIncrementalTests {
             let fromScratch = SearchCorpus(store: store)
 
             for query in ["account balance ledger", "parse configuration", "retry backoff strategy", "render view", "Beta.accountBalance"] {
-                let incrementalResult = try await SearchCode.run(corpus: incremental, embedder: embedder, query: query)
-                let scratchResult = try await SearchCode.run(corpus: fromScratch, embedder: embedder, query: query)
+                let incrementalResult = try await SearchCode.retrieve(corpus: incremental, embedder: embedder, query: query)
+                let scratchResult = try await SearchCode.retrieve(corpus: fromScratch, embedder: embedder, query: query)
 
                 #expect(incrementalResult.hits.map(\.symbolPath) == scratchResult.hits.map(\.symbolPath))
                 for (incrementalHit, scratchHit) in zip(incrementalResult.hits, scratchResult.hits) {

@@ -97,6 +97,7 @@ internal struct MetricsTests {
             let context = try await CodeContext<FakeLanguageServerConnection>(
                 rootDirectory: root,
                 embedder: nil,
+                selection: unusedSelection,
                 clock: ManualClock(),
                 eventSource: FakeFileEventSource(),
                 autoInstall: LspAutoInstall(isEnabled: false),

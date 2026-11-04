@@ -119,6 +119,7 @@ struct DetectProjectsIsolationTests {
         try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: rootDirectory,
             embedder: GatedEmbedder(vectorLength: dimension, log: log),
+            selection: unusedSelection,
             eventSource: FakeFileEventSource(),
             autoInstall: LspAutoInstall(isEnabled: false),
             connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())

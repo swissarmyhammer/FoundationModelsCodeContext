@@ -20,6 +20,7 @@ struct FileEventSourcePublicAPITests {
             let context = try await CodeContext(
                 rootDirectory: root,
                 embedder: nil,
+                selection: unusedSelection,
                 autoInstall: LspAutoInstall(isEnabled: false),
                 eventSource: source
             )
@@ -39,6 +40,7 @@ struct FileEventSourcePublicAPITests {
             let source = RecordingFileEventSource()
             let manager = await CodeContextManager(
                 embedder: nil,
+                selection: unusedSelection,
                 autoInstall: LspAutoInstall(isEnabled: false),
                 eventSource: source
             )

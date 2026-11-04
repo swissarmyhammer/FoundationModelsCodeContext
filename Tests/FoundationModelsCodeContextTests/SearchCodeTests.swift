@@ -86,7 +86,7 @@ struct SearchCorpusTests {
     }
 }
 
-/// End-to-end tests for `SearchCode.run(corpus:embedder:query:topK:weights:)`:
+/// End-to-end tests for `SearchCode.retrieve(corpus:embedder:query:topK:weights:)`:
 /// keyword-only and semantic-only golden hits, fused-ranking ordering,
 /// generation staleness through the full op, and degraded (no-embedder)
 /// mode — per the task's `/tdd` workflow and acceptance criteria.
@@ -108,7 +108,7 @@ struct SearchCodeTests {
             )
             let corpus = SearchCorpus(store: store)
 
-            let result = try await SearchCode.run(corpus: corpus, embedder: FakeEmbedder(vectorLength: Self.embeddingDimension), query: "retry backoff strategy")
+            let result = try await SearchCode.retrieve(corpus: corpus, embedder: FakeEmbedder(vectorLength: Self.embeddingDimension), query: "retry backoff strategy")
 
             let hit = try #require(result.hits.first { $0.symbolPath == "Network.retryBackoffStrategy" })
             #expect(hit.hit.signals.bm25 > 0.0)
@@ -146,7 +146,7 @@ struct SearchCodeTests {
             try await insertChunk(store: store, filePath: "Unrelated.swift", symbolPath: symbolPath, text: text, embedding: semanticVector)
 
             let corpus = SearchCorpus(store: store)
-            let result = try await SearchCode.run(corpus: corpus, embedder: embedder, query: query)
+            let result = try await SearchCode.retrieve(corpus: corpus, embedder: embedder, query: query)
 
             let hit = try #require(result.hits.first { $0.symbolPath == symbolPath })
             #expect(hit.hit.signals.bm25 == 0.0)
@@ -180,7 +180,7 @@ struct SearchCodeTests {
             )
 
             let corpus = SearchCorpus(store: store)
-            let result = try await SearchCode.run(corpus: corpus, embedder: nil, query: query)
+            let result = try await SearchCode.retrieve(corpus: corpus, embedder: nil, query: query)
 
             let strongIndex = try #require(result.hits.firstIndex { $0.symbolPath == "Network.retryBackoffStrategy" })
             let mediocreIndex = try #require(result.hits.firstIndex { $0.symbolPath == "Helpers.doWork" })
@@ -222,7 +222,7 @@ struct SearchCodeTests {
                 embedding: queryVector.map { -$0 }
             )
 
-            let result = try await SearchCode.run(corpus: SearchCorpus(store: store), embedder: embedder, query: query)
+            let result = try await SearchCode.retrieve(corpus: SearchCorpus(store: store), embedder: embedder, query: query)
 
             let hit = try #require(result.hits.first)
             #expect(abs(hit.hit.signals.cosine + 1.0) < 1e-5)
@@ -239,7 +239,7 @@ struct SearchCodeTests {
                 )
             }
 
-            let result = try await SearchCode.run(corpus: SearchCorpus(store: store), embedder: nil, query: "identical body")
+            let result = try await SearchCode.retrieve(corpus: SearchCorpus(store: store), embedder: nil, query: "identical body")
 
             #expect(result.hits.map(\.filePath) == ["Z.swift", "M.swift", "A.swift"])
         }
@@ -260,14 +260,14 @@ struct SearchCodeTests {
             // describes.
             let corpus = SearchCorpus(store: store)
 
-            let firstResult = try await SearchCode.run(corpus: corpus, embedder: nil, query: "retryWithBackoffAgain")
+            let firstResult = try await SearchCode.retrieve(corpus: corpus, embedder: nil, query: "retryWithBackoffAgain")
             #expect(!firstResult.hits.contains { $0.symbolPath == "retryWithBackoffAgain" })
 
             try write("func retryWithBackoffAgain() {}\n", to: "B.swift", in: root)
             _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
             try await TreeSitterWorker.run(store: store, rootDirectory: root)
 
-            let secondResult = try await SearchCode.run(corpus: corpus, embedder: nil, query: "retryWithBackoffAgain")
+            let secondResult = try await SearchCode.retrieve(corpus: corpus, embedder: nil, query: "retryWithBackoffAgain")
             #expect(secondResult.hits.contains { $0.symbolPath == "retryWithBackoffAgain" })
         }
     }
@@ -287,7 +287,7 @@ struct SearchCodeTests {
             )
             let corpus = SearchCorpus(store: store)
 
-            let result = try await SearchCode.run(corpus: corpus, embedder: nil, query: "parse configuration")
+            let result = try await SearchCode.retrieve(corpus: corpus, embedder: nil, query: "parse configuration")
 
             let hit = try #require(result.hits.first)
             #expect(hit.symbolPath == "Config.parseConfig")
@@ -315,7 +315,7 @@ struct SearchCodeTests {
             )
             let corpus = SearchCorpus(store: store)
 
-            let result = try await SearchCode.run(corpus: corpus, embedder: embedder, query: "parse configuration")
+            let result = try await SearchCode.retrieve(corpus: corpus, embedder: embedder, query: "parse configuration")
 
             #expect(result.indexingProgress == nil)
         }
@@ -327,7 +327,7 @@ struct SearchCodeTests {
             let store = try Store(rootDirectory: root)
             let corpus = SearchCorpus(store: store)
 
-            let result = try await SearchCode.run(corpus: corpus, embedder: nil, query: "anything")
+            let result = try await SearchCode.retrieve(corpus: corpus, embedder: nil, query: "anything")
 
             #expect(result.hits.isEmpty)
             let progress = try #require(result.indexingProgress)

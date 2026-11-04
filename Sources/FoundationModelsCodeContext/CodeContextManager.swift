@@ -5,7 +5,7 @@ import FoundationModelsExtras
 /// non-overlapping-roots invariant across every root currently open.
 ///
 /// Mirrors `CodeContext`'s own visibility pattern exactly: an internal general initializer
-/// `init(embedder:clock:eventSource:connectionFactory:)` stores the pieces used to build every
+/// `init(embedder:selection:clock:eventSource:connectionFactory:)` stores the pieces used to build every
 /// context this manager creates (so tests inject `FakeLanguageServerConnection`/
 /// `FakeFileEventSource`/`ManualClock`), and the only initializer visible outside this module is
 /// the `where Connection == ProcessLanguageServerConnection` convenience initializer below — the
@@ -31,9 +31,10 @@ import FoundationModelsExtras
 /// Every root is keyed by `rootKey(for:)`: the standardized URL with its symlinks resolved. Thus
 /// a symlink to a root and the root itself share one context.
 ///
-/// One manager has one embedder, one auto-install policy and one index-directory rule, which
-/// every context of the manager gets. An acquire cannot bring another embedder. A host that needs
-/// a context with another embedder makes another manager.
+/// One manager has one embedder, one selection factory, one auto-install policy and one
+/// index-directory rule, which every context of the manager gets. An acquire cannot bring another
+/// embedder or another selection factory. A host that needs a context with another embedder or
+/// another selection model makes another manager.
 public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// One entry per open root's context, keyed by `rootKey(for:)` of that root.
     private var contexts: [URL: CodeContext<Connection>] = [:]
@@ -62,6 +63,14 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     /// layer off for each `CodeContext` that this manager creates. Then `searchCode` and
     /// `findDuplicates` throw `CodeContextError.embeddingDisabled`.
     private let embedder: PooledEmbedding?
+
+    /// Makes the selection configuration of each search. Each `CodeContext` of this manager
+    /// receives it. The fan-out `searchCode` of the manager uses it itself, one time for each
+    /// search, over the merged candidates of all roots, so the model runs one time for each
+    /// search and not one time for each root. See `searchCode(query:topK:weights:)`.
+    ///
+    /// Internal, not `private`: the fan-out queries live in `Ops/ManagerQueries.swift`.
+    let selection: SelectionFactory
 
     /// The clock handed to every `CodeContext` this manager creates. Defaults to
     /// `ContinuousClock()`; tests inject a fake or manually-driven clock.
@@ -109,6 +118,8 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     ///   - embedder: The embedder that each `CodeContext` of this manager receives. `nil` turns
     ///     the embedding layer off for each `CodeContext` that this manager creates. Then
     ///     `searchCode` and `findDuplicates` throw `CodeContextError.embeddingDisabled`.
+    ///   - selection: Makes the selection configuration of each search. It is required: the host
+    ///     picks the selection model. See `SelectionFactory`.
     ///   - clock: The clock handed to every `CodeContext` this manager creates. Defaults to
     ///     `ContinuousClock()`; tests inject a faster or manually-driven clock.
     ///   - eventSource: The filesystem-change event source handed to every `CodeContext` this
@@ -127,6 +138,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
     ///     `CodeContext`'s supervisor ends up needing.
     init(
         embedder: PooledEmbedding?,
+        selection: @escaping SelectionFactory,
         clock: any Clock<Duration> = ContinuousClock(),
         eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
         autoInstall: LspAutoInstall = LspAutoInstall(),
@@ -135,6 +147,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
         connectionFactory: @escaping ConnectionFactory<Connection>
     ) async {
         self.embedder = embedder
+        self.selection = selection
         self.clock = clock
         self.eventSource = eventSource
         self.autoInstall = autoInstall
@@ -439,6 +452,7 @@ public actor CodeContextManager<Connection: LanguageServerConnection> {
             rootDirectory: root,
             indexDirectory: indexDirectory?(root),
             embedder: embedder,
+            selection: selection,
             clock: clock,
             eventSource: eventSource,
             autoInstall: autoInstall,
@@ -463,9 +477,12 @@ extension CodeContextManager where Connection == ProcessLanguageServerConnection
     ///   - embedder: The embedder that each `CodeContext` of this manager receives. `nil` turns
     ///     the embedding layer off for each `CodeContext` that this manager creates. Then
     ///     `searchCode` and `findDuplicates` throw `CodeContextError.embeddingDisabled`.
+    ///   - selection: Makes the selection configuration of each search, from the ids of the
+    ///     candidates. It is required, with no default and no `nil`: the host picks the selection
+    ///     model, and this package ships none. A selection error is the error of `searchCode`.
+    ///     See `SelectionFactory`.
     ///   - autoInstall: The opt-out policy handed to every `CodeContext` this manager creates.
-    ///     Defaults to `LspAutoInstall()` (enabled, 300-second timeout); existing callers compile
-    ///     unchanged.
+    ///     Defaults to `LspAutoInstall()` (enabled, 300-second timeout).
     ///   - eventSource: The raw filesystem-change event source of the watcher of each
     ///     `CodeContext` that this manager creates. Defaults to `FSEventsFileEventSource()`. Give
     ///     `nil` to turn the watchers off: then no FSEvents stream starts.
@@ -475,12 +492,14 @@ extension CodeContextManager where Connection == ProcessLanguageServerConnection
     ///     root is in a synced folder.
     public init(
         embedder: PooledEmbedding?,
+        selection: @escaping SelectionFactory,
         autoInstall: LspAutoInstall = LspAutoInstall(),
         eventSource: (any FileEventSource)? = FSEventsFileEventSource(),
         indexDirectory: (@Sendable (URL) -> URL)? = nil
     ) async {
         await self.init(
             embedder: embedder,
+            selection: selection,
             eventSource: eventSource,
             autoInstall: autoInstall,
             indexDirectory: indexDirectory,

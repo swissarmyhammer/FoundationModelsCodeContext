@@ -54,6 +54,7 @@ struct SharedEmbedderTests {
             let context = try await CodeContext(
                 rootDirectory: root,
                 embedder: embedder,
+                selection: unusedSelection,
                 autoInstall: LspAutoInstall(isEnabled: false)
             )
             let corpus = FoundationModelsRanker.StreamingSearchCorpus(embedder: embedder)

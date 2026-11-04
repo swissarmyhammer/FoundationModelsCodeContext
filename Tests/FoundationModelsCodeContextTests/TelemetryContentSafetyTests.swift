@@ -232,6 +232,7 @@ internal struct TelemetryContentSafetyTests {
         let context = try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: root,
             embedder: FakeEmbedder(vectorLength: embeddingDimension),
+            selection: selectingEveryCandidateFactory(),
             clock: ManualClock(),
             eventSource: FakeFileEventSource(),
             autoInstall: LspAutoInstall(isEnabled: false),

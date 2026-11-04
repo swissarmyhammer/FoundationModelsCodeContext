@@ -299,26 +299,31 @@ let package = Package(
         // package README). It is a thin script over the public API of this
         // package, and it is not part of the library product. The caller
         // supplies the embedding model: the example defines its own small
-        // `PooledEmbedding` conformance and gives it to `CodeContext`. Thus it
-        // needs the library target, and FoundationModelsExtras for the protocol.
+        // `PooledEmbedding` conformance and gives it to `CodeContext`. The caller also
+        // supplies the selection model: the example gives a `SelectionFactory` over the
+        // on-device model. Thus it needs the library target, FoundationModelsExtras for the
+        // embedding protocol, and FoundationModelsRanker for `SelectionConfig`.
         .executableTarget(
             name: "CodeContextExample",
             dependencies: [
                 .target(name: packageName),
                 .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
+                .product(name: "FoundationModelsRanker", package: "FoundationModelsRanker"),
             ],
             path: "Examples/CodeContextExample"
         ),
         // Second "way in" example, over `CodeContextManager` instead of one `CodeContext`.
         // It opens each repo root below a parent directory, not one fixed root. Like
         // `CodeContextExample` above, it defines its own `PooledEmbedding` conformance and
-        // gives it to the manager. Thus it needs the library target, and FoundationModelsExtras
-        // for the protocol.
+        // gives it to the manager. It also gives a `SelectionFactory` over the on-device model.
+        // Thus it needs the library target, FoundationModelsExtras for the embedding protocol, and
+        // FoundationModelsRanker for `SelectionConfig`.
         .executableTarget(
             name: "ManagerExample",
             dependencies: [
                 .target(name: packageName),
                 .product(name: "FoundationModelsExtras", package: "FoundationModelsExtras"),
+                .product(name: "FoundationModelsRanker", package: "FoundationModelsRanker"),
             ],
             path: "Examples/ManagerExample"
         ),

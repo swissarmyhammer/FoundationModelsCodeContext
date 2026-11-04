@@ -12,8 +12,9 @@ compile-verified program:
 import FoundationModelsCodeContext
 
 // `embedder` is the same `PooledEmbedding` used for a single `CodeContext`.
-// Each repository that the manager opens shares it.
-let manager = await CodeContextManager(embedder: embedder)
+// Each repository that the manager opens shares it. `selection` is your
+// `SelectionFactory`: the model that picks and orders the `searchCode` hits.
+let manager = await CodeContextManager(embedder: embedder, selection: selection)
 
 let roots = try RootDiscovery.discoverRoots(under: URL(filePath: "/path/to/workspace"))
 for root in roots {
@@ -25,10 +26,12 @@ for root in roots {
 // repository around it. Returns nil if that is not possible.
 let owner = try await manager.context(containing: someFile)
 
-// Fan out across each open root; each hit is root-qualified with `Rooted`.
-// Scores are normalized for each root, so do not compare
-// `hit.value.hit.score` across two different `hit.root`s.
-let (hits, failures) = await manager.searchCode(query: "retry with backoff")
+// Fan out the retrieval across each open root; each hit is root-qualified with
+// `Rooted`. The selection model runs one time for this search, over the merged
+// candidates of all roots, and the hits come back in its order. An error of the
+// model is the error of the call. Scores are normalized for each root, so do not
+// compare `hit.value.hit.score` across two different `hit.root`s.
+let (hits, failures) = try await manager.searchCode(query: "retry with backoff")
 for hit in hits {
     print(hit.root.path, hit.value.filePath, hit.value.hit.score)
 }

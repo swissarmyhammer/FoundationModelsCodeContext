@@ -26,10 +26,15 @@ struct ManagerQueriesTests {
     /// Builds a `CodeContextManager<FakeLanguageServerConnection>` wired to a fake filesystem-event
     /// source and a fake LSP connection factory (never actually invoked in these tests, since no
     /// fixture here has a detected project/server spec).
+    /// - Parameter selection: Makes the selection configuration of each search. Defaults to a factory that throws:
+    ///   a test that runs `searchCode` over candidates gives a factory over a `FakeLanguageModel`.
     /// - Returns: A manager wired to fake filesystem-event and connection sources for testing.
-    private static func makeManager() async -> CodeContextManager<FakeLanguageServerConnection> {
+    private static func makeManager(
+        selection: @escaping SelectionFactory = unusedSelection
+    ) async -> CodeContextManager<FakeLanguageServerConnection> {
         await CodeContextManager<FakeLanguageServerConnection>(
             embedder: FakeEmbedder(vectorLength: 8),
+            selection: selection,
             eventSource: FakeFileEventSource(),
             connectionFactory: fakeConnectionFactory(pid: 1, processState: ProcessState())
         )
@@ -208,10 +213,10 @@ struct ManagerQueriesTests {
     // MARK: - Zero open roots
 
     @Test
-    func zeroOpenRootsReturnsEmptyResultsAndFailuresForEveryFanOutQuery() async {
+    func zeroOpenRootsReturnsEmptyResultsAndFailuresForEveryFanOutQuery() async throws {
         let manager = await Self.makeManager()
 
-        let searchCodeOutcome = await manager.searchCode(query: "anything")
+        let searchCodeOutcome = try await manager.searchCode(query: "anything")
         #expect(searchCodeOutcome.results.isEmpty)
         #expect(searchCodeOutcome.failures.isEmpty)
 
@@ -228,23 +233,97 @@ struct ManagerQueriesTests {
 
     // MARK: - searchCode smoke test
 
+    /// Opens two roots that each have one chunk for the word `elephant`, and waits for their first index passes.
+    /// - Returns: The two standardized root URLs, `repo-a` first.
+    private static func openTwoElephantRoots(
+        in workspace: URL, manager: CodeContextManager<FakeLanguageServerConnection>
+    ) async throws -> [URL] {
+        let repoA = workspace.appendingPathComponent("repo-a")
+        let repoB = workspace.appendingPathComponent("repo-b")
+        try writeSearchCodeFixture(in: repoA, functionName: "rootASearchElephant", word: "elephant")
+        try writeSearchCodeFixture(in: repoB, functionName: "rootBSearchElephant", word: "elephant")
+        try await manager.context(for: repoA).waitForFirstIndexPass()
+        try await manager.context(for: repoB).waitForFirstIndexPass()
+        return [repoA, repoB].map(\.standardizedFileURL)
+    }
+
     @Test
     func searchCodeFansOutAndRootQualifiesHitsFromEveryRoot() async throws {
         try await withTemporaryWorkspace { workspace in
-            let repoA = workspace.appendingPathComponent("repo-a")
-            let repoB = workspace.appendingPathComponent("repo-b")
-            try Self.writeSearchCodeFixture(in: repoA, functionName: "rootASearchElephant", word: "elephant")
-            try Self.writeSearchCodeFixture(in: repoB, functionName: "rootBSearchElephant", word: "elephant")
-            let manager = await Self.makeManager()
-            try await manager.context(for: repoA).waitForFirstIndexPass()
-            try await manager.context(for: repoB).waitForFirstIndexPass()
+            let model = FakeLanguageModel(selecting: ["0", "1"])
+            let manager = await Self.makeManager(selection: model.factory())
+            let roots = try await Self.openTwoElephantRoots(in: workspace, manager: manager)
 
-            let (results, failures) = await manager.searchCode(query: "elephant")
+            let (results, failures) = try await manager.searchCode(query: "elephant")
 
             #expect(failures.isEmpty)
-            #expect(Set(results.map(\.root)) == Set([repoA, repoB].map(\.standardizedFileURL)))
+            #expect(Set(results.map(\.root)) == Set(roots))
             for rooted in results {
                 #expect(rooted.value.hit.signals.bm25 > 0.0)
+            }
+
+            await manager.shutdown()
+        }
+    }
+
+    @Test
+    func searchCodeRunsTheSelectionModelOneTimeAcrossAllRoots() async throws {
+        try await withTemporaryWorkspace { workspace in
+            let model = FakeLanguageModel(selecting: [])
+            let factoryCalls = FactoryCallLog()
+            let manager = await Self.makeManager(selection: model.factory(recording: factoryCalls))
+            _ = try await Self.openTwoElephantRoots(in: workspace, manager: manager)
+
+            _ = try await manager.searchCode(query: "elephant")
+
+            #expect(model.calls.count == 1 && factoryCalls.uses.count == 1)
+
+            await manager.shutdown()
+        }
+    }
+
+    @Test
+    func searchCodeGivesTheHitsInTheOrderOfTheModel() async throws {
+        try await withTemporaryWorkspace { workspace in
+            let model = FakeLanguageModel(answers: [.selecting(["0", "1"]), .selecting(["1", "0"])])
+            let manager = await Self.makeManager(selection: model.factory())
+            _ = try await Self.openTwoElephantRoots(in: workspace, manager: manager)
+
+            let inRetrievalOrder = try await manager.searchCode(query: "elephant").results.map(\.root)
+            let inModelOrder = try await manager.searchCode(query: "elephant").results.map(\.root)
+
+            #expect(inModelOrder == inRetrievalOrder.reversed())
+
+            await manager.shutdown()
+        }
+    }
+
+    @Test
+    func searchCodeKeepsTheRetrievalHitOfTheSelectedCandidate() async throws {
+        try await withTemporaryWorkspace { workspace in
+            let model = FakeLanguageModel(selecting: ["1"])
+            let manager = await Self.makeManager(selection: model.factory())
+            let roots = try await Self.openTwoElephantRoots(in: workspace, manager: manager)
+            let retrieved = try await manager.context(for: roots[1]).retrieveCode(
+                query: "elephant", topK: CodeContextDefaults.searchTopK, weights: CodeContextDefaults.searchWeights
+            )
+
+            let selected = try await manager.searchCode(query: "elephant").results
+
+            #expect(selected.map(\.value.hit) == retrieved.hits.prefix(1).map(\.hit))
+
+            await manager.shutdown()
+        }
+    }
+
+    @Test
+    func aSelectionErrorIsTheErrorOfTheManagerSearchCode() async throws {
+        try await withTemporaryWorkspace { workspace in
+            let manager = await Self.makeManager(selection: FakeLanguageModel(throwing: SelectionNotExpectedError()).factory())
+            _ = try await Self.openTwoElephantRoots(in: workspace, manager: manager)
+
+            await #expect(throws: SelectionNotExpectedError.self) {
+                try await manager.searchCode(query: "elephant")
             }
 
             await manager.shutdown()

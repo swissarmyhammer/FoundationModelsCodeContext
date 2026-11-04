@@ -1,6 +1,8 @@
 import Foundation
+import FoundationModels
 import FoundationModelsCodeContext
 import FoundationModelsExtras
+import FoundationModelsRanker
 
 /// A runnable executable demonstrating multi-root `CodeContextManager` lifecycle and fan-out queries.
 ///
@@ -13,11 +15,18 @@ import FoundationModelsExtras
 /// ## The caller supplies the embedding model
 ///
 /// This package loads no embedding model. The caller gives any `PooledEmbedding` value to
-/// `CodeContextManager(embedder:)`, and the manager gives that one embedder to each root it opens. The protocol has
+/// `CodeContextManager(embedder:selection:)`, and the manager gives that one embedder to each root it opens. The protocol has
 /// one member: `embed(texts:)`, which returns one unit-length vector for each text. The protocol declares no vector
 /// length: each `CodeContext` reads the length from the first vector that the embedder returns. A production host
 /// wraps its real model (for example an MLX embedder) in a small conformance with this one member. This file
 /// defines `HashingEmbedder`, a conformance that needs no model and no network (see `CodeContextExample` for more).
+///
+/// ## The caller supplies the selection model
+///
+/// `searchCode` retrieves candidates, and then a language model picks and orders them. The caller gives a
+/// `SelectionFactory` to the manager, and the manager gives it to each root it opens. This package ships no model.
+/// The fan-out `searchCode` of the manager runs the model one time for each search, over the merged candidates of
+/// all roots, and not one time for each root. This file gives the on-device `SystemLanguageModel`.
 ///
 /// ## What this file does and does not exercise
 ///
@@ -45,7 +54,11 @@ private let embedder = HashingEmbedder(vectorLength: embeddingDimension)
 
 // MARK: - Create the manager and discover every repo root under the parent directory
 
-let manager = await CodeContextManager(embedder: embedder)
+// The factory runs one time for each `searchCode` call. It gets the ids of the candidates, and it returns the
+// configuration of the model that picks among them.
+let selection: SelectionFactory = { _ in SelectionConfig(model: SystemLanguageModel.default) }
+
+let manager = await CodeContextManager(embedder: embedder, selection: selection)
 
 let discoveredRoots = try RootDiscovery.discoverRoots(under: parentDirectory)
 print("Discovered \(discoveredRoots.count) repo root(s) under \(parentDirectory.path):")
@@ -97,7 +110,7 @@ if let sampleRoot = discoveredRoots.first, let sampleFile = firstRegularFile(und
 
 // Scores are per-root-normalized (see `CodeContextManager.searchCode`'s doc comment) — never
 // compare `rooted.value.hit.score` across two different `rooted.root`s.
-let (searchResults, searchFailures) = await manager.searchCode(query: query)
+let (searchResults, searchFailures) = try await manager.searchCode(query: query)
 print("searchCode(\"\(query)\") fan-out results:")
 for rooted in searchResults {
     print("  [\(rooted.root.path)] \(rooted.value.filePath) score=\(rooted.value.hit.score)")

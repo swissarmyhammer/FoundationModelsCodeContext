@@ -39,10 +39,73 @@ comments:
 
     Also: after the push, tell foundationmodelsacpagent-1e (see the earlier comment).
   timestamp: 2026-11-04T16:00:23.348513+00:00
+- actor: claude-code
+  id: 01m6knm3tqv3tgjxvt8vvwp4pz
+  text: |-
+    ### implement - research and design decisions (before code)
+
+    Research:
+    - Ranker answer (comment above) is confirmed in .build/checkouts/FoundationModelsRanker: SelectionTier takes any SelectionCatalog, keeps no state, one tier for each search. No Ranker change is needed.
+    - Multitool defines `SelectionFactory` as a typealias NESTED in `SearchToolsTool`. It is not reachable from Ranker or MetadataRegistry as a top-level type. So this package defines a top-level public `SelectionFactory = @Sendable (_ ids: [String]) throws -> SelectionConfig`. Same shape as Multitool. No new dependency (SelectionConfig comes from FoundationModelsRanker).
+    - Multitool test fake: `ScriptedLanguageModel` (Tests/.../Fixtures/LanguageModelFixtures.swift). It is a `LanguageModel` with a `LanguageModelExecutor`. It reads the transcript, answers from a script, can throw. I will write the same kind of fake in Tests/FoundationModelsCodeContextTests/Support/FakeLanguageModel.swift.
+    - Tool layer: `CodeContextTools.make(context:)` takes a built `CodeContext`. So the selection input flows through the context. No default model is possible there. No change to the tool signature.
+    - `embedder` stays as it is (`PooledEmbedding?`, no default). `selection` goes right after it.
+
+    Design decision: manager fan-out.
+    - Problem: `CodeContextManager.searchCode` calls `context.searchCode` for each root. If each context ran selection, the model would run once for each root.
+    - Decision: the model runs once for each user search, in the manager, over the merged candidates.
+      1. `SearchCode.retrieve(...)` is the retrieval step (HybridRanker, no model). It stays internal, and keeps the old search span.
+      2. `SearchCode.run(corpus:embedder:selection:query:topK:weights:tracer:)` is retrieve + select. It is what `CodeContext.searchCode` calls (one root = one selection).
+      3. The manager asks each root for retrieval only (internal `CodeContext.retrieveCode`), merges the roots by the existing rank-major interleave (cap topK), builds ONE catalog over the merged list with ids qualified by root (hit ids are chunk row ids and collide across roots), applies the factory once with those ids, and runs one SelectionTier.
+      4. Each selected match keeps its own Hit (retrieval score and signals) and its root.
+    - Consequence: `CodeContextManager.searchCode` becomes `async throws` (a selection error is the error of the call, no fallback). Per-root retrieval failures stay in `failures`.
+    - The manager also gives the factory to each context it makes (required init), but its own search does not call the contexts' selection.
+    - No user choice is needed. Public signatures are fixed by the user decision; this only decides where the model runs.
+  timestamp: 2026-11-04T16:17:39.671220+00:00
+- actor: claude-code
+  id: 01m6kp7b2qes9f3mk7cz40pcd7
+  text: |-
+    ### implement - changed
+    - evidence:
+      - Source: Search/CodeSelection.swift (new: public `SelectionFactory`, catalog, `CodeSelection.select`, `SelectionDiagnostics`), Ops/SearchCode.swift (`retrieve` = old run, new `run` = retrieve + select), CodeContext.swift, CodeContextManager.swift, Ops/ManagerQueries.swift, Package.swift (Ranker product for the two examples).
+      - Tests: Support/FakeLanguageModel.swift (new), SearchCodeSelectionTests.swift (new, 12 tests), ManagerQueriesTests (+4), CodeContextE2ETests (+2), 15 other test files take `selection:`; `SearchCode.run` retrieval tests now call `SearchCode.retrieve`.
+      - Examples (3), IntegrationTests (2 files), README.md, plan.md (new "Selection model" section), docs/language-servers.md, docs/multiple-repos.md. ARCHITECTURE.md untouched (task ^w6z300d).
+      - Final signatures:
+        `CodeContext(rootDirectory: URL, embedder: PooledEmbedding?, selection: @escaping SelectionFactory, autoInstall: LspAutoInstall = .., eventSource: (any FileEventSource)? = .., indexDirectory: URL? = nil) async throws`
+        `CodeContextManager(embedder: PooledEmbedding?, selection: @escaping SelectionFactory, autoInstall: LspAutoInstall = .., eventSource: (any FileEventSource)? = .., indexDirectory: (@Sendable (URL) -> URL)? = nil) async`
+        `public typealias SelectionFactory = @Sendable (_ ids: [String]) throws -> SelectionConfig`
+        `CodeContextManager.searchCode(query:topK:weights:)` is now `async throws`.
+      - Commands: `swift build` (only the allowed mlx warning), `swift build --package-path IntegrationTests --build-tests` (ok, allowed warning only), `swift test` (1135 tests, 100 suites, passed), `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift` (clean).
+    - Notes for the next agent:
+      - Manager: model runs once for each search over the merged candidates; candidate ids there are positions in the merged list (hit ids repeat across roots).
+      - `unknownSelectedId` goes to Log.search with a fixed message, no id (the id is model output).
+      - The search span now holds the retrieval hit count; selection has no span of its own.
+      - FakeLanguageModel `.selectingEveryCandidate` reads `id: ` lines of the Ranker prefix. If Ranker changes that format, tests that use it fail loudly.
+      - ACPAgent session (foundationmodelsacpagent-1e): the signature above is final for this change. The orchestrator must send it, and tell the session when this is pushed (open promise in the first comment).
+    - next: /review
+  timestamp: 2026-11-04T16:28:09.687312+00:00
+- actor: claude-code
+  id: 01m6kpd47acpnqthfk8a6wxahj
+  text: |-
+    ### test - green
+    - evidence: I touched each changed Swift file first, so the build was fresh. `swift build` (library and the 3 Examples): complete. `swift build --package-path IntegrationTests --build-tests`: complete. `swift test`: 1135 tests in 100 suites passed, 0 failed, 0 skipped. `swift format lint -r --strict Sources Tests Examples IntegrationTests Package.swift`: 0 findings.
+    - warnings: only the allowed "missing creator for mutated node ... mlx-swift_Cmlx.bundle/Contents/MacOS" warning.
+    - reading checks: every `CodeContext(` and `CodeContext<...>(` call passes `selection:` (Sources, Tests, Examples, IntegrationTests, README.md, plan.md, docs). No test uses a real model: the unit tests use FakeLanguageModel, and the integration tests use `unusedSelection`. The new tests have no sleep and no timer wait. The only waits are `waitForFirstIndexPass()` with a fake embedder, and each one ends by itself.
+    - flaky check: 5 runs of `swift test --filter 'SearchCodeSelectionTests|ManagerQueriesTests|CodeContextE2ETests'`: 33 tests passed in each run. No flaky result.
+    - files changed by me: none.
+    - next: review.
+  timestamp: 2026-11-04T16:31:19.274692+00:00
+- actor: claude-code
+  id: 01m6kpdkyhf3sr8qm8r6v29ebz
+  text: |-
+    ### commit — changed
+    - evidence: 40 files committed locally. Not pushed.
+    - next: review
+  timestamp: 2026-11-04T16:31:35.377323+00:00
 depends_on:
 - 01M6KHG55E3K73B27F5AJWFM9Y
-position_column: todo
-position_ordinal: '8180'
+position_column: doing
+position_ordinal: '80'
 title: Add a required selection model to CodeContext and run SelectionTier after retrieval in search code
 ---
 ## What

@@ -29,7 +29,7 @@ struct DiagnosticsReportPublicVisibilityTests {
         try await withTemporaryWorkspace { root in
             try write("let x = 1\n", to: "a.swift", in: root)
 
-            let context = try await CodeContext(rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8))
+            let context = try await CodeContext(rootDirectory: root, embedder: FakeEmbedder(vectorLength: 8), selection: unusedSelection)
             try await context.start()
             await context.waitForFirstIndexPass()
 

@@ -51,6 +51,7 @@ maximum time an installation can run before it is a failure:
 let context = try await CodeContext(
     rootDirectory: repoURL,
     embedder: embedder,
+    selection: selection,
     autoInstall: LspAutoInstall(isEnabled: false)
 )
 
@@ -58,6 +59,7 @@ let context = try await CodeContext(
 // (the default is 300).
 let manager = await CodeContextManager(
     embedder: embedder,
+    selection: selection,
     autoInstall: LspAutoInstall(timeout: .seconds(120))
 )
 ```
@@ -114,6 +116,7 @@ tries a failed installation again:
 ```swift
 let manager = await CodeContextManager(
     embedder: embedder,
+    selection: selection,
     autoInstall: LspAutoInstall(
         failureBackoff: .seconds(60 * 60),
         failureRecordDirectory: URL(fileURLWithPath: "/shared/cache/code-context")

@@ -126,7 +126,7 @@ internal struct TracingSpanTests {
             let corpus = try await Self.makeEmbeddedCorpus(root: root)
             let tracer = InMemoryTracer()
 
-            let result = try await SearchCode.run(
+            let result = try await SearchCode.retrieve(
                 corpus: corpus,
                 embedder: FakeEmbedder(vectorLength: Self.embeddingDimension),
                 query: Self.searchQuery,
@@ -154,7 +154,7 @@ internal struct TracingSpanTests {
         try await withTemporaryWorkspace { root in
             let corpus = try await Self.makeEmbeddedCorpus(root: root)
 
-            _ = try await SearchCode.run(
+            _ = try await SearchCode.retrieve(
                 corpus: corpus,
                 embedder: FakeEmbedder(vectorLength: Self.embeddingDimension),
                 query: Self.searchQuery,
@@ -172,7 +172,7 @@ internal struct TracingSpanTests {
             let tracer = InMemoryTracer()
             let failure = MarkedEmbedError(marker: Self.searchQuery)
 
-            _ = try await SearchCode.run(
+            _ = try await SearchCode.retrieve(
                 corpus: corpus,
                 embedder: FakeEmbedder(vectorLength: Self.embeddingDimension, failure: failure),
                 query: Self.searchQuery,
@@ -196,8 +196,8 @@ internal struct TracingSpanTests {
             let corpus = try await Self.makeEmbeddedCorpus(root: root)
             let embedder = FakeEmbedder(vectorLength: Self.embeddingDimension)
 
-            let traced = try await SearchCode.run(corpus: corpus, embedder: embedder, query: Self.searchQuery, tracer: InMemoryTracer())
-            let untraced = try await SearchCode.run(corpus: corpus, embedder: embedder, query: Self.searchQuery)
+            let traced = try await SearchCode.retrieve(corpus: corpus, embedder: embedder, query: Self.searchQuery, tracer: InMemoryTracer())
+            let untraced = try await SearchCode.retrieve(corpus: corpus, embedder: embedder, query: Self.searchQuery)
 
             #expect(traced.hits.map(\.symbolPath) == untraced.hits.map(\.symbolPath))
             #expect(!untraced.hits.isEmpty)
@@ -324,6 +324,7 @@ internal struct TracingSpanTests {
         try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: root,
             embedder: embedder,
+            selection: unusedSelection,
             clock: ManualClock(),
             eventSource: FakeFileEventSource(),
             autoInstall: LspAutoInstall(isEnabled: false),
