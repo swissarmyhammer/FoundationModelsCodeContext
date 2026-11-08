@@ -36,6 +36,12 @@ public enum SymbolMatchTier: String, Codable, Sendable, Equatable, CaseIterable 
     /// base class.
     case inherited
 
+    /// A `module.Name` query: the match is `Name` in a file or directory
+    /// named `module`, such as `startapp.Command` for the `Command` in
+    /// `commands/startapp.py`. A dotted module matches the same run of path
+    /// components.
+    case module
+
     /// The lowercased `symbol_path` contains the lowercased query.
     case caseInsensitive
 
@@ -372,6 +378,9 @@ public enum SymbolOps {
     /// point per step up the method resolution order is taken off.
     private static let inheritedBaseScore = 850
 
+    /// The score assigned to every `SymbolMatchTier.module` match.
+    private static let moduleScore = 825
+
     /// The score a near candidate with a close name starts from, before
     /// `nearDistancePenalty` per edit (and, for a member, one point per step
     /// up the method resolution order) is taken off.
@@ -397,6 +406,10 @@ public enum SymbolOps {
     /// `closeNameDistance(_:_:)` accepts up to the query length divided by
     /// this many edits.
     private static let nearEditLimitDivisor = 3
+
+    /// The fewest words `sharedWordDistance(_:_:)` needs a name to share
+    /// with the query.
+    private static let nearMinimumSharedWordCount = 2
 
     /// LSP kind-name strings (as stored in `lsp_symbols.kind`) known to map
     /// onto a `SymbolMetaType` other than `.other`.
@@ -428,8 +441,8 @@ public enum SymbolOps {
 
     // MARK: - getSymbol
 
-    /// Looks up symbols by name using five-tier matching: exact, suffix,
-    /// inherited, case-insensitive substring, then fuzzy subsequence — trying
+    /// Looks up symbols by name using six-tier matching: exact, suffix,
+    /// inherited, module, case-insensitive substring, then fuzzy subsequence — trying
     /// each in order and returning the first tier's results, so a query is
     /// never resolved by more than one tier at once.
     ///
@@ -456,6 +469,9 @@ public enum SymbolOps {
         }
         let hierarchy = ClassHierarchy(candidates: candidates)
         if let result = matchInherited(hierarchy: hierarchy, query: query, maxResults: maxResults) {
+            return result
+        }
+        if let result = matchModule(candidates: candidates, query: query, maxResults: maxResults) {
             return result
         }
         if let result = matchCaseInsensitive(candidates: candidates, query: query, maxResults: maxResults) {
@@ -526,7 +542,50 @@ public enum SymbolOps {
         return GetSymbolResult(query: query, symbols: Array(symbols))
     }
 
-    /// Tier 4: case-insensitive substring match.
+    /// Tier 4: a `module.Name` query matches `Name` in a file or directory
+    /// named `module`, as Python names a class `startapp.Command`.
+    ///
+    /// Each split of the query at a `.` is tried: the segments before it are
+    /// the module, and the rest is the qualified path of the symbol. The
+    /// module matches a file whose path, without its extension, has the
+    /// module segments as a run of path components, so `startapp` matches
+    /// `commands/startapp.py` and `pkg` matches `pkg/__init__.py`.
+    private static func matchModule(candidates: [SymbolCandidateRow], query: String, maxResults: Int) -> GetSymbolResult? {
+        let segments = query.components(separatedBy: Chunker.symbolPathSeparator)
+        guard segments.count > 1, !segments.contains(where: \.isEmpty) else {
+            return nil
+        }
+        var scoredRows: [ScoredCandidateRow] = []
+        var seen: Set<SymbolLocationKey> = []
+        for split in 1..<segments.count {
+            let module = Array(segments[..<split])
+            let symbolPath = segments[split...].joined(separator: Chunker.symbolPathSeparator)
+            for candidate in candidates
+            where candidate.qualifiedPath == symbolPath && modulePath(of: candidate.filePath, contains: module) {
+                if seen.insert(SymbolLocationKey(candidate)).inserted {
+                    scoredRows.append((candidate, moduleScore))
+                }
+            }
+        }
+        guard !scoredRows.isEmpty else {
+            return nil
+        }
+        return makeResult(query: query, tier: .module, scoredRows: scoredRows.sorted(by: rankedBefore), maxResults: maxResults)
+    }
+
+    /// Whether the components of `filePath`, without the extension of the
+    /// file, hold `module` as a run.
+    private static func modulePath(of filePath: String, contains module: [String]) -> Bool {
+        let components = (filePath as NSString).deletingPathExtension.split(separator: "/").map(String.init)
+        guard components.count >= module.count else {
+            return false
+        }
+        return (0...(components.count - module.count)).contains { start in
+            Array(components[start..<(start + module.count)]) == module
+        }
+    }
+
+    /// Tier 5: case-insensitive substring match.
     private static func matchCaseInsensitive(candidates: [SymbolCandidateRow], query: String, maxResults: Int) -> GetSymbolResult? {
         let queryLowercased = query.lowercased()
         let scoredRows =
@@ -540,7 +599,7 @@ public enum SymbolOps {
         return makeResult(query: query, tier: .caseInsensitive, scoredRows: scoredRows, maxResults: maxResults)
     }
 
-    /// Tier 5: subsequence fuzzy match, ranked by fuzzy score.
+    /// Tier 6: subsequence fuzzy match, ranked by fuzzy score.
     private static func matchFuzzy(candidates: [SymbolCandidateRow], query: String, maxResults: Int) -> GetSymbolResult? {
         let scoredRows =
             candidates
@@ -614,7 +673,7 @@ public enum SymbolOps {
     /// most `nearCandidateLimit`.
     ///
     /// For a `Class.member` query: first the members of the class and of its
-    /// bases whose name is close to `member` (by edit distance), then the
+    /// bases whose name is close to `member` (see `nearNameDistance(_:_:)`), then the
     /// symbols named `member` in other classes. For a plain name: the symbols
     /// whose own name is close to it.
     private static func nearCandidates(candidates: [SymbolCandidateRow], query: String, hierarchy: ClassHierarchy) -> [SymbolMatch] {
@@ -630,7 +689,7 @@ public enum SymbolOps {
             for subclass in hierarchy.classes(named: memberQuery.classPath) {
                 for (depth, base) in hierarchy.methodResolutionOrder(of: subclass).enumerated() {
                     for member in hierarchy.members(of: base) {
-                        if let distance = closeNameDistance(memberQuery.member, member.name) {
+                        if let distance = nearNameDistance(memberQuery.member, member.name) {
                             add(member, score: nearClassMemberBaseScore - distance * nearDistancePenalty - depth)
                         }
                     }
@@ -641,12 +700,64 @@ public enum SymbolOps {
             }
         } else {
             for candidate in candidates {
-                if let distance = closeNameDistance(query, candidate.name) {
+                if let distance = nearNameDistance(query, candidate.name) {
                     add(candidate, score: nearClassMemberBaseScore - distance * nearDistancePenalty)
                 }
             }
         }
         return scoredRows.sorted(by: rankedBefore).prefix(nearCandidateLimit).map { symbolMatch($0, tier: .near) }
+    }
+
+    /// How far `name` is from `query`, when `name` is near, else `nil`: the
+    /// smaller of `closeNameDistance(_:_:)` and `sharedWordDistance(_:_:)`.
+    private static func nearNameDistance(_ query: String, _ name: String) -> Int? {
+        [closeNameDistance(query, name), sharedWordDistance(query, name)].compactMap { $0 }.min()
+    }
+
+    /// The number of words in one of `query` and `name` but not the other
+    /// (at least one), when `name` shares at least
+    /// `nearMinimumSharedWordCount` words and at least half the words of
+    /// `query`, else `nil`.
+    ///
+    /// So `InlineModelAdmin` is near `InlineAdminMixin`, by the two words
+    /// `inline` and `admin`, though the words are in another order.
+    private static func sharedWordDistance(_ query: String, _ name: String) -> Int? {
+        guard name != query else {
+            return nil
+        }
+        let queryWords = Set(words(of: query))
+        let nameWords = Set(words(of: name))
+        let sharedCount = queryWords.intersection(nameWords).count
+        guard sharedCount >= nearMinimumSharedWordCount, sharedCount * 2 >= queryWords.count else {
+            return nil
+        }
+        return max(1, queryWords.symmetricDifference(nameWords).count)
+    }
+
+    /// The lowercased words of an identifier, split at each character that
+    /// is not a letter or digit and at each camelCase boundary:
+    /// `HTTPServer_start` gives `http`, `server` and `start`.
+    private static func words(of identifier: String) -> [String] {
+        let characters = Array(identifier)
+        var words: [String] = []
+        var word = ""
+        for (index, character) in characters.enumerated() {
+            guard character.isLetter || character.isNumber else {
+                if !word.isEmpty { words.append(word) }
+                word = ""
+                continue
+            }
+            if character.isUppercase, let previous = word.last {
+                let nextIsLowercase = index + 1 < characters.count && characters[index + 1].isLowercase
+                if !previous.isUppercase || nextIsLowercase {
+                    words.append(word)
+                    word = ""
+                }
+            }
+            word.append(character)
+        }
+        if !word.isEmpty { words.append(word) }
+        return words.map { $0.lowercased() }
     }
 
     /// The edit distance between `query` and `name` when it is small enough

@@ -30,8 +30,8 @@ private func seedSymbolFixtures(store: Store, root: URL) async throws {
     try await TreeSitterWorker.run(store: store, rootDirectory: root)
 }
 
-/// Tests for `SymbolOps.getSymbol`/`searchSymbol`/`listSymbols`: the five
-/// match tiers (exact > suffix > inherited > case-insensitive > fuzzy), the
+/// Tests for `SymbolOps.getSymbol`/`searchSymbol`/`listSymbols`: the six
+/// match tiers (exact > suffix > inherited > module > case-insensitive > fuzzy), the
 /// near candidates of a query no tier matches, the
 /// `lsp_symbols` merge/enrichment path, meta-type filtering, and file-scoped
 /// listing order — all against a store populated by the real `Chunker` (via
@@ -304,6 +304,81 @@ struct SymbolOpsTests {
     }
 
     @Test
+    func getSymbolResolvesAModuleQualifiedQueryToTheNameInTheModuleFile() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedModuleFixture(store: store, root: root)
+
+            let result = try await SymbolOps.getSymbol(store: store, query: "startapp.Command")
+
+            let match = try #require(result.symbols.first)
+            #expect(result.symbols.count == 1)
+            #expect(match.qualifiedPath == "Command")
+            #expect(match.filePath == "django/core/management/commands/startapp.py")
+            #expect(match.matchTier == .module)
+            #expect(result.candidates == nil)
+        }
+    }
+
+    @Test
+    func getSymbolResolvesADottedModuleAndAMemberOfAModuleClass() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedModuleFixture(store: store, root: root)
+
+            let dotted = try await SymbolOps.getSymbol(store: store, query: "commands.startapp.Command")
+            let member = try await SymbolOps.getSymbol(store: store, query: "startapp.Command.handle")
+
+            #expect(dotted.symbols.map(\.filePath) == ["django/core/management/commands/startapp.py"])
+            #expect(member.symbols.map(\.qualifiedPath) == ["Command.handle"])
+            #expect(member.symbols.map(\.matchTier) == [.module])
+        }
+    }
+
+    @Test
+    func getSymbolResolvesAModuleQualifiedQueryToTheNameInTheModuleDirectory() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedModuleFixture(store: store, root: root)
+
+            let result = try await SymbolOps.getSymbol(store: store, query: "pkg.Exported")
+
+            #expect(result.symbols.map(\.filePath) == ["pkg/__init__.py"])
+            #expect(result.symbols.map(\.matchTier) == [.module])
+        }
+    }
+
+    @Test
+    func getSymbolGivesANameWithTheSameWordsInAnotherOrderAsANearCandidate() async throws {
+        try await withTemporaryWorkspace { root in
+            let store = try Store(rootDirectory: root)
+            try await seedSingleFileFixture(
+                """
+                class InlineModelAdmin:
+                    pass
+
+
+                class InlineAdminForm:
+                    pass
+
+
+                class ModelAdmin:
+                    pass
+                """,
+                named: "options.py",
+                store: store,
+                root: root
+            )
+
+            let result = try await SymbolOps.getSymbol(store: store, query: "InlineAdminMixin")
+
+            #expect(result.symbols.isEmpty)
+            let paths = Set(try #require(result.candidates).map(\.qualifiedPath))
+            #expect(paths == ["InlineModelAdmin", "InlineAdminForm"])
+        }
+    }
+
+    @Test
     func searchSymbolFuzzyMatchesQualifiedPath() async throws {
         try await withTemporaryWorkspace { root in
             let store = try Store(rootDirectory: root)
@@ -531,6 +606,25 @@ private func seedInheritanceFixture(store: Store, root: URL) async throws {
         to: "forms.py",
         in: root
     )
+    _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
+    try await TreeSitterWorker.run(store: store, rootDirectory: root)
+}
+
+/// Seeds `store` with Python modules for the module tier of `getSymbol`: a
+/// `Command` in `startapp.py`, another `Command` in a test file, and an
+/// `Exported` class in the `__init__.py` of the package `pkg`.
+private func seedModuleFixture(store: Store, root: URL) async throws {
+    try write(
+        """
+        class Command(TemplateCommand):
+            def handle(self, **options):
+                pass
+        """,
+        to: "django/core/management/commands/startapp.py",
+        in: root
+    )
+    try write("class Command:\n    pass\n", to: "tests/admin_scripts/tests.py", in: root)
+    try write("class Exported:\n    pass\n", to: "pkg/__init__.py", in: root)
     _ = try await Reconciler.reconcile(store: store, rootDirectory: root)
     try await TreeSitterWorker.run(store: store, rootDirectory: root)
 }

@@ -163,7 +163,7 @@ enum CallEdgeSide {
 /// two-case type rather than a reuse of `SymbolOps.SymbolSource`.
 ///
 /// Symbol-by-name resolution goes through `SymbolOps.getSymbol(store:query:maxResults:)`
-/// for its tiered matching (exact/suffix/inherited/case-insensitive/fuzzy;
+/// for its tiered matching (exact/suffix/inherited/module/case-insensitive/fuzzy;
 /// its near candidates are never a root), then
 /// correlates the winning match's `(filePath, startLine)` against
 /// `lsp_symbols` to recover the `lsp_symbols.id` a call-graph traversal
