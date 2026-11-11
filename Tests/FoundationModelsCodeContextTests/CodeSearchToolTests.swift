@@ -254,11 +254,11 @@ struct CodeSearchToolTests {
         try await withTemporaryWorkspace { root in
             try write(scopeCalleeSource, to: scopeCalleeFile, in: root)
             try write(scopeCallerSource, to: scopeCallerFile, in: root)
-            try await GitFixture.initRepo(at: root)
-            try await GitFixture.commitAll(in: root, message: "initial")
+            try GitFixture.initRepo(at: root)
+            try GitFixture.commitAll(in: root, message: "initial")
             try write(scopeChangedCalleeSource, to: scopeCalleeFile, in: root)
             if commitsTheChange {
-                try await GitFixture.commitAll(in: root, message: "change the callee")
+                try GitFixture.commitAll(in: root, message: "change the callee")
             }
 
             try await ToolTest.withStartedContext(rootDirectory: root, embeddingDimension: embeddingDimension) { context in

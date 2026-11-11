@@ -12,8 +12,10 @@ import Foundation
 /// process makes a new group. `signalGroup(_:)` sends a signal to the full group.
 ///
 /// Foundation `Process` cannot set the process group of its child, thus this type does not use
-/// it. It keeps the rule of `ProcessUtilities.makeChildProcess`: the caller gives each of the
-/// three standard streams, and the child shares no standard stream with this process. As
+/// it. The caller gives each of the three standard streams, and the child shares no standard
+/// stream with this process. The host of this library can use its own standard input and
+/// standard output for a protocol (ACP, or MCP over stdio), and a child that reads or writes
+/// one of them breaks that protocol. As
 /// `Process` does, it gives the child no other file descriptor of this process
 /// (`POSIX_SPAWN_CLOEXEC_DEFAULT`), and it sets the signal mask and the signal actions of the
 /// child to the defaults.

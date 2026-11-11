@@ -557,8 +557,8 @@ struct CodeNavigationToolTests {
                 ])
             )
 
-            #expect(try ToolTest.decodedString(workingTree).hasPrefix("A git command failed:"))
-            #expect(try ToolTest.decodedString(unknownCommit).hasPrefix("A git command failed:"))
+            #expect(try ToolTest.decodedString(workingTree).hasPrefix("A git read failed:"))
+            #expect(try ToolTest.decodedString(unknownCommit).hasPrefix("A git read failed:"))
         }
     }
 }

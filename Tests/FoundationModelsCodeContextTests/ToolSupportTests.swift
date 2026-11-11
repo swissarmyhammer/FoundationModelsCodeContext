@@ -136,7 +136,7 @@ struct ToolSupportTests {
             (error: .notFound("symbol 'A.run'"), reason: "symbol 'A.run'"),
             (error: .pattern("unbalanced '('"), reason: "unbalanced '('"),
             (error: .query("no grammar for 'sql'"), reason: "no grammar for 'sql'"),
-            (error: .spawnFailed("not a git repository"), reason: "not a git repository"),
+            (error: .git("not a git repository"), reason: "not a git repository"),
         ]
 
         for recoverable in cases {
@@ -159,6 +159,7 @@ struct ToolSupportTests {
     func otherErrorsGiveNoCorrectiveMessage() {
         let errors: [CodeContextError] = [
             .binaryNotFound(command: "sourcekit-lsp", installHint: "install Xcode"),
+            .spawnFailed("no such file"),
             .handshakeFailed("no reply"),
             .timeout(.seconds(1)),
             .notRunning,

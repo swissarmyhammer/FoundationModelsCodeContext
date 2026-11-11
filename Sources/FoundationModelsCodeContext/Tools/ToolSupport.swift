@@ -149,9 +149,9 @@ internal enum ToolSupport {
     /// each other error this function returns `nil`, and the operation throws
     /// the error.
     ///
-    /// `.spawnFailed` is recoverable because a git command gives it, for
-    /// example in a directory that is not a git repository, or for a commit
-    /// that does not exist.
+    /// `.git` is recoverable because a libgit2 read of the repository gives
+    /// it, for example in a directory that is not a git repository, or for a
+    /// commit that does not exist.
     ///
     /// `.embeddingDisabled` is recoverable because the model can use an
     /// operation that does not need the embedding layer.
@@ -169,9 +169,9 @@ internal enum ToolSupport {
             "The pattern is not a valid regular expression: \(reason). Correct the pattern, then try again."
         case .query(let reason):
             "The AST query failed: \(reason). Correct the language or the query, then try again."
-        case .spawnFailed(let reason):
-            "A git command failed: \(reason). Make sure that the directory is a git repository and that the commit exists, then try again."
-        case .binaryNotFound, .handshakeFailed, .timeout, .notRunning, .storage, .embedding, .overlappingRoot:
+        case .git(let reason):
+            "A git read failed: \(reason). Make sure that the directory is a git repository and that the commit exists, then try again."
+        case .binaryNotFound, .spawnFailed, .handshakeFailed, .timeout, .notRunning, .storage, .embedding, .overlappingRoot:
             nil
         }
     }

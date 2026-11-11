@@ -95,6 +95,17 @@ let tracingPackage = "swift-distributed-tracing"
 let loggingPackage = "swift-log"
 let metricsPackage = "swift-metrics"
 
+// The libgit2 package. The `.workingTree` and the `.sha` diagnostics scopes read the repository
+// with libgit2 in the process, and never start the `git` program: a Mac with no developer tools
+// has no `git`, and in the App Sandbox the `/usr/bin/git` shim refuses. The package compiles
+// libgit2 from C source as a SwiftPM target, thus the host needs no setup. FoundationModelsExtras
+// and FoundationModelsMultitool pin the same exact version, thus SwiftPM resolves one copy of
+// libgit2 in one graph. The pins must stay equal.
+let libgit2Package = "swift-libgit2"
+
+// The libgit2 C API, for the library target and for the git fixture of the unit test target.
+let libgit2Product: Target.Dependency = .product(name: "libgit2", package: libgit2Package)
+
 // The two GitHub organizations hosting the grammar packages above. Most
 // grammars live in the canonical `tree-sitter` org; the YAML and Markdown
 // grammars are community-maintained under `tree-sitter-grammars`. Extracted
@@ -227,6 +238,8 @@ let package = Package(
         .package(url: "https://github.com/apple/\(tracingPackage).git", from: "1.4.1"),
         .package(url: "https://github.com/apple/\(loggingPackage).git", from: "1.15.1"),
         .package(url: "https://github.com/apple/\(metricsPackage).git", from: "2.11.0"),
+        // See `libgit2Package`.
+        .package(url: "https://github.com/danielctull-forks/\(libgit2Package).git", exact: "1.9.7"),
     ],
     targets: [
         .target(
@@ -244,6 +257,8 @@ let package = Package(
                 .product(name: "Tracing", package: tracingPackage),
                 .product(name: "Logging", package: loggingPackage),
                 .product(name: "Metrics", package: metricsPackage),
+                // `GitStatus` reads the working tree and the commit range with the libgit2 C API.
+                libgit2Product,
             ] + grammarProducts,
             path: "Sources/\(packageName)"
         ),
@@ -290,6 +305,9 @@ let package = Package(
                 // that this target writes, and checks the server process with its
                 // `processExists(_:)`.
                 .target(name: scriptedLSPServerSupportName),
+                // `GitFixture` makes the repository of a test with the libgit2 C API, not with the
+                // `git` program.
+                libgit2Product,
             ],
             path: "Tests/\(packageName)Tests",
             // `scripted-lsp-server.swift` is a standalone script launched via

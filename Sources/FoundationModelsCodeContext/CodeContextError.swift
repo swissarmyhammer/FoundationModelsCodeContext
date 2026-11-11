@@ -17,6 +17,11 @@ public enum CodeContextError: Error, Sendable {
     /// Spawning the language-server process failed.
     case spawnFailed(String)
 
+    /// A libgit2 read of the git repository failed, for example in a
+    /// directory that is not in a git repository, or for a commit that does
+    /// not exist.
+    case git(String)
+
     /// The LSP `initialize` handshake did not complete successfully.
     case handshakeFailed(String)
 
@@ -79,6 +84,8 @@ extension CodeContextError: LocalizedError {
             "binary not found: \(command) (\(installHint))"
         case .spawnFailed(let reason):
             "failed to spawn language server: \(reason)"
+        case .git(let reason):
+            "git error: \(reason)"
         case .handshakeFailed(let reason):
             "initialize handshake failed: \(reason)"
         case .timeout(let duration):
@@ -110,6 +117,7 @@ extension CodeContextError {
         switch self {
         case .binaryNotFound: "binaryNotFound"
         case .spawnFailed: "spawnFailed"
+        case .git: "git"
         case .handshakeFailed: "handshakeFailed"
         case .timeout: "timeout"
         case .notRunning: "notRunning"

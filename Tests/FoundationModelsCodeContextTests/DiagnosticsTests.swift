@@ -356,8 +356,8 @@ struct DiagnosticsTests {
         try await withTemporaryWorkspace { root in
             try write("let a = 1\n", to: "tracked.swift", in: root)
             try write("let b = 1\n", to: "untouched.swift", in: root)
-            try await GitFixture.initRepo(at: root)
-            try await GitFixture.commitAll(in: root, message: "initial")
+            try GitFixture.initRepo(at: root)
+            try GitFixture.commitAll(in: root, message: "initial")
 
             // Unstaged modification.
             try write("let a = 2\n", to: "tracked.swift", in: root)
@@ -365,7 +365,7 @@ struct DiagnosticsTests {
             try write("let c = 1\n", to: "new.swift", in: root)
             // Staged new file.
             try write("let d = 1\n", to: "staged.swift", in: root)
-            try await GitFixture.run(["add", "staged.swift"], in: root)
+            try GitFixture.stage("staged.swift", in: root)
 
             let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .workingTree, rootDirectory: root)
 
@@ -380,8 +380,8 @@ struct DiagnosticsTests {
             try write("// a\n", to: "src/a.swift", in: root)
             try write("// b\n", to: "src/b.swift", in: root)
             try write("// c\n", to: "src/c.txt", in: root)
-            try await GitFixture.initRepo(at: root)
-            try await GitFixture.commitAll(in: root, message: "initial")
+            try GitFixture.initRepo(at: root)
+            try GitFixture.commitAll(in: root, message: "initial")
 
             let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .file("src/*.swift"), rootDirectory: root)
 
@@ -393,8 +393,8 @@ struct DiagnosticsTests {
     func fileScopeWithLiteralPathReturnsThatOnePath() async throws {
         try await withTemporaryWorkspace { root in
             try write("// a\n", to: "src/a.swift", in: root)
-            try await GitFixture.initRepo(at: root)
-            try await GitFixture.commitAll(in: root, message: "initial")
+            try GitFixture.initRepo(at: root)
+            try GitFixture.commitAll(in: root, message: "initial")
 
             let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .file("src/a.swift"), rootDirectory: root)
 
@@ -419,12 +419,11 @@ struct DiagnosticsTests {
     func shaScopeResolvesFilesChangedSinceARange() async throws {
         try await withTemporaryWorkspace { root in
             try write("let a = 1\n", to: "a.swift", in: root)
-            try await GitFixture.initRepo(at: root)
-            try await GitFixture.commitAll(in: root, message: "first")
-            let firstSHA = try await GitFixture.run(["rev-parse", "HEAD"], in: root).trimmingCharacters(in: .whitespacesAndNewlines)
+            try GitFixture.initRepo(at: root)
+            let firstSHA = try GitFixture.commitAll(in: root, message: "first")
 
             try write("let b = 1\n", to: "b.swift", in: root)
-            try await GitFixture.commitAll(in: root, message: "second")
+            try GitFixture.commitAll(in: root, message: "second")
 
             let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .sha(firstSHA), rootDirectory: root)
 
@@ -436,8 +435,8 @@ struct DiagnosticsTests {
     func scopeResolutionExcludesNonDiagnosableExtensions() async throws {
         try await withTemporaryWorkspace { root in
             try write("hello", to: "README.md", in: root)
-            try await GitFixture.initRepo(at: root)
-            try await GitFixture.commitAll(in: root, message: "initial")
+            try GitFixture.initRepo(at: root)
+            try GitFixture.commitAll(in: root, message: "initial")
             try write("hello world", to: "README.md", in: root)
 
             let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .workingTree, rootDirectory: root)
@@ -452,8 +451,8 @@ struct DiagnosticsTests {
             try write("hello", to: "README.md", in: root)
             try write("let a = 1\n", to: "a.swift", in: root)
             try write("notes", to: "notes.txt", in: root)
-            try await GitFixture.initRepo(at: root)
-            try await GitFixture.commitAll(in: root, message: "initial")
+            try GitFixture.initRepo(at: root)
+            try GitFixture.commitAll(in: root, message: "initial")
             try write("hello world", to: "README.md", in: root)
             try write("let a = 2\n", to: "a.swift", in: root)
             try write("more notes", to: "notes.txt", in: root)
@@ -467,6 +466,95 @@ struct DiagnosticsTests {
 
             #expect(Set(indexed) == ["README.md", "a.swift"], "Markdown is indexed; a .txt file is not indexed")
             #expect(diagnosable == ["a.swift"], "the default call keeps only the files that a language server diagnoses")
+        }
+    }
+
+    @Test
+    func aRootBelowTheTopOfTheRepositoryResolvesOnlyItsOwnChangedFiles() async throws {
+        try await withTemporaryWorkspace { top in
+            try write("let a = 1\n", to: "sub/a.swift", in: top)
+            try write("let b = 1\n", to: "other.swift", in: top)
+            try GitFixture.initRepo(at: top)
+            try GitFixture.commitAll(in: top, message: "initial")
+            try write("let a = 2\n", to: "sub/a.swift", in: top)
+            try write("let b = 2\n", to: "other.swift", in: top)
+
+            let resolved = try await DiagnosticsScopeResolver.resolvePaths(
+                scope: .workingTree,
+                rootDirectory: top.appendingPathComponent("sub", isDirectory: true)
+            )
+
+            #expect(resolved == ["a.swift"])
+        }
+    }
+
+    @Test
+    func theWorkingTreeScopeExcludesADeletedFile() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("let a = 1\n", to: "a.swift", in: root)
+            try write("let b = 1\n", to: "b.swift", in: root)
+            try GitFixture.initRepo(at: root)
+            try GitFixture.commitAll(in: root, message: "initial")
+            try FileManager.default.removeItem(at: root.appendingPathComponent("a.swift"))
+            try write("let b = 2\n", to: "b.swift", in: root)
+
+            let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .workingTree, rootDirectory: root)
+
+            #expect(resolved == ["b.swift"])
+        }
+    }
+
+    @Test
+    func theShaScopeExcludesADeletedFile() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("let a = 1\n", to: "a.swift", in: root)
+            try write("let b = 1\n", to: "b.swift", in: root)
+            try GitFixture.initRepo(at: root)
+            let firstSHA = try GitFixture.commitAll(in: root, message: "first")
+            try FileManager.default.removeItem(at: root.appendingPathComponent("a.swift"))
+            try write("let b = 2\n", to: "b.swift", in: root)
+            try GitFixture.commitAll(in: root, message: "second")
+
+            let resolved = try await DiagnosticsScopeResolver.resolvePaths(scope: .sha(firstSHA), rootDirectory: root)
+
+            #expect(resolved == ["b.swift"])
+        }
+    }
+
+    @Test
+    func theShaScopeReadsAnExplicitRangeOfTwoCommits() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("let a = 1\n", to: "a.swift", in: root)
+            try GitFixture.initRepo(at: root)
+            let firstSHA = try GitFixture.commitAll(in: root, message: "first")
+            try write("let b = 1\n", to: "b.swift", in: root)
+            let secondSHA = try GitFixture.commitAll(in: root, message: "second")
+            try write("let c = 1\n", to: "c.swift", in: root)
+            try GitFixture.commitAll(in: root, message: "third")
+
+            let resolved = try await DiagnosticsScopeResolver.resolvePaths(
+                scope: .sha("\(firstSHA)..\(secondSHA)"), rootDirectory: root)
+
+            #expect(resolved == ["b.swift"])
+        }
+    }
+
+    @Test
+    func aThreeDotShaRangeComparesTheMergeBaseWithTheSecondRevision() async throws {
+        try await withTemporaryWorkspace { root in
+            try write("let a = 1\n", to: "a.swift", in: root)
+            try GitFixture.initRepo(at: root)
+            let firstSHA = try GitFixture.commitAll(in: root, message: "first")
+            try write("let a = 2\n", to: "a.swift", in: root)
+            let secondSHA = try GitFixture.commitAll(in: root, message: "second")
+
+            // The merge base of the two is the first commit, thus the diff is from the first
+            // commit to the first commit, and it holds no file. A two-dot range from the second
+            // commit to the first commit holds `a.swift`.
+            let resolved = try await DiagnosticsScopeResolver.resolvePaths(
+                scope: .sha("\(secondSHA)...\(firstSHA)"), rootDirectory: root)
+
+            #expect(resolved.isEmpty)
         }
     }
 
