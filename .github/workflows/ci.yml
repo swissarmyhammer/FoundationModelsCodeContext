@@ -15,4 +15,7 @@ jobs:
     uses: swissarmyhammer/workflows/.github/workflows/swift-ci.yaml@main
     with:
       integration-package-path: IntegrationTests
-      example-targets: CodeContextExample ManagerExample
+      # Each name is one leg of the examples job. Each leg runs
+      # `./Scripts/test-examples.sh <name>`, which builds the SwiftPM executable target of
+      # that name. Scripts/test-examples.sh names the same set.
+      examples: '["CodeContextExample", "ManagerExample"]'
