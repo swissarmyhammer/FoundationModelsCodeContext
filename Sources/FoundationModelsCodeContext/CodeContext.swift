@@ -978,11 +978,15 @@ public actor CodeContext<Connection: LanguageServerConnection> {
 
     // MARK: - Background index loop
 
-    /// Runs the first index pass, then runs until cancelled: sleeps `indexLoopIdleSleep`, then
-    /// runs one more index pass and republishes `state.servers`.
+    /// Runs the first index pass, then runs until cancelled: sleeps `indexLoopIdleSleep`, runs
+    /// one more index pass when the store has work for a pass, and republishes `state.servers`.
     ///
     /// The first pass runs here and not in `start()`, because the parse and the embedding of a
     /// large workspace can be long, and `start()` must not wait for them.
+    ///
+    /// The loop does not run a pass when no file waits, because each pass writes one "enter" log
+    /// record. An idle workspace thus writes no record. The watcher and `rebuildIndex(layer:)`
+    /// request their passes directly, thus they do not wait for this loop.
     private func runIndexLoop() async {
         await runFirstIndexPass()
         while !Task.isCancelled {
@@ -992,8 +996,35 @@ public actor CodeContext<Connection: LanguageServerConnection> {
                 return
             }
             guard !Task.isCancelled else { return }
-            try? await requestIndexPassAndWait()
+            if await hasIndexPassWork() {
+                try? await requestIndexPassAndWait()
+            }
             await publishServersStatus()
+        }
+    }
+
+    /// Tells if an index pass has work: a file waits for the tree-sitter layer, a file waits for
+    /// the embedding layer while an embedder is set, or a file waits for the LSP layer and no LSP
+    /// server covers its extension.
+    ///
+    /// A file that waits for the LSP layer and that an LSP server covers is the work of its
+    /// `LSPIndexWorker`, not of a pass. When the store query fails, the method gives `true`, thus
+    /// the pass runs and reports the failure.
+    /// - Returns: `true` when a pass has work.
+    private func hasIndexPassWork() async -> Bool {
+        do {
+            if try await store.hasDirtyFile(layer: .treeSitter) {
+                return true
+            }
+            if measuredEmbedder != nil, try await store.hasDirtyFile(layer: .embedding) {
+                return true
+            }
+            let covered = coveredLspExtensions
+            return try await store.drainLspDirty().contains { relativePath in
+                !covered.contains(Languages.normalizedFileExtension(ofPath: relativePath))
+            }
+        } catch {
+            return true
         }
     }
 
@@ -1282,7 +1313,7 @@ public actor CodeContext<Connection: LanguageServerConnection> {
 ///
 /// `CodeContext` is generic, and a generic type cannot hold a static stored property, thus the
 /// constants are in this enum.
-private enum CodeContextTiming {
+internal enum CodeContextTiming {
     /// The number of milliseconds in the idle sleep of the index loop between two passes.
     static let indexLoopIdleSleepMilliseconds = 300
 }

@@ -23,6 +23,12 @@ internal struct TracingSpanTests {
     /// The number of fixture files of the index pass tests.
     private static let fixtureFileCount = 3
 
+    /// The number of idle sleeps of the index loop that the idle loop test ends.
+    private static let idleSleepCount = 10
+
+    /// The idle sleep of the index loop.
+    private static let indexLoopIdleSleep: Duration = .milliseconds(CodeContextTiming.indexLoopIdleSleepMilliseconds)
+
     /// The number of embed spans of the first index pass with an embedder: one
     /// for the probe that gets the vector length, and one for the chunks. The
     /// fixture files hold fewer chunks than one `embed(texts:)` call holds,
@@ -81,6 +87,54 @@ internal struct TracingSpanTests {
         try await Self.runFirstIndexPass(embedder: nil, tracer: InMemoryTracer())
 
         #expect(!Self.enterRecords(forSpanNamed: CodeContextTracing.SpanName.indexPass).isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    internal func anIdleIndexLoopRunsNoPassAfterTheFirstPass() async throws {
+        let tracer = InMemoryTracer()
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixtureFiles(in: root)
+            let clock = ManualClock()
+            let context = try await Self.makeContext(root: root, embedder: nil, tracer: tracer, clock: clock)
+            try await context.start()
+            await context.waitForFirstIndexPass()
+
+            for _ in 0..<Self.idleSleepCount {
+                await Self.advanceOneIdleSleep(of: clock)
+            }
+            await clock.waitForWaiter(withDeadline: clock.now + Self.indexLoopIdleSleep)
+            await context.stop()
+        }
+
+        // Each pass writes its "enter" record in its span, thus one pass span is one record: the
+        // record of the first pass. The idle sleeps after it write no record.
+        let passSpans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.indexPass, in: tracer)
+        #expect(passSpans.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    internal func theIdleIndexLoopRunsAPassForADirtyFileThatNoEventReports() async throws {
+        let tracer = InMemoryTracer()
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixtureFiles(in: root)
+            let clock = ManualClock()
+            let context = try await Self.makeContext(root: root, embedder: nil, tracer: tracer, clock: clock)
+            try await context.start()
+            await context.waitForFirstIndexPass()
+
+            let store = try Store(rootDirectory: root)
+            let dirtyFile = Self.fixtureFileName(0)
+            try await store.markDirty(filePath: dirtyFile, contentHash: Data(), fileSize: 0)
+            await Self.advanceOneIdleSleep(of: clock)
+            await clock.waitForWaiter(withDeadline: clock.now + Self.indexLoopIdleSleep)
+
+            #expect(try await store.drainTsDirty().isEmpty)
+            await context.stop()
+        }
+
+        let passSpans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.indexPass, in: tracer)
+        #expect(passSpans.count == 2)
+        #expect(passSpans.last?.attributes.get(CodeContextTracing.AttributeKey.indexFilesIndexed) == .int64(1))
     }
 
     // MARK: - Watcher batch
@@ -380,9 +434,7 @@ internal struct TracingSpanTests {
     ///   - tracer: The tracer of the context.
     private static func runFirstIndexPass(embedder: PooledEmbedding?, tracer: InMemoryTracer) async throws {
         try await withTemporaryWorkspace { root in
-            for index in 0..<fixtureFileCount {
-                try write("func greet\(index)() -> String {\n    \"hello\"\n}\n", to: "Greeter\(index).swift", in: root)
-            }
+            try writeFixtureFiles(in: root)
             let context = try await makeContext(root: root, embedder: embedder, tracer: tracer)
             try await context.start()
             await context.waitForFirstIndexPass()
@@ -390,22 +442,46 @@ internal struct TracingSpanTests {
         }
     }
 
+    /// Writes the fixture files of the index pass tests into `root`.
+    /// - Parameter root: The root directory of the workspace.
+    private static func writeFixtureFiles(in root: URL) throws {
+        for index in 0..<fixtureFileCount {
+            try write("func greet\(index)() -> String {\n    \"hello\"\n}\n", to: fixtureFileName(index), in: root)
+        }
+    }
+
+    /// Gives the name of one fixture file of the index pass tests.
+    /// - Parameter index: The index of the file.
+    /// - Returns: The workspace-relative path of the file.
+    private static func fixtureFileName(_ index: Int) -> String {
+        "Greeter\(index).swift"
+    }
+
+    /// Waits until the index loop sleeps, then ends that one sleep.
+    /// - Parameter clock: The clock of the context.
+    private static func advanceOneIdleSleep(of clock: ManualClock) async {
+        await clock.waitForWaiter(withDeadline: clock.now + indexLoopIdleSleep)
+        clock.advance(by: indexLoopIdleSleep)
+    }
+
     /// Makes a context over fakes that opens its spans through `tracer`. It is not started.
     /// - Parameters:
     ///   - root: The root directory of the context.
     ///   - embedder: The embedder of the context, or `nil` to turn the embedding layer off.
     ///   - tracer: The tracer of the context.
+    ///   - clock: The clock of the index loop. Defaults to a new `ManualClock`.
     /// - Returns: The context.
     private static func makeContext(
         root: URL,
         embedder: PooledEmbedding?,
-        tracer: InMemoryTracer
+        tracer: InMemoryTracer,
+        clock: ManualClock = ManualClock()
     ) async throws -> CodeContext<FakeLanguageServerConnection> {
         try await CodeContext<FakeLanguageServerConnection>(
             rootDirectory: root,
             embedder: embedder,
             selection: unusedSelection,
-            clock: ManualClock(),
+            clock: clock,
             eventSource: FakeFileEventSource(),
             autoInstall: LspAutoInstall(isEnabled: false),
             tracer: tracer,

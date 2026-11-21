@@ -315,6 +315,24 @@ public final class Store: Sendable {
         try await drainDirty(column: IndexLayer.embedding.column)
     }
 
+    /// Tells if one or more files wait for `layer`.
+    ///
+    /// The query stops at the first dirty file, thus it is cheap also for a
+    /// large index. The idle index loop calls it to find if a pass has work.
+    ///
+    /// - Parameter layer: The layer whose dirty flag to examine.
+    /// - Returns: `true` when one or more files have the flag of `layer` at
+    ///   `0`.
+    /// - Throws: `CodeContextError.storage` if the query fails.
+    func hasDirtyFile(layer: IndexLayer) async throws -> Bool {
+        try await read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT EXISTS (SELECT 1 FROM \(Schema.IndexedFiles.table) WHERE \(layer.column) = 0)"
+            ) ?? false
+        }
+    }
+
     /// Runs the shared query behind `drainTsDirty()`, `drainLspDirty()`, and
     /// `drainEmbeddingDirty()`, which differ only in which dirty-flag
     /// `column` they check.
