@@ -979,7 +979,8 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     // MARK: - Background index loop
 
     /// Runs the first index pass, then runs until cancelled: sleeps `indexLoopIdleSleep`, runs
-    /// one more index pass when the store has work for a pass, and republishes `state.servers`.
+    /// one more index pass when the store has work for a pass (else republishes
+    /// `state.indexing`), and republishes `state.servers`.
     ///
     /// The first pass runs here and not in `start()`, because the parse and the embedding of a
     /// large workspace can be long, and `start()` must not wait for them.
@@ -987,6 +988,10 @@ public actor CodeContext<Connection: LanguageServerConnection> {
     /// The loop does not run a pass when no file waits, because each pass writes one "enter" log
     /// record. An idle workspace thus writes no record. The watcher and `rebuildIndex(layer:)`
     /// request their passes directly, thus they do not wait for this loop.
+    ///
+    /// A sleep with no pass still republishes `state.indexing`. Each `LSPIndexWorker` indexes its
+    /// files outside a pass, thus this refresh is the one that shows its progress, and that makes
+    /// `state.isReady` `true` when the last LSP file is indexed.
     private func runIndexLoop() async {
         await runFirstIndexPass()
         while !Task.isCancelled {
@@ -998,6 +1003,8 @@ public actor CodeContext<Connection: LanguageServerConnection> {
             guard !Task.isCancelled else { return }
             if await hasIndexPassWork() {
                 try? await requestIndexPassAndWait()
+            } else {
+                await publishIndexingStatus()
             }
             await publishServersStatus()
         }

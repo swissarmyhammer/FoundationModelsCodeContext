@@ -137,6 +137,32 @@ internal struct TracingSpanTests {
         #expect(passSpans.last?.attributes.get(CodeContextTracing.AttributeKey.indexFilesIndexed) == .int64(1))
     }
 
+    @Test(.timeLimit(.minutes(testTimeLimitMinutes)))
+    internal func anIdleSleepWithNoPassRepublishesTheIndexingStatus() async throws {
+        let tracer = InMemoryTracer()
+        try await withTemporaryWorkspace { root in
+            try Self.writeFixtureFiles(in: root)
+            let clock = ManualClock()
+            let context = try await Self.makeContext(root: root, embedder: nil, tracer: tracer, clock: clock)
+            try await context.start()
+            await context.waitForFirstIndexPass()
+            #expect(await context.state.indexing.filesWalked == Self.fixtureFileCount)
+
+            // A change to the store that leaves no file dirty, as the LSP index worker makes
+            // outside a pass. Only the refresh of the idle sleep can show it.
+            let store = try Store(rootDirectory: root)
+            try await store.deleteFile(filePath: Self.fixtureFileName(0))
+            await Self.advanceOneIdleSleep(of: clock)
+            await clock.waitForWaiter(withDeadline: clock.now + Self.indexLoopIdleSleep)
+
+            #expect(await context.state.indexing.filesWalked == Self.fixtureFileCount - 1)
+            await context.stop()
+        }
+
+        let passSpans = SearchSpanTreeCheck.spans(named: CodeContextTracing.SpanName.indexPass, in: tracer)
+        #expect(passSpans.count == 1)
+    }
+
     // MARK: - Watcher batch
 
     @Test(.timeLimit(.minutes(testTimeLimitMinutes)))

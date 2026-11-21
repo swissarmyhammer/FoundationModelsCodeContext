@@ -14,4 +14,5 @@ The index loop of `CodeContext` sleeps 300 ms and then runs an index pass again,
 ## Acceptance
 - [x] With a fake clock and no dirty file, 10 idle sleeps run 0 passes after the first pass. Each pass writes its "enter index.pass" record in its span, thus they write 0 records (`TracingSpanTests.anIdleIndexLoopRunsNoPassAfterTheFirstPass`).
 - [x] A dirty file that no watcher event reports gets indexed by the idle loop (`TracingSpanTests.theIdleIndexLoopRunsAPassForADirtyFileThatNoEventReports`).
-- [x] `swift test` passes: 1150 tests in 101 suites.
+- [x] An idle sleep with no pass work republishes `state.indexing`, because each `LSPIndexWorker` indexes outside a pass (`TracingSpanTests.anIdleSleepWithNoPassRepublishesTheIndexingStatus`). The CI of 90f3003 failed in `LiveSourceKitTests.liveSourceKitSurvivesACrashAndAutoRestarts` with no such refresh.
+- [x] `swift test` passes: 1151 tests in 101 suites. `LiveSourceKitTests` passes on this machine.
